@@ -23,11 +23,27 @@ Four failure modes, each observed or specifically anticipated in this dataset:
 4. **Overlapping splits.** Both by row and by player: the same player appearing
    in train and test lets the model memorise a person rather than learn a
    pattern.
+
+5. **Duplicate entity rows.** Two rows for the same player-season are the same
+   observation twice. Any split that is not grouped then puts one copy in train
+   and the other in test, and the model is scored on rows it has already seen.
+
+6. **A date column holding a future date.** The current-state check works on
+   column *names*, so it catches ``contract_expiration_date`` and misses the
+   same column joined in under another name, or a transfer date arriving with
+   Phase 12's enrichment. This one works on *values*: any date in the feature
+   matrix that falls after the label date describes something that had not
+   happened yet.
+
+:class:`LeakageValidator` bundles all six behind one configured object, so a
+pipeline stage states its column contract once and every later stage re-runs
+the identical checks rather than a hand-copied subset of them.
 """
 
 from __future__ import annotations
 
 from collections.abc import Iterable, Sequence
+from dataclasses import dataclass
 
 import pandas as pd
 
@@ -204,6 +220,208 @@ def check_splits_are_disjoint(
     return findings
 
 
+def check_no_duplicate_entities(
+    frame: pd.DataFrame,
+    keys: Sequence[str],
+    *,
+    table: str = "training_table",
+) -> list[Finding]:
+    """One observation per entity. Two rows for one player-season are one row twice.
+
+    This is leakage rather than untidiness: a random or grouped split will put
+    one copy in train and the other in test, and the model is then scored on a
+    row it has already been fitted to.
+    """
+    missing = [key for key in keys if key not in frame.columns]
+    if missing:
+        return [
+            Finding(
+                check="leakage_duplicate_entity",
+                severity=Severity.ERROR,
+                table=table,
+                message=f"cannot check for duplicate rows: {', '.join(missing)} absent",
+                count=len(missing),
+                unit="columns",
+            )
+        ]
+
+    duplicated = frame.duplicated(subset=list(keys), keep=False)
+    if not duplicated.any():
+        return []
+
+    offenders = frame.loc[duplicated, list(keys)]
+    return [
+        Finding(
+            check="leakage_duplicate_entity",
+            severity=Severity.ERROR,
+            table=table,
+            message=(
+                f"duplicate rows for the same ({', '.join(keys)}): the same observation "
+                "appears more than once and will straddle any split"
+            ),
+            count=int(duplicated.sum()),
+            examples=tuple(offenders.head(3).itertuples(index=False, name=None)),
+        )
+    ]
+
+
+def check_no_future_dates(
+    frame: pd.DataFrame,
+    *,
+    label_time_column: str,
+    columns: Iterable[str] | None = None,
+    table: str = "training_table",
+) -> list[Finding]:
+    """No date *value* in the feature matrix may postdate the label.
+
+    The complement of :func:`check_no_current_state_columns`, which works on
+    column names. This one works on values, so it still fires when a contract
+    expiry or a transfer date arrives under a name nobody thought to ban —
+    which is the realistic way such a column gets in.
+    """
+    if label_time_column not in frame.columns:
+        return [
+            Finding(
+                check="leakage_future_date",
+                severity=Severity.ERROR,
+                table=table,
+                message=f"cannot check date values: {label_time_column} is absent",
+            )
+        ]
+
+    label_time = pd.to_datetime(frame[label_time_column], errors="coerce")
+    candidates = frame.columns if columns is None else [c for c in columns if c in frame.columns]
+
+    findings: list[Finding] = []
+    for column in candidates:
+        if column == label_time_column or not pd.api.types.is_datetime64_any_dtype(frame[column]):
+            continue
+
+        values = frame[column]
+        violating = values.notna() & label_time.notna() & (values > label_time)
+        if not violating.any():
+            continue
+
+        findings.append(
+            Finding(
+                check="leakage_future_date",
+                severity=Severity.ERROR,
+                table=table,
+                message=(
+                    f"{column} holds dates later than {label_time_column}: "
+                    "this column describes something that had not happened when the label was set"
+                ),
+                count=int(violating.sum()),
+                examples=tuple(values.loc[violating].head(3)),
+            )
+        )
+    return findings
+
+
+@dataclass(frozen=True)
+class LeakageValidator:
+    """Every leakage check this project knows about, behind one configured object.
+
+    A stage declares its column contract once — what the features are, what the
+    target is, which timestamps bound them, what makes a row unique — and every
+    later stage re-runs exactly those checks by reusing the validator, instead
+    of re-passing eight keyword arguments and quietly omitting one.
+
+    Checks whose inputs are absent are skipped rather than failed: a frame with
+    no timestamps cannot be ordered, and reporting that as a leak would train
+    people to ignore the report. What is *never* skipped is a check whose inputs
+    were promised and then turned out to be missing — that is an error, because
+    a silently absent contract is how a check stops running without anyone
+    noticing.
+    """
+
+    feature_columns: Sequence[str]
+    target_column: str
+    feature_time_column: str | None = None
+    label_time_column: str | None = None
+    entity_keys: Sequence[str] = ()
+    banned_columns: frozenset[str] = CURRENT_STATE_COLUMNS
+    table: str = "training_table"
+
+    def validate(
+        self,
+        frame: pd.DataFrame,
+        *,
+        splits: dict[str, pd.Index] | None = None,
+        groups: pd.Series | None = None,
+    ) -> ValidationReport:
+        """Run every check the supplied frame and configuration make possible."""
+        report = ValidationReport()
+        present = [column for column in self.feature_columns if column in frame.columns]
+
+        missing = sorted(set(self.feature_columns) - set(present))
+        if missing:
+            report.add(
+                Finding(
+                    check="leakage_missing_features",
+                    severity=Severity.ERROR,
+                    table=self.table,
+                    message=(
+                        f"declared feature column(s) absent: {', '.join(missing)} — "
+                        "the checks that would have covered them did not run"
+                    ),
+                    count=len(missing),
+                    unit="columns",
+                    examples=tuple(missing),
+                )
+            )
+
+        features = frame.loc[:, present]
+        report.extend(
+            check_no_current_state_columns(features, banned=self.banned_columns, table=self.table)
+        )
+        report.extend(
+            check_target_absent_from_features(present, self.target_column, table=self.table)
+        )
+
+        if self.entity_keys:
+            report.extend(check_no_duplicate_entities(frame, self.entity_keys, table=self.table))
+
+        if self.feature_time_column and self.label_time_column:
+            report.extend(
+                check_feature_time_precedes_label(
+                    frame,
+                    feature_time_column=self.feature_time_column,
+                    label_time_column=self.label_time_column,
+                    table=self.table,
+                )
+            )
+        if self.label_time_column:
+            report.extend(
+                check_no_future_dates(
+                    frame,
+                    label_time_column=self.label_time_column,
+                    columns=present,
+                    table=self.table,
+                )
+            )
+        if splits:
+            report.extend(check_splits_are_disjoint(splits, groups=groups))
+
+        return report
+
+    def raise_for_leakage(
+        self,
+        frame: pd.DataFrame,
+        *,
+        splits: dict[str, pd.Index] | None = None,
+        groups: pd.Series | None = None,
+    ) -> ValidationReport:
+        """Validate and raise on any error. Returns the report when it is clean.
+
+        Raises:
+            ValidationError: listing every leak found, not just the first.
+        """
+        report = self.validate(frame, splits=splits, groups=groups)
+        report.raise_for_errors()
+        return report
+
+
 def detect_leakage(
     frame: pd.DataFrame,
     *,
@@ -211,22 +429,16 @@ def detect_leakage(
     target_column: str,
     feature_time_column: str | None = None,
     label_time_column: str | None = None,
+    entity_keys: Sequence[str] = (),
     splits: dict[str, pd.Index] | None = None,
     groups: pd.Series | None = None,
 ) -> ValidationReport:
-    """Run every leakage check that the supplied arguments make possible."""
-    report = ValidationReport()
-    report.extend(check_no_current_state_columns(frame[list(feature_columns)]))
-    report.extend(check_target_absent_from_features(feature_columns, target_column))
-
-    if feature_time_column and label_time_column:
-        report.extend(
-            check_feature_time_precedes_label(
-                frame,
-                feature_time_column=feature_time_column,
-                label_time_column=label_time_column,
-            )
-        )
-    if splits:
-        report.extend(check_splits_are_disjoint(splits, groups=groups))
-    return report
+    """One-shot :class:`LeakageValidator` for callers with nothing to reuse."""
+    validator = LeakageValidator(
+        feature_columns=feature_columns,
+        target_column=target_column,
+        feature_time_column=feature_time_column,
+        label_time_column=label_time_column,
+        entity_keys=entity_keys,
+    )
+    return validator.validate(frame, splits=splits, groups=groups)

@@ -22,12 +22,33 @@ from src.feature_engineering.build import (
 )
 from src.storage.base import TableStore
 from src.utils.logging import get_logger
-from src.validation.leakage import detect_leakage
+from src.validation.leakage import LeakageValidator
 from src.validation.report import ValidationReport
 
 logger = get_logger(__name__)
 
 TRAINING_TABLE = "training_table"
+
+ENTITY_KEYS = ("player_id", "season")
+"""What makes a row unique. Two rows for one player-season are one observation
+twice, and they would straddle any split that is not grouped by player."""
+
+
+def leakage_validator(feature_columns: tuple[str, ...]) -> LeakageValidator:
+    """The validator this project's training table is checked against.
+
+    Built here rather than inline so Phase 6 onward re-runs the identical
+    contract after splitting, instead of a hand-copied subset of it.
+    """
+    return LeakageValidator(
+        feature_columns=feature_columns,
+        target_column=TARGET_COLUMN,
+        feature_time_column=FEATURE_TIME_COLUMN,
+        label_time_column=LABEL_TIME_COLUMN,
+        entity_keys=ENTITY_KEYS,
+        table=TRAINING_TABLE,
+    )
+
 
 SOURCE_TABLES = ("players", "player_valuations", "appearances")
 
@@ -87,13 +108,7 @@ def build_features(
     # performance-only variant does, plus the lagged target most likely to be
     # mis-specified.
     with_prior, feature_columns = select_variant(table, include_prior_value=True)
-    leakage = detect_leakage(
-        with_prior,
-        feature_columns=feature_columns,
-        target_column=TARGET_COLUMN,
-        feature_time_column=FEATURE_TIME_COLUMN,
-        label_time_column=LABEL_TIME_COLUMN,
-    )
+    leakage = leakage_validator(feature_columns).validate(with_prior)
     for finding in leakage.warnings:
         logger.warning("%s", finding.render())
     leakage.raise_for_errors()

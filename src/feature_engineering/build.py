@@ -45,6 +45,18 @@ LABEL_TIME_COLUMN = "label_date"
 AS_OF_COLUMN = "as_of_date"
 """The boundary between the feature window and the label window."""
 
+# Appearance coverage starts 2012-07-03, so "years since debut" is really
+# "years since the dataset started watching": its maximum runs 0, 1, 2 ... 13
+# in lockstep with the season, which reconstructs the calendar variable this
+# project deliberately excluded. Capping restores a common support — every
+# season from 2021 on can express the full 0-10 range, so a test-set row never
+# carries a value no training row could hold. Seasons before that stay
+# left-censored, which adds noise inside the training range but cannot produce
+# extrapolation beyond it.
+# ponytail: a fixed ceiling, because the censoring is a property of this
+# dataset's start date. Re-derive it if the coverage window changes.
+CAREER_CENSORING_CEILING = 10.0
+
 # A per-90 rate divides by minutes. One goal in a three-minute substitute
 # appearance is 30 goals per 90 without a floor, and that row then outweighs a
 # whole season of a real striker. The floor is one full match.
@@ -77,6 +89,11 @@ NUMERIC_FEATURES = (
     "cards_per_90",
     "minutes_per_appearance",
     "height_in_cm",
+    # Where the player is in a career, not where the season is in the calendar.
+    # Both answer "how established is this player" without ever encoding
+    # "2024 players are worth more than 2022 players".
+    "years_since_debut",
+    "seasons_observed",
 )
 
 CATEGORICAL_FEATURES = (
@@ -160,6 +177,16 @@ def aggregate_appearances(appearances: pd.DataFrame, *, start_month: int = 8) ->
         boundary >= grouped[FEATURE_TIME_COLUMN], grouped[FEATURE_TIME_COLUMN]
     )
 
+    # Career stage, not calendar position. The debut is the player's first
+    # appearance anywhere in the dataset, which is necessarily at or before
+    # their first appearance in the season being described — so it is knowable
+    # at the as-of date, and a 21-year-old six seasons into a career is a
+    # different proposition from a 21-year-old in his first.
+    debut = frame.groupby("player_id")["date"].min()
+    grouped["years_since_debut"] = (
+        (grouped[AS_OF_COLUMN] - grouped["player_id"].map(debut)).dt.days / 365.25
+    ).clip(upper=CAREER_CENSORING_CEILING)
+
     logger.info("aggregated %d appearances into %d player-seasons", len(appearances), len(grouped))
     return grouped
 
@@ -240,8 +267,11 @@ def add_derived_features(frame: pd.DataFrame) -> pd.DataFrame:
     )
 
 
-def add_prior_value(frame: pd.DataFrame) -> pd.DataFrame:
-    """Attach the player's previous labelled season as an explicitly lagged feature.
+def add_career_history(frame: pd.DataFrame) -> pd.DataFrame:
+    """Attach everything that depends on the player's earlier rows.
+
+    The lagged prior value, how stale it is, and how many earlier seasons this
+    player already has in the table. All three look strictly backwards.
 
     "Previous" means the most recent earlier season in this table, not
     necessarily the season before: an injury year or a spell outside the
@@ -259,6 +289,12 @@ def add_prior_value(frame: pd.DataFrame) -> pd.DataFrame:
     ordered["prev_market_value_in_eur"] = by_player[TARGET_COLUMN].shift(1)
     prev_label_date = by_player[LABEL_TIME_COLUMN].shift(1)
     ordered["prev_value_age_days"] = (ordered[LABEL_TIME_COLUMN] - prev_label_date).dt.days
+
+    # Counts only the rows before this one, so it is a running career depth
+    # rather than a total that would need the player's whole future to compute.
+    # Capped for the same censoring reason as years_since_debut: the count a
+    # season can reach is bounded by how long the dataset has existed.
+    ordered["seasons_observed"] = by_player.cumcount().clip(upper=int(CAREER_CENSORING_CEILING))
 
     return ordered.reset_index(drop=True)
 
@@ -282,7 +318,7 @@ def build_training_table(
     player_seasons = aggregate_appearances(appearances, start_month=season_start_month)
     labelled = attach_label(player_seasons, valuations, tolerance_days=label_tolerance_days)
     with_attributes = attach_player_attributes(labelled, players)
-    table = add_prior_value(add_derived_features(with_attributes))
+    table = add_career_history(add_derived_features(with_attributes))
 
     logger.info(
         "training table: %d rows, %d players, seasons %d-%d",
@@ -321,6 +357,7 @@ def null_rates(table: pd.DataFrame, columns: tuple[str, ...] = FEATURE_COLUMNS) 
 
 __all__ = [
     "AS_OF_COLUMN",
+    "CAREER_CENSORING_CEILING",
     "CATEGORICAL_FEATURES",
     "FEATURE_COLUMNS",
     "FEATURE_TIME_COLUMN",
@@ -329,7 +366,7 @@ __all__ = [
     "PRIOR_VALUE_FEATURES",
     "TARGET_COLUMN",
     "add_derived_features",
-    "add_prior_value",
+    "add_career_history",
     "aggregate_appearances",
     "assign_season",
     "attach_label",

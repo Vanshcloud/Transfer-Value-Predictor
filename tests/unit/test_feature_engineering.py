@@ -15,6 +15,7 @@ import pytest
 
 from src.feature_engineering.build import (
     AS_OF_COLUMN,
+    CAREER_CENSORING_CEILING,
     CATEGORICAL_FEATURES,
     FEATURE_COLUMNS,
     FEATURE_TIME_COLUMN,
@@ -23,8 +24,8 @@ from src.feature_engineering.build import (
     NUMERIC_FEATURES,
     PRIOR_VALUE_FEATURES,
     TARGET_COLUMN,
+    add_career_history,
     add_derived_features,
-    add_prior_value,
     aggregate_appearances,
     assign_season,
     attach_label,
@@ -146,6 +147,43 @@ class TestAggregateAppearances:
         frame = make_appearances([{"date": "2022-07-20"}])
         result = aggregate_appearances(frame)
         assert result[AS_OF_COLUMN].iloc[0] == pd.Timestamp("2022-07-20")
+
+    def test_years_since_debut_measures_from_the_first_ever_appearance(self) -> None:
+        frame = make_appearances(
+            [{"date": "2018-09-01"}, {"date": "2021-09-01"}, {"date": "2021-11-01"}]
+        )
+        result = aggregate_appearances(frame).sort_values("season")
+        # Season 2018 anchors on 2019-07-01, season 2021 on 2022-07-01; the
+        # debut is 2018-09-01 in both cases, not the season's own first match.
+        assert result["years_since_debut"].iloc[0] == pytest.approx(0.83, abs=0.02)
+        assert result["years_since_debut"].iloc[1] == pytest.approx(3.83, abs=0.02)
+
+    def test_years_since_debut_is_capped_at_the_censoring_ceiling(self) -> None:
+        # Uncapped, this feature's maximum runs 0, 1, 2 ... in lockstep with
+        # the season, because the dataset only starts watching in 2012 — which
+        # rebuilds the calendar variable the project excluded on purpose.
+        frame = make_appearances([{"date": "2000-09-01"}, {"date": "2021-09-01"}])
+        result = aggregate_appearances(frame)
+        assert result["years_since_debut"].max() == CAREER_CENSORING_CEILING
+
+    def test_years_since_debut_is_never_negative(self) -> None:
+        frame = make_appearances([{"date": "2021-09-01"}, {"date": "2022-07-20"}])
+        result = aggregate_appearances(frame)
+        assert (result["years_since_debut"] >= 0).all()
+
+    def test_debut_is_not_shared_between_players(self) -> None:
+        """Two players in the same season, six years apart in career stage."""
+        frame = make_appearances(
+            [
+                {"player_id": 1, "date": "2015-09-01"},
+                {"player_id": 1, "date": "2021-09-01"},
+                {"player_id": 2, "date": "2021-09-01"},
+            ]
+        )
+        result = aggregate_appearances(frame)
+        in_2021 = result[result["season"] == 2021].set_index("player_id")
+        assert in_2021.loc[1, "years_since_debut"] == pytest.approx(6.83, abs=0.02)
+        assert in_2021.loc[2, "years_since_debut"] == pytest.approx(0.83, abs=0.02)
 
     def test_as_of_date_is_never_before_the_last_appearance(self) -> None:
         frame = make_appearances(
@@ -347,29 +385,54 @@ def career(seasons: list[int], values: list[int], label_dates: list[str]) -> pd.
     )
 
 
-class TestPriorValue:
+class TestCareerHistory:
     def test_the_first_season_has_no_prior_value(self) -> None:
-        result = add_prior_value(career([2019], [1_000_000], ["2020-07-15"]))
+        result = add_career_history(career([2019], [1_000_000], ["2020-07-15"]))
         assert pd.isna(result["prev_market_value_in_eur"].iloc[0])
 
     def test_a_later_season_carries_the_previous_label(self) -> None:
-        result = add_prior_value(
+        result = add_career_history(
             career([2019, 2020], [1_000_000, 4_000_000], ["2020-07-15", "2021-07-15"])
         ).sort_values("season")
         assert result["prev_market_value_in_eur"].iloc[1] == 1_000_000
         assert result["prev_value_age_days"].iloc[1] == 365
 
+    def test_seasons_observed_counts_only_earlier_rows(self) -> None:
+        result = add_career_history(
+            career([2018, 2019, 2020], [1, 2, 3], ["2019-07-15", "2020-07-15", "2021-07-15"])
+        ).sort_values("season")
+        assert list(result["seasons_observed"]) == [0, 1, 2]
+
+    def test_seasons_observed_is_capped_too(self) -> None:
+        seasons = list(range(2000, 2020))
+        result = add_career_history(
+            career(seasons, list(range(len(seasons))), [f"{y + 1}-07-15" for y in seasons])
+        )
+        assert result["seasons_observed"].max() == int(CAREER_CENSORING_CEILING)
+
+    def test_seasons_observed_restarts_for_each_player(self) -> None:
+        frame = pd.DataFrame(
+            {
+                "player_id": [1, 1, 2],
+                "season": [2019, 2020, 2020],
+                TARGET_COLUMN: [1, 2, 3],
+                LABEL_TIME_COLUMN: pd.to_datetime(["2020-07-15", "2021-07-15", "2021-07-15"]),
+            }
+        )
+        result = add_career_history(frame).sort_values(["player_id", "season"])
+        assert list(result["seasons_observed"]) == [0, 1, 0]
+
     def test_a_gap_year_is_carried_with_its_staleness_recorded(self) -> None:
         # Not dropped: a three-year-old valuation still informs, as long as the
         # model is told how old it is.
-        result = add_prior_value(
+        result = add_career_history(
             career([2016, 2020], [1_000_000, 4_000_000], ["2017-07-15", "2021-07-15"])
         ).sort_values("season")
         assert result["prev_market_value_in_eur"].iloc[1] == 1_000_000
         assert result["prev_value_age_days"].iloc[1] == pytest.approx(1461, abs=2)
 
     def test_the_prior_label_always_predates_the_current_one(self) -> None:
-        result = add_prior_value(
+        result = add_career_history(
             career([2018, 2019, 2020], [1, 2, 3], ["2019-07-15", "2020-07-15", "2021-07-15"])
         )
         known = result["prev_value_age_days"].dropna()
@@ -384,13 +447,13 @@ class TestPriorValue:
                 LABEL_TIME_COLUMN: pd.to_datetime(["2021-07-15", "2022-07-15"]),
             }
         )
-        result = add_prior_value(frame)
+        result = add_career_history(frame)
         assert result["prev_market_value_in_eur"].isna().all()
 
     def test_input_order_does_not_change_the_result(self) -> None:
         rows = career([2018, 2019, 2020], [1, 2, 3], ["2019-07-15", "2020-07-15", "2021-07-15"])
-        forward = add_prior_value(rows).sort_values("season")
-        shuffled = add_prior_value(rows.iloc[::-1]).sort_values("season")
+        forward = add_career_history(rows).sort_values("season")
+        shuffled = add_career_history(rows.iloc[::-1]).sort_values("season")
         assert list(forward["prev_market_value_in_eur"].fillna(-1)) == list(
             shuffled["prev_market_value_in_eur"].fillna(-1)
         )
@@ -432,6 +495,12 @@ class TestSelectVariant:
         # It is the split key. A model that learns "later season -> higher
         # value" extrapolates straight off the end of its training range.
         assert "season" not in FEATURE_COLUMNS
+
+    def test_career_stage_features_replace_what_raw_season_would_carry(self) -> None:
+        # Dropping `season` should not mean dropping time. These two answer
+        # "how far into a career is this" without encoding which calendar year
+        # it is, so they stay meaningful on seasons the model never trained on.
+        assert {"years_since_debut", "seasons_observed"} <= set(FEATURE_COLUMNS)
 
 
 # --------------------------------------------------------------------------
@@ -585,12 +654,15 @@ class TestFeaturePipeline:
             ValidationReport,
         )
 
-        def failing(*_: object, **__: object) -> ValidationReport:
-            report = ValidationReport()
-            report.add(Finding("leakage_feature_time", Severity.ERROR, "training_table", "boom"))
-            return report
+        class FailingValidator:
+            def validate(self, *_: object, **__: object) -> ValidationReport:
+                report = ValidationReport()
+                report.add(
+                    Finding("leakage_feature_time", Severity.ERROR, "training_table", "boom")
+                )
+                return report
 
-        monkeypatch.setattr(stage, "detect_leakage", failing)
+        monkeypatch.setattr(stage, "leakage_validator", lambda _columns: FailingValidator())
 
         with pytest.raises(ValidationError):
             stage.build_features(sample_store)  # type: ignore[arg-type]

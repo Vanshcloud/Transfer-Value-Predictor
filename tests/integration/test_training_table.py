@@ -118,3 +118,29 @@ def test_the_log_transform_tames_the_target_skew(full_table: pd.DataFrame) -> No
 
 def test_every_feature_column_is_present(full_table: pd.DataFrame) -> None:
     assert set(FEATURE_COLUMNS) <= set(full_table.columns)
+
+
+def test_career_features_do_not_extrapolate_past_the_training_range(
+    full_table: pd.DataFrame,
+) -> None:
+    """The reason `years_since_debut` and `seasons_observed` are capped.
+
+    Coverage starts in 2012, so both grow in lockstep with the calendar until
+    the cap binds. Without it a 2024 test row carries a value no row in a
+    <=2021 training set could ever hold, and the model extrapolates off the end
+    of its training range — the exact failure that excluding raw `season`
+    was meant to prevent.
+
+    `seasons_observed` retains a small residual because a count advances at a
+    player-specific rate, so a fixed ceiling cannot equalise its support
+    exactly. The fence keeps that residual negligible rather than pretending
+    it is zero.
+    """
+    train = full_table[full_table["season"] <= 2021]
+    test = full_table[full_table["season"] >= 2023]
+
+    beyond = (test["years_since_debut"] > train["years_since_debut"].max()).mean()
+    assert beyond == 0.0
+
+    beyond = (test["seasons_observed"] > train["seasons_observed"].max()).mean()
+    assert beyond < 0.005, f"{beyond:.2%} of test rows exceed the training range"
