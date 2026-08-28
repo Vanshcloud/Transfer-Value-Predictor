@@ -8,3 +8,8 @@ mypy==2.3.1
 # Type stubs. Preferred over an `ignore_missing_imports` override: real stubs
 # type-check the call, an override only silences it.
 types-PyYAML==6.0.12.20260815
+# Matched to the installed pandas 2.3.x, NOT the latest release. pandas-stubs
+# tracks pandas versions, so the 3.0.x stubs describe an API that pandas 2.3
+# does not have — mypy would then check against the wrong library.
+pandas-stubs==2.3.3.260113
+types-requests==2.32.4.20250913

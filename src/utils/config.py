@@ -133,6 +133,16 @@ class SplitConfig(_Strict):
         return value
 
 
+class HttpConfig(_Strict):
+    """Outbound request policy, shared by every ingestion module."""
+
+    timeout_seconds: float = Field(default=60.0, gt=0)
+    max_retries: int = Field(default=5, ge=0)
+    backoff_factor: float = Field(default=0.5, ge=0)
+    user_agent: str = "transfer-value-predictor/0.1"
+    min_request_interval_seconds: float = Field(default=0.0, ge=0)
+
+
 class ApiConfig(_Strict):
     """Bind address for the FastAPI service."""
 
@@ -164,6 +174,7 @@ class Settings(_Strict):
     kaggle: KaggleConfig
     data: DataConfig
     split: SplitConfig
+    http: HttpConfig
     api: ApiConfig
     logging: LoggingConfig
 

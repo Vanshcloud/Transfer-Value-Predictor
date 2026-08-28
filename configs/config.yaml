@@ -43,6 +43,21 @@ split:
   validation_season: 2022
   test_start_season: 2023
 
+http:
+  # Applies to every outbound request the project makes. Retries cover the
+  # transient 5xx/429 class only; a 404 is not retried, because retrying a
+  # missing file just delays the error.
+  timeout_seconds: 60
+  max_retries: 5
+  backoff_factor: 0.5
+  # Identify the client honestly. An anonymous scraper-looking UA is how a
+  # polite consumer gets mistaken for an impolite one.
+  user_agent: "transfer-value-predictor/0.1 (+https://github.com/Vanshcloud/Transfer-Value-Predictor)"
+  # Minimum seconds between requests to the same host. 0 disables it; Kaggle
+  # serves a handful of large files so it is not needed there, but the setting
+  # exists because any future source will need it.
+  min_request_interval_seconds: 0.0
+
 api:
   host: 0.0.0.0
   port: 8000
