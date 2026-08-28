@@ -185,6 +185,18 @@ ColumnTransformer(transformers, *, remainder="drop", sparse_threshold=0.3, ...)
 ```
 Use `.set_output(transform="pandas")` so feature names survive into SHAP.
 
+### pandas 2.3.3 + numpy 2.5.2 — `pd.Timedelta` idiom
+
+Found in Phase 4 by the `-W error::DeprecationWarning` gate. Both of these warn:
+
+```python
+pd.Timedelta("30D")        # DeprecationWarning: 'generic' unit for NumPy timedelta
+pd.Timedelta(days=30)      # same
+```
+
+The clean forms are `pd.Timedelta(30, "D")` or `pd.offsets.Day(30)`. This
+matters for Phase 5, whose `merge_asof` label join uses a 120-day tolerance.
+
 ### shap 0.52.0
 
 ```python
