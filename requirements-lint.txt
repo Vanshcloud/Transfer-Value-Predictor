@@ -1,0 +1,6 @@
+# Lint/type tooling, PINNED EXACTLY.
+# Unpinned, CI installs whatever released that morning and a formatter release
+# turns the build red with no code change — and disagrees with every local run.
+ruff==0.16.5
+black==26.5.1
+mypy==2.3.1

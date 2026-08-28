@@ -1,0 +1,70 @@
+# ============================================================
+# pyproject.toml — project metadata and tool configuration
+# ============================================================
+
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "transfer-value-predictor"
+version = "0.1.0"
+description = "Predict the market value of professional footballers, and explain each prediction"
+readme = "README.md"
+# 3.13 is chosen over 3.12/3.14 for wheel-coverage headroom: the full ML stack
+# (sklearn, xgboost, lightgbm, catboost, shap) ships prebuilt wheels for all
+# three, and 3.13 has the longest track record of the three going forward.
+requires-python = ">=3.13,<3.14"
+license = {text = "MIT"}
+dynamic = ["dependencies"]
+authors = [{name = "Vansh Tomar", email = "vanshwar@gmail.com"}]
+maintainers = [{name = "Vansh Tomar", email = "vanshwar@gmail.com"}]
+keywords = ["football", "soccer", "machine-learning", "market-value", "analytics", "shap"]
+
+[tool.setuptools.dynamic]
+dependencies = {file = ["requirements.txt"]}
+
+[tool.setuptools.packages.find]
+include = ["src*"]
+
+# ---- Ruff ----
+[tool.ruff]
+line-length = 100
+target-version = "py313"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "N", "UP", "B", "C4", "SIM", "ARG", "PTH", "RET"]
+ignore = ["E501"]  # line length is Black's job
+
+[tool.black]
+line-length = 100
+target-version = ["py313"]
+
+# ---- MyPy ----
+[tool.mypy]
+python_version = "3.13"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+no_implicit_optional = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+strict_equality = true
+
+# NOTE: per-package `ignore_missing_imports` overrides are added by the phase
+# that introduces the import, not up front. Listed before anything imports them,
+# mypy reports them as unused sections — a gate that prints noise on a clean run
+# is a gate people learn to skim.
+
+# ---- pytest ----
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+addopts = "-q --strict-markers"
+markers = [
+    "integration: needs downloaded data or a trained model (deselect with -m 'not integration')",
+]
+
+[tool.coverage.run]
+source = ["src"]
+omit = ["*/__init__.py"]

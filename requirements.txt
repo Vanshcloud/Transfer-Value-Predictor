@@ -1,0 +1,41 @@
+# Runtime dependencies.
+# Canonical source of truth — pyproject.toml reads this file, and the
+# Dockerfiles and CI install from it. Two lists of pins drift.
+
+# ---- Data ----
+# pandas is pinned below 3.0 deliberately. Unpinned it resolves to 3.0.x, which
+# changes the default string dtype from `object` to `str` and makes
+# Copy-on-Write permanent. In a categorical-heavy regression pipeline that is a
+# silent behaviour change, not an error — the worst kind. Revisit as a
+# deliberate migration, not as a side effect of an install.
+pandas>=2.2,<3
+numpy>=2.0
+pyarrow>=17.0
+duckdb>=1.1
+
+# ---- Ingestion ----
+requests>=2.32
+beautifulsoup4>=4.12
+lxml>=5.0
+
+# ---- Machine learning ----
+scikit-learn>=1.9
+xgboost>=3.0
+lightgbm>=4.5
+catboost>=1.2.7
+
+# ---- Explainability ----
+shap>=0.48
+
+# ---- Visualisation ----
+matplotlib>=3.9
+plotly>=5.24
+
+# ---- API ----
+fastapi>=0.115
+uvicorn[standard]>=0.32
+pydantic>=2.9
+
+# ---- Configuration ----
+python-dotenv>=1.0
+PyYAML>=6.0

@@ -1,0 +1,53 @@
+# ---- Python ----
+__pycache__/
+*.py[cod]
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+env/
+
+# ---- Environment / secrets ----
+.env
+.env.*
+!.env.example
+
+# ---- Data ----
+# Raw and processed data are downloaded, not committed: the Kaggle source is
+# ~759 MB and refreshes weekly, so committing it would be both large and stale.
+# data/sample/ IS committed — the test suite runs against it so CI needs no
+# network and no credentials.
+data/raw/*
+data/processed/*
+data/external/*
+!data/raw/.gitkeep
+!data/processed/.gitkeep
+!data/external/.gitkeep
+!data/sample/
+
+# ---- Models ----
+models/*
+!models/.gitkeep
+
+# ---- Tooling ----
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.ipynb_checkpoints/
+
+# ---- Frontend ----
+node_modules/
+.next/
+out/
+
+# ---- Editors / OS ----
+.vscode/
+.idea/
+.claude/
+.DS_Store
+*.swp
