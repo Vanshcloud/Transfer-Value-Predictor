@@ -3,8 +3,8 @@
 Predict the market value (EUR) of professional footballers from performance,
 biographical and contextual data — and explain every prediction.
 
-> **Status: Phase 6 of 13.** Ingestion, validation, the training table and the
-> baseline models are built. The model zoo, API and dashboard are not. See
+> **Status: Phase 7 of 13.** Ingestion, validation, the training table, the
+> baselines and the tuned model zoo are built. The API and dashboard are not. See
 > [`plans/IMPLEMENTATION_PLAN.md`](plans/IMPLEMENTATION_PLAN.md).
 
 ## Why this repository looks the way it does
@@ -53,6 +53,7 @@ python scripts/fetch_data.py       # Kaggle -> data/raw -> data/processed (parqu
 python scripts/validate_data.py    # contract checks; --strict fails on warnings too
 python scripts/build_features.py   # one row per player-season, labelled and leak-checked
 python scripts/train_baseline.py   # baselines across all three splits
+python scripts/train_models.py     # nine tuned families, best saved per variant
 ```
 
 The training table as of the 2026-08-05 dataset refresh:
@@ -93,6 +94,31 @@ deploying this will ever ask.
 Everything is seeded from one constant; two runs agree exactly, and a test
 asserts it. The leakage checks re-run after every split, because splitting is
 what creates the chance of a row or a player straddling the boundary.
+
+## The model zoo
+
+Nine families (Linear, Ridge, Lasso, ElasticNet, RandomForest, GradientBoosting,
+XGBoost, LightGBM, CatBoost), each searched on expanding-window folds inside the
+training seasons, selected by validation MAE in EUR, then scored once on the
+test seasons. LightGBM wins both variants.
+
+| Variant | Winner | Test MAE | Test R² | vs. Phase 6 baseline |
+|---|---|---|---|---|
+| performance-only | LightGBM | €4.44M | 0.441 | 0.414 |
+| with prior value | LightGBM | €3.71M | 0.775 | 0.766 |
+
+**The zoo barely beats the baseline** — R² moves 0.414 → 0.441 and 0.766 →
+0.775. Nine families and a hyperparameter search bought about 0.03 and 0.01.
+That is worth stating plainly rather than burying: the signal in this data is
+in the features, not in the estimator, and an untuned gradient booster gets
+most of the way there. Establishing the baseline first (Phase 6) is what makes
+that measurable instead of assumed.
+
+Each run writes a versioned artifact to `models/` — the fitted preprocessing
+and estimator as one object, plus metrics, named feature importance, the full
+leaderboard and the seed — with a readable JSON sidecar. A test asserts a
+reloaded artifact reproduces its recorded metrics exactly. The contract is
+[`docs/EXPERIMENT_TRACKING.md`](docs/EXPERIMENT_TRACKING.md).
 
 ## Development
 

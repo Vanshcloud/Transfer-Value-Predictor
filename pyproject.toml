@@ -62,6 +62,12 @@ strict_equality = true
 module = ["sklearn.*"]
 ignore_missing_imports = true
 
+# joblib and catboost likewise. xgboost and lightgbm ship their own types.
+# Introduced in Phase 7 (model zoo and persistence).
+[[tool.mypy.overrides]]
+module = ["catboost.*", "joblib.*"]
+ignore_missing_imports = true
+
 # ---- pytest ----
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -72,7 +78,16 @@ addopts = "-q --strict-markers"
 # warn — so without this a v1 idiom lands silently and is found much later.
 # Third-party warnings get a targeted ignore here when the dependency that
 # raises them is actually introduced, never a blanket one.
-filterwarnings = ["error::DeprecationWarning"]
+filterwarnings = [
+    "error::DeprecationWarning",
+    # joblib 1.5.3's unpickler sets .shape on a NumPy array, which NumPy 2.5
+    # deprecates. Raised inside joblib, on every artifact load, and not
+    # something this project can fix or avoid while using joblib. Targeted at
+    # the one message and the one module rather than blanket-ignoring
+    # DeprecationWarning, which would let a real one through. Introduced in
+    # Phase 7 with model persistence.
+    "ignore:Setting the shape on a NumPy array has been deprecated:DeprecationWarning:joblib.numpy_pickle",
+]
 markers = [
     "integration: needs downloaded data or a trained model (deselect with -m 'not integration')",
 ]

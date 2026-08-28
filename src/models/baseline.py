@@ -14,15 +14,17 @@ this goes wrong.
 
 from __future__ import annotations
 
+import re
 from collections.abc import Callable, Sequence
 
 import numpy as np
+import pandas as pd
 from sklearn.compose import ColumnTransformer, TransformedTargetRegressor
 from sklearn.ensemble import HistGradientBoostingRegressor
 from sklearn.impute import SimpleImputer
 from sklearn.linear_model import Ridge
 from sklearn.pipeline import Pipeline
-from sklearn.preprocessing import OneHotEncoder, StandardScaler
+from sklearn.preprocessing import FunctionTransformer, OneHotEncoder, StandardScaler
 
 from src.models.splits import RANDOM_SEED
 
@@ -31,10 +33,36 @@ from src.models.splits import RANDOM_SEED
 # narrow and stops the model fitting a coefficient to a country it saw once.
 MIN_CATEGORY_FREQUENCY = 20
 
+# One-hot names inherit the category text, so country_of_citizenship produces
+# columns like "Cote d'Ivoire". LightGBM refuses to train on a feature name
+# containing special JSON characters ("Do not support special JSON characters
+# in feature name"), so names are normalised once, here, rather than in each
+# model that happens to care.
+_UNSAFE_NAME = re.compile(r"[^0-9A-Za-z_]+")
+
+
+def _safe_names(names: Sequence[str]) -> list[str]:
+    return [_UNSAFE_NAME.sub("_", str(name)).strip("_") for name in names]
+
+
+def _rename_columns(frame: pd.DataFrame) -> pd.DataFrame:
+    renamed = frame.copy()
+    renamed.columns = _safe_names(list(frame.columns))
+    return renamed
+
+
+def _renamed_feature_names(_transformer: object, input_features: Sequence[str]) -> np.ndarray:
+    names = _safe_names(input_features)
+    if len(set(names)) != len(names):
+        # Two categories that differ only in punctuation would collide and make
+        # feature importance ambiguous. Loud beats subtly wrong.
+        raise ValueError("feature name collision after normalisation")
+    return np.asarray(names, dtype=object)
+
 
 def build_preprocessor(
     numeric_features: Sequence[str], categorical_features: Sequence[str]
-) -> ColumnTransformer:
+) -> Pipeline:
     """Impute, scale and encode.
 
     ``sparse_output=False`` rather than ``sparse=``: the latter was removed in
@@ -64,12 +92,21 @@ def build_preprocessor(
         ]
     )
 
-    preprocessor = ColumnTransformer(
+    columns = ColumnTransformer(
         [
             ("numeric", numeric, list(numeric_features)),
             ("categorical", categorical, list(categorical_features)),
         ],
         remainder="drop",
+    )
+    preprocessor = Pipeline(
+        [
+            ("columns", columns),
+            (
+                "safe_names",
+                FunctionTransformer(_rename_columns, feature_names_out=_renamed_feature_names),
+            ),
+        ]
     )
     return preprocessor.set_output(transform="pandas")
 
