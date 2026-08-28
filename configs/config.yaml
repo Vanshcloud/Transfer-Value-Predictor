@@ -1,0 +1,52 @@
+# ============================================================
+# Default configuration.
+# ============================================================
+# Values here are the committed defaults. A .env file overrides a subset of
+# them at runtime (see src/utils/config.py ENV_OVERRIDES); nothing secret
+# belongs in this file.
+#
+# Figures that look arbitrary are not — each is grounded in the measured
+# feasibility spike, plans/01-feasibility-spike.md.
+
+paths:
+  data_dir: data
+  model_dir: models
+
+kaggle:
+  # CC0 Public Domain. See plans/00-discovery.md §1.2 for why this is the
+  # source rather than scraping Transfermarkt directly.
+  dataset: davidcariboo/player-scores
+  files:
+    - players.csv
+    - player_valuations.csv
+    - appearances.csv
+  # Re-download when the local copy is older than this. The upstream dataset
+  # refreshes weekly, so a shorter window only costs bandwidth.
+  max_age_days: 7
+
+data:
+  # A football season runs August to July, so months 8-12 belong to the season
+  # named for that year and months 1-7 to the previous one.
+  season_start_month: 8
+  # Label = the first valuation recorded AFTER the season ends. Valuations are
+  # an irregular on-change event series, never a fixed grid, so this is an
+  # as-of join with a tolerance rather than an equality merge.
+  label_tolerance_days: 120
+  min_age: 15
+  max_age: 45
+
+split:
+  # Three-way temporal split. Validation tunes; test is touched once.
+  # Measured: temporal evaluation is ~60% worse on EUR MAE than a group split,
+  # and it is the number that reflects deployment.
+  train_end_season: 2021
+  validation_season: 2022
+  test_start_season: 2023
+
+api:
+  host: 0.0.0.0
+  port: 8000
+
+logging:
+  level: INFO
+  format: "%(asctime)s %(levelname)-8s %(name)s: %(message)s"

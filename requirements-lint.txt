@@ -4,3 +4,7 @@
 ruff==0.16.5
 black==26.5.1
 mypy==2.3.1
+
+# Type stubs. Preferred over an `ignore_missing_imports` override: real stubs
+# type-check the call, an override only silences it.
+types-PyYAML==6.0.12.20260815

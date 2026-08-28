@@ -61,6 +61,12 @@ strict_equality = true
 testpaths = ["tests"]
 python_files = ["test_*.py"]
 addopts = "-q --strict-markers"
+# Deprecation warnings are errors. Pydantic v1 idioms (`@validator`, `.dict()`,
+# `class Config`) and FastAPI's `@app.on_event` all still *run* — they only
+# warn — so without this a v1 idiom lands silently and is found much later.
+# Third-party warnings get a targeted ignore here when the dependency that
+# raises them is actually introduced, never a blanket one.
+filterwarnings = ["error::DeprecationWarning"]
 markers = [
     "integration: needs downloaded data or a trained model (deselect with -m 'not integration')",
 ]
