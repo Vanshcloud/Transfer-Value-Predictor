@@ -3,8 +3,8 @@
 Predict the market value (EUR) of professional footballers from performance,
 biographical and contextual data — and explain every prediction.
 
-> **Status: Phase 1 of 13.** Repository foundation and quality gates. The
-> pipeline, models, API and dashboard are not built yet. See
+> **Status: Phase 5 of 13.** Ingestion, validation and the training table are
+> built. Models, API and dashboard are not. See
 > [`plans/IMPLEMENTATION_PLAN.md`](plans/IMPLEMENTATION_PLAN.md).
 
 ## Why this repository looks the way it does
@@ -42,6 +42,35 @@ brew install libomp
 scikit-learn bundles its own OpenMP, which is why "sklearn works but LightGBM
 doesn't" is such a common and confusing report. On Linux and in Docker the
 manylinux wheels bundle libgomp and no action is needed.
+
+## Pipeline
+
+Three stages, each reading what the last one wrote. Every figure below is
+printed by the command above it, so nothing here is a number someone typed in.
+
+```bash
+python scripts/fetch_data.py       # Kaggle -> data/raw -> data/processed (parquet)
+python scripts/validate_data.py    # contract checks; --strict fails on warnings too
+python scripts/build_features.py   # one row per player-season, labelled and leak-checked
+```
+
+The training table as of the 2026-08-05 dataset refresh:
+
+| | |
+|---|---|
+| rows | 36,880 |
+| players | 17,053 |
+| seasons | 2011–2024 |
+| rows with a prior-season value | 19,827 |
+| leakage findings | 0 |
+
+The label is the first valuation recorded **after** the season's evidence is
+complete — an as-of join with a 120-day tolerance, never an equality merge,
+because valuations are an irregular on-change event series. Two model variants
+come out of the one table: *performance-only* (every row; the useful model, for
+scouting) and *with prior value* (19,827 rows; the accurate model, for
+tracking). Shipping only the second would be technically true and practically
+useless.
 
 ## Development
 
