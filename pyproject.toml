@@ -56,6 +56,12 @@ strict_equality = true
 # mypy reports them as unused sections — a gate that prints noise on a clean run
 # is a gate people learn to skim.
 
+# scikit-learn ships no py.typed marker and no bundled stubs. Introduced in
+# Phase 6 (splits, baselines, metrics).
+[[tool.mypy.overrides]]
+module = ["sklearn.*"]
+ignore_missing_imports = true
+
 # ---- pytest ----
 [tool.pytest.ini_options]
 testpaths = ["tests"]

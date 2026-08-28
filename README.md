@@ -3,8 +3,8 @@
 Predict the market value (EUR) of professional footballers from performance,
 biographical and contextual data — and explain every prediction.
 
-> **Status: Phase 5 of 13.** Ingestion, validation and the training table are
-> built. Models, API and dashboard are not. See
+> **Status: Phase 6 of 13.** Ingestion, validation, the training table and the
+> baseline models are built. The model zoo, API and dashboard are not. See
 > [`plans/IMPLEMENTATION_PLAN.md`](plans/IMPLEMENTATION_PLAN.md).
 
 ## Why this repository looks the way it does
@@ -52,6 +52,7 @@ printed by the command above it, so nothing here is a number someone typed in.
 python scripts/fetch_data.py       # Kaggle -> data/raw -> data/processed (parquet)
 python scripts/validate_data.py    # contract checks; --strict fails on warnings too
 python scripts/build_features.py   # one row per player-season, labelled and leak-checked
+python scripts/train_baseline.py   # baselines across all three splits
 ```
 
 The training table as of the 2026-08-05 dataset refresh:
@@ -71,6 +72,27 @@ come out of the one table: *performance-only* (every row; the useful model, for
 scouting) and *with prior value* (19,827 rows; the accurate model, for
 tracking). Shipping only the second would be technically true and practically
 useless.
+
+## Baselines
+
+Gradient boosting, test-set metrics in EUR, from `scripts/train_baseline.py`.
+The **temporal** row is the headline: it is the only split where the model has
+never seen the season it is asked about, which is the only situation it will
+meet in use.
+
+| Split | performance-only | + prior value |
+|---|---|---|
+| Random (flattering) | R² 0.499 / MAE €2.84M | R² 0.822 / MAE €2.35M |
+| Group by player | R² 0.550 / MAE €2.60M | R² 0.786 / MAE €2.33M |
+| **Temporal** | **R² 0.414 / MAE €4.52M** | **R² 0.766 / MAE €3.74M** |
+
+The gap between the random and temporal rows is the point. Reporting the random
+number would roughly halve the stated error and answer a question nobody
+deploying this will ever ask.
+
+Everything is seeded from one constant; two runs agree exactly, and a test
+asserts it. The leakage checks re-run after every split, because splitting is
+what creates the chance of a row or a player straddling the boundary.
 
 ## Development
 

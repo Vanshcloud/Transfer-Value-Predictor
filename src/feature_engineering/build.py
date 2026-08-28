@@ -26,6 +26,7 @@ project ships two variants from this one code path — see :func:`select_variant
 
 from __future__ import annotations
 
+import numpy as np
 import pandas as pd
 
 from src.utils.logging import get_logger
@@ -103,8 +104,20 @@ CATEGORICAL_FEATURES = (
     "country_of_citizenship",
 )
 
-PRIOR_VALUE_FEATURES = ("prev_market_value_in_eur", "prev_value_age_days")
-"""The lagged label, and how stale it was when the current label was set.
+PRIOR_VALUE_FEATURES = ("prev_log_market_value_in_eur", "prev_value_age_days")
+"""The lagged label in log space, and how stale it was when the current label
+was set.
+
+Log, not EUR, because the *target* is modelled as log1p: relating log(value_t)
+to a raw-EUR value_(t-1) is a misspecified linear model. Raw, the column has
+skew 4.53 and its largest value sits 17 standard deviations out, so a linear
+coefficient on that row produces a large prediction in log space that expm1
+turns into billions — measured R^2 of -1.8 million for Ridge. Under log1p the
+skew is 0.10. Tree models are invariant to monotone transforms and never saw
+the problem, which is precisely why it would have shipped.
+The raw EUR column stays in the table for readability and for variant
+selection; it is simply not what the model is handed.
+
 Named with the ``prev_`` prefix because that is what the leakage detector
 accepts as proof a value is lagged on purpose
 (src/validation/leakage.check_target_absent_from_features). The staleness
@@ -287,6 +300,7 @@ def add_career_history(frame: pd.DataFrame) -> pd.DataFrame:
     by_player = ordered.groupby("player_id", sort=False)
 
     ordered["prev_market_value_in_eur"] = by_player[TARGET_COLUMN].shift(1)
+    ordered["prev_log_market_value_in_eur"] = np.log1p(ordered["prev_market_value_in_eur"])
     prev_label_date = by_player[LABEL_TIME_COLUMN].shift(1)
     ordered["prev_value_age_days"] = (ordered[LABEL_TIME_COLUMN] - prev_label_date).dt.days
 
