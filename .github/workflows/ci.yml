@@ -1,5 +1,10 @@
 name: CI
 
+# Action majors are kept current deliberately: v4/v5 of these target Node 20,
+# which GitHub deprecated and now force-runs on Node 24, and a workflow that
+# greps this codebase for deprecated APIs while itself using deprecated actions
+# is not a standard anyone will keep.
+#
 # Runs on a clean checkout, where data/raw/, data/processed/ and models/ are
 # all absent. Every test that needs them skips rather than fails — that is the
 # property this workflow exists to protect, because a suite that only passes on
@@ -20,9 +25,9 @@ jobs:
     name: Backend — lint, types, tests
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           # The same minor the project develops against. A silent 3.14 would
           # change behaviour with no diff to point at.
@@ -61,9 +66,9 @@ jobs:
       run:
         working-directory: frontend
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: "24"
           cache: npm
@@ -87,7 +92,7 @@ jobs:
     name: Authorship
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 0
 
@@ -110,7 +115,7 @@ jobs:
     name: Removed APIs
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Grep for APIs that no longer exist
         # Each of these was removed or deprecated in a dependency this project
