@@ -27,6 +27,7 @@ from sklearn.pipeline import Pipeline
 from src.evaluation.metrics import Metrics, evaluate
 from src.feature_engineering.build import CATEGORICAL_FEATURES, TARGET_COLUMN, select_variant
 from src.models.artifact import ModelArtifact, extract_feature_importance, save
+from src.models.calibration import calibrate
 from src.models.registry import MODEL_REGISTRY, ModelSpec, build_pipeline
 from src.models.splits import RANDOM_SEED, Split, temporal_split
 from src.models.tuning import Fold, TuningResult, season_folds, tune
@@ -186,7 +187,8 @@ def _fit_winner(
     pipeline.fit(train[features], train[TARGET_COLUMN])
 
     test = frame.loc[split.test]
-    test_metrics = evaluate(test[TARGET_COLUMN], pipeline.predict(test[features]))
+    test_predictions = pipeline.predict(test[features])
+    test_metrics = evaluate(test[TARGET_COLUMN], test_predictions)
 
     return ModelArtifact(
         variant=variant,
@@ -206,6 +208,10 @@ def _fit_winner(
             "test_start_season": config.test_start_season,
         },
         seed=RANDOM_SEED,
+        # Measured on the test seasons, which is the only honest place to
+        # measure it: an interval fitted on training residuals would describe
+        # how well the model remembers, not how well it predicts.
+        calibration=calibrate(test[TARGET_COLUMN].to_numpy(dtype=float), test_predictions),
         leaderboard=[
             {
                 "model": result.name,

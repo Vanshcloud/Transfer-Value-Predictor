@@ -30,9 +30,14 @@ from src.utils.logging import get_logger
 
 logger = get_logger(__name__)
 
-ARTIFACT_VERSION = 1
+ARTIFACT_VERSION = 2
 """Schema version. Bump when a field changes meaning, so an old artifact
-loaded by new code fails loudly instead of being silently misread."""
+loaded by new code fails loudly instead of being silently misread.
+
+v2 adds `calibration`: measured residual quantiles the API serves as a
+prediction interval. A v1 artifact has no interval to serve, so refusing it is
+correct — the alternative is an endpoint that silently omits a documented
+field."""
 
 
 @dataclass
@@ -51,6 +56,9 @@ class ModelArtifact:
     dataset: dict[str, Any]
     split: dict[str, Any]
     seed: int
+    calibration: dict[str, Any] = field(default_factory=dict)
+    """Measured residual quantiles per value band. Empty means the API reports
+    no interval rather than a made-up one."""
     leaderboard: list[dict[str, Any]] = field(default_factory=list)
     artifact_version: int = ARTIFACT_VERSION
     created_at: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
@@ -72,6 +80,7 @@ class ModelArtifact:
             "feature_importance": self.feature_importance,
             "dataset": self.dataset,
             "split": self.split,
+            "calibration": self.calibration,
             "seed": self.seed,
             "leaderboard": self.leaderboard,
         }

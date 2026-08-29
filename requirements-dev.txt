@@ -3,3 +3,8 @@
 
 pytest==9.1.1
 pytest-cov==7.1.0
+
+# starlette 1.6's TestClient requires httpx2, NOT httpx — importing it without
+# this raises RuntimeError at import time with that exact instruction. Test
+# dependency only; the service itself makes no outbound HTTP calls.
+httpx2==2.12.0

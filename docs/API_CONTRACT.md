@@ -1,0 +1,187 @@
+# API contract
+
+The API is a **stable interface**, not a view onto whatever the implementation
+currently returns. This document is written before the service and the service
+conforms to it; where the two disagree, this document is the defect report.
+
+Phase 10's dashboard is the first consumer, but it will not be the last, and a
+consumer cannot be asked to re-read the source every time an internal detail
+moves.
+
+---
+
+## 1. Versioning
+
+Every data endpoint lives under `/api/v1/`. Version 1 is frozen once the
+dashboard consumes it: fields may be **added**, never removed, renamed, or
+changed in type or meaning. A breaking change is `/api/v2/`, served alongside.
+
+`/health` is deliberately **unversioned**. It is for load balancers and
+orchestrators, which should not have to know about API versions to decide
+whether a process is alive.
+
+## 2. Endpoints
+
+| Method | Path | Purpose |
+|---|---|---|
+| `GET` | `/health` | Liveness and readiness. Never versioned. |
+| `POST` | `/api/v1/predict` | Predict a market value, with an explanation. |
+| `GET` | `/api/v1/players/{player_id}` | A player's record and known history. |
+| `GET` | `/api/v1/models` | Every loaded model variant. |
+| `GET` | `/api/v1/models/{variant}` | One model's card: family, params, features, training data. |
+| `GET` | `/api/v1/models/{variant}/metrics` | Held-out metrics, in EUR. |
+| `GET` | `/api/v1/models/{variant}/feature-importance` | Ranked importances and global SHAP. |
+
+`variant` is one of `performance_only` or `with_prior_value`. It is a path
+parameter rather than a query flag because the two are different products
+answering different questions, not two settings of one model.
+
+## 3. `POST /api/v1/predict`
+
+Two request shapes, exactly one of which must be supplied.
+
+### By player
+
+```json
+{ "player_id": 28003, "season": 2024, "variant": "performance_only" }
+```
+
+`season` is optional; omitted, the most recent season on record for that player
+is used. The response says which season was actually used — a prediction whose
+input period is ambiguous is not auditable.
+
+### By explicit features
+
+```json
+{ "features": { "age": 24.5, "goals": 12, "minutes_played": 2400, "position": "Attack" },
+  "variant": "performance_only" }
+```
+
+Any feature the model expects and the caller omits is imputed exactly as it is
+during training, by the fitted pipeline. Unknown keys are **rejected**, not
+ignored: silently dropping a misspelt `minutes_playd` gives a confident answer
+to a question nobody asked.
+
+Supplying both `player_id` and `features`, or neither, is a `422`.
+
+### Response
+
+```json
+{
+  "prediction_eur": 12450000.0,
+  "variant": "performance_only",
+  "model": { "name": "lightgbm", "variant": "performance_only", "trained_at": "..." },
+  "player_id": 28003,
+  "season": 2024,
+  "confidence": {
+    "level": 0.8,
+    "lower_eur": 6100000.0,
+    "upper_eur": 24900000.0,
+    "basis": "empirical residual quantiles for the 5M-20M band on held-out seasons",
+    "reference_rows": 812
+  },
+  "explanation": {
+    "base_value_eur": 2074881.0,
+    "top_positive_features": [
+      { "feature": "numeric__goals_per_90", "value": 0.62,
+        "shap_value": 0.41, "effect_multiplier": 1.51, "direction": "increases" }
+    ],
+    "top_negative_features": [
+      { "feature": "numeric__age", "value": 31.2,
+        "shap_value": -0.33, "effect_multiplier": 0.72, "direction": "decreases" }
+    ]
+  }
+}
+```
+
+### On `confidence` — read this before using it
+
+There is no probability here, and the API will never invent one. A gradient
+boosting regressor has no calibrated uncertainty, and a number like
+`"confidence": 0.87` printed next to a prediction would be fabricated.
+
+What `confidence` reports is an **empirical prediction interval**: the model's
+own residual quantiles, measured on held-out seasons, for the value band the
+prediction falls into. `level: 0.8` means 80% of held-out predictions in that
+band landed within the quoted bounds. `reference_rows` is how many rows that
+was measured over — read it, because a band with 40 reference rows deserves
+less trust than one with 800.
+
+The interval is wide. That is the honest finding, not a defect to tune away:
+market value spans four orders of magnitude and the temporal split is hard.
+
+### On explanation units
+
+`shap_value` is additive in **log space**, because the model fits `log1p(EUR)`.
+It is *not* additive in euros — the same contribution is worth a different
+number of euros for a €500k player and a €90M one — so a client must never sum
+them into euros. `effect_multiplier` is `exp(shap_value)` and is exact at any
+value: 1.51 means this feature multiplied the prediction by 1.51.
+
+`top_positive_features` and `top_negative_features` are each ordered by
+magnitude, largest first, and capped at `top_n` (default 5, max 25).
+
+## 4. Errors
+
+Every non-2xx response uses one envelope, so a client writes one error path:
+
+```json
+{ "error": { "code": "player_not_found", "message": "no player with id 999999999",
+             "detail": null } }
+```
+
+| Status | `code` | When |
+|---|---|---|
+| 404 | `player_not_found` | The player id is not in the dataset. |
+| 404 | `season_not_found` | The player exists but has no row for that season. |
+| 404 | `model_not_found` | No such variant is loaded. |
+| 422 | `validation_error` | The body failed schema validation. `detail` carries the field-level errors. |
+| 503 | `model_unavailable` | No model artifact is loaded; the service is up but cannot predict. |
+
+`422` bodies keep FastAPI's field-level detail inside `detail`, because "which
+field, and why" is the entire value of a validation error. A bare
+`{"detail": "Unprocessable Entity"}` forces a client to guess.
+
+## 5. OpenAPI
+
+Served at `/api/v1/openapi.json`, with Swagger UI at `/docs` and ReDoc at
+`/redoc`. Every schema carries field descriptions and a worked example, because
+an OpenAPI document with bare types is a type checker, not documentation.
+
+## 6. Layering
+
+FastAPI is the transport, and nothing else:
+
+```
+FastAPI router      request/response schemas, HTTP status codes
+      ↓
+PredictionService   framework-agnostic: no Request, no HTTPException
+      ↓
+Artifact + pipeline preprocessing and model, as one fitted object
+      ↓
+Explainer           SHAP contributions as data
+```
+
+`PredictionService` imports nothing from FastAPI. That is what lets the same
+prediction path serve batch inference, a CLI, or a test, without a running
+server — and it is why the tests for prediction logic do not need a TestClient.
+
+## 7. Model loading
+
+Artifacts load **once**, in a `lifespan` handler, and reach handlers through
+`Depends`. Not at import time: an import-time load makes the module unimportable
+without a trained model, which breaks collection of every test in the suite.
+
+`@app.on_event("startup")` is deprecated in FastAPI 0.141 and is not used.
+
+## 8. What this API does not do
+
+- **No authentication.** Nothing here is user data and there is nothing to
+  spend. Adding auth without a threat model would be theatre.
+- **No write endpoints.** Predictions are not persisted. The service is a pure
+  function of the artifact plus the request.
+- **No training.** Training is `scripts/train_models.py`, deliberately not
+  reachable over HTTP.
+- **No batch endpoint yet.** It will be `POST /api/v1/predict:batch` when a
+  consumer needs one; guessing its shape now would freeze a wrong guess into a
+  frozen v1.

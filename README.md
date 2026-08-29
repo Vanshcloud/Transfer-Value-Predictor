@@ -3,9 +3,9 @@
 Predict the market value (EUR) of professional footballers from performance,
 biographical and contextual data — and explain every prediction.
 
-> **Status: Phase 8 of 13.** Ingestion, validation, the training table, the
-> baselines, the tuned model zoo, and evaluation with explanations are built.
-> The API and dashboard are not. See
+> **Status: Phase 9 of 13.** Ingestion, validation, the training table, the
+> baselines, the tuned model zoo, evaluation with explanations, and the API are
+> built. The dashboard is not. See
 > [`plans/IMPLEMENTATION_PLAN.md`](plans/IMPLEMENTATION_PLAN.md).
 
 ## Why this repository looks the way it does
@@ -152,6 +152,43 @@ They are *not* additive in euros — the same contribution is worth a different
 number of euros for a €500k player and a €90M one — so each one also carries
 an exact multiplicative reading (`effect_multiplier`), which is the honest unit
 for a log-target model and the one the API surfaces.
+
+## API
+
+```bash
+make serve        # uvicorn api.main:app --reload
+```
+
+Interactive docs at `/docs`, the schema at `/api/v1/openapi.json`. The contract
+is written down first, in [`docs/API_CONTRACT.md`](docs/API_CONTRACT.md), and
+the service conforms to it — where the two disagree, the document is the defect
+report.
+
+| Method | Path |
+|---|---|
+| `GET` | `/health` (unversioned, for orchestrators) |
+| `POST` | `/api/v1/predict` |
+| `GET` | `/api/v1/players/{player_id}` |
+| `GET` | `/api/v1/models` · `/api/v1/models/{variant}` |
+| `GET` | `/api/v1/models/{variant}/metrics` · `/feature-importance` |
+
+`POST /api/v1/predict` takes **either** a `player_id` **or** an explicit
+`features` map — never both, never neither. Unknown feature names are rejected
+rather than dropped, because silently ignoring a misspelt `minutes_playd`
+returns a confident answer to a question nobody asked.
+
+**On `confidence`.** A gradient booster has no calibrated uncertainty, and this
+API will not invent one. The `confidence` field is an *empirical prediction
+interval*: the model's own residual quantiles, measured on held-out seasons,
+for the value band the prediction falls into, with the row count it was
+measured over. `level: 0.8` means 80% of held-out predictions in that band
+landed inside those bounds. The intervals are wide — roughly ×0.35 to ×5.0.
+That is the honest finding, not a defect to tune away.
+
+**Layering.** `src/services/prediction.py` imports no web framework — a test
+asserts it, against parsed imports rather than a grep. That is what lets the
+same prediction path serve HTTP, a batch job or a CLI, and why the 29 tests for
+prediction logic need no running server.
 
 ## Development
 

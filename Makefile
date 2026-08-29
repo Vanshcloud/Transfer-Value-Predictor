@@ -1,7 +1,7 @@
 # Target names deliberately match the sibling predictive-maintenance project,
 # so muscle memory carries between the two repositories.
 
-.PHONY: help setup install install-dev hooks test test-cov lint format format-check typecheck quality clean
+.PHONY: help setup install install-dev hooks serve test test-cov lint format format-check typecheck quality clean
 
 PYTHON := python3.13
 VENV   := .venv
@@ -33,18 +33,21 @@ test: ## Run unit tests (integration excluded)
 test-cov: ## Run tests with a coverage report
 	$(BIN)/pytest -m "not integration" --cov=src --cov-report=term-missing
 
+serve: ## Run the API locally with reload
+	$(BIN)/uvicorn api.main:app --reload
+
 lint: ## Run ruff
-	$(BIN)/ruff check src tests scripts
+	$(BIN)/ruff check src tests scripts api
 
 format: ## Format with black and apply ruff import order
-	$(BIN)/black src tests scripts
-	$(BIN)/ruff check --fix src tests scripts
+	$(BIN)/black src tests scripts api
+	$(BIN)/ruff check --fix src tests scripts api
 
 format-check: ## Check formatting without writing
-	$(BIN)/black --check src tests scripts
+	$(BIN)/black --check src tests scripts api
 
 typecheck: ## Run mypy
-	$(BIN)/mypy src
+	$(BIN)/mypy src api
 
 quality: lint format-check typecheck ## Run every quality gate
 

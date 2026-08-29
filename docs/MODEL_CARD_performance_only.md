@@ -1,6 +1,6 @@
 # Model card — performance_only
 
-Generated 2026-08-28T18:01:23.739853+00:00 from `performance_only__lightgbm`.
+Generated 2026-08-29T09:07:53.371592+00:00 from `performance_only__lightgbm`.
 This file is written from the artifact, so it cannot describe a model that
 is no longer the one on disk.
 
