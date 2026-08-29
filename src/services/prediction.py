@@ -42,6 +42,11 @@ DEFAULT_TOP_N = 5
 MAX_TOP_N = 25
 MAX_SEARCH_RESULTS = 50
 DEFAULT_SIMILAR = 8
+
+QUANTILE_GRID = tuple(round(0.05 * step, 2) for step in range(21))
+"""0, 0.05 ... 1.0. A grid rather than a handful of named quantiles so a
+client can interpolate a value's percentile without another request — which is
+what a radar chart needs to place an axis honestly."""
 """How many contributions a response carries. The service always computes the
 full explanation; truncation belongs to the caller, which is why these are
 defaults for the transport layer rather than parameters of the service."""
@@ -129,6 +134,7 @@ class PredictionService:
         # Built lazily: fitting the neighbour index costs a pass over every row
         # and most requests never ask for similar players.
         self._neighbours: dict[str, tuple[NearestNeighbors, pd.DataFrame]] = {}
+        self._distribution: dict[str, Any] = {}
 
     def name_for(self, player_id: int) -> str | None:
         """Display name, when the players table was loaded alongside."""
@@ -430,6 +436,82 @@ class PredictionService:
         if missing:
             return pd.DataFrame()
         return self._players.dropna(subset=list(artifact.feature_columns))
+
+    def feature_distribution(self, variant: str | None = None) -> dict[str, Any]:
+        """Quantiles per numeric feature, across the whole panel.
+
+        A radar axis needs to know what "good" looks like. Normalising against
+        only the two players being compared would peg one of them at the
+        maximum on every axis and say nothing; normalising against the
+        population says "92nd percentile for goals per 90", which is a fact.
+        """
+        artifact = self.artifact(variant)
+        if artifact.variant in self._distribution:
+            cached: dict[str, Any] = self._distribution[artifact.variant]
+            return cached
+        if self._players.empty:
+            return {}
+
+        features: dict[str, Any] = {}
+        for column in artifact.feature_columns:
+            if column not in self._players.columns:
+                continue
+            series = pd.to_numeric(self._players[column], errors="coerce").dropna()
+            if series.empty:
+                continue
+            features[column] = {
+                "quantiles": [float(series.quantile(q)) for q in QUANTILE_GRID],
+                "median": float(series.median()),
+                "n": int(len(series)),
+            }
+
+        payload = {
+            "variant": artifact.variant,
+            "grid": list(QUANTILE_GRID),
+            "features": features,
+        }
+        self._distribution[artifact.variant] = payload
+        return payload
+
+    def prediction_history(
+        self, player_id: int, *, variant: str | None = None
+    ) -> list[dict[str, Any]]:
+        """Predict every season on record, beside what actually happened.
+
+        One prediction says what the model thinks. A series says whether it
+        tracks a career or merely lands near the middle — and the seasons in
+        the training range will look better than the held-out ones, which is
+        itself worth seeing.
+        """
+        artifact = self.artifact(variant)
+        rows = self._player_rows(player_id)
+
+        usable = rows.dropna(subset=list(artifact.feature_columns))
+        if usable.empty:
+            return []
+
+        predictions = predict(artifact, usable)
+        split = artifact.split or {}
+        test_start = split.get("test_start_season")
+        train_end = split.get("train_end_season")
+
+        history = []
+        for (_, row), predicted in zip(usable.iterrows(), predictions, strict=True):
+            season = int(row["season"])
+            actual = float(row[TARGET_COLUMN])
+            history.append(
+                {
+                    "season": season,
+                    "predicted_eur": float(predicted),
+                    "actual_eur": actual,
+                    "error_eur": float(predicted) - actual,
+                    # Stated per row, because a prediction for a season the
+                    # model trained on is not evidence of anything.
+                    "in_training_range": (train_end is not None and season <= int(train_end)),
+                    "held_out": (test_start is not None and season >= int(test_start)),
+                }
+            )
+        return history
 
     # -- prediction ------------------------------------------------------
 

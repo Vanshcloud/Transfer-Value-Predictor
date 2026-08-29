@@ -16,6 +16,7 @@ from api.dependencies import ServiceDep
 from api.schemas import (
     ConfidenceSchema,
     ExplanationSchema,
+    FeatureDistributionResponse,
     FeatureImportanceResponse,
     ModelInfoResponse,
     ModelListResponse,
@@ -23,6 +24,7 @@ from api.schemas import (
     ModelSummary,
     PlayerResponse,
     PlayerSearchResponse,
+    PredictionHistoryResponse,
     PredictRequest,
     PredictResponse,
     SimilarPlayersResponse,
@@ -113,6 +115,47 @@ def similar_players(
         season=results[0]["season"] if results else None,
         results=results,  # type: ignore[arg-type]
     )
+
+
+@router.get(
+    "/players/{player_id}/history",
+    response_model=PredictionHistoryResponse,
+    summary="Predicted against actual, season by season",
+    responses={404: {"description": "No such player"}},
+)
+def prediction_history(
+    service: ServiceDep,
+    player_id: Annotated[int, Path(ge=1)],
+    variant: Annotated[str | None, Query()] = None,
+) -> PredictionHistoryResponse:
+    """One prediction says what the model thinks; a series says whether it
+    tracks a career. Each point states whether the model trained on that
+    season, because agreement inside the training range is not evidence."""
+    points = service.prediction_history(player_id, variant=variant)
+    return PredictionHistoryResponse(
+        player_id=player_id,
+        variant=service.artifact(variant).variant,
+        points=points,  # type: ignore[arg-type]
+    )
+
+
+@router.get(
+    "/features/distribution",
+    response_model=FeatureDistributionResponse,
+    summary="Population quantiles per feature",
+    responses={503: {"description": "No model loaded"}},
+)
+def feature_distribution(
+    service: ServiceDep, variant: Annotated[str | None, Query()] = None
+) -> FeatureDistributionResponse:
+    """Lets a client say "92nd percentile for goals per 90" rather than
+    normalising against whatever two players happen to be on screen."""
+    payload = service.feature_distribution(variant)
+    if not payload:
+        return FeatureDistributionResponse(
+            variant=service.artifact(variant).variant, grid=[], features={}
+        )
+    return FeatureDistributionResponse(**payload)
 
 
 @router.get(

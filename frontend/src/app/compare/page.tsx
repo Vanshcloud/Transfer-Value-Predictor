@@ -3,19 +3,41 @@
 /** Two players, side by side, on the same model and the same season basis. */
 
 import { useCallback, useEffect, useState } from "react";
-import { api, type PredictResponse, type SearchResult, type Variant } from "@/lib/api";
+import { useAsync } from "@/lib/useAsync";
+import Link from "next/link";
+import {
+  api,
+  type FeatureDistribution,
+  type Player,
+  type PredictResponse,
+  type SearchResult,
+  type SimilarPlayer,
+  type Variant,
+} from "@/lib/api";
 import { eur, featureLabel } from "@/lib/format";
 import Chart from "@/components/Chart";
+import Radar from "@/components/Radar";
 import { Card, Empty, ErrorPanel, Loading } from "@/components/ui";
+
+const COLOURS = ["#0284c7", "#f59e0b"] as const;
 
 interface Side {
   query: string;
   results: SearchResult[];
   chosen: SearchResult | null;
   prediction: PredictResponse | null;
+  player: Player | null;
+  similar: SimilarPlayer[];
 }
 
-const EMPTY: Side = { query: "", results: [], chosen: null, prediction: null };
+const EMPTY: Side = {
+  query: "",
+  results: [],
+  chosen: null,
+  prediction: null,
+  player: null,
+  similar: [],
+};
 
 function PlayerPicker({
   side,
@@ -77,6 +99,16 @@ export default function ComparePage() {
   const [error, setError] = useState<unknown>(null);
   const [pending, setPending] = useState(false);
 
+  // Fetched once: the population quantiles the radar normalises against do not
+  // change between comparisons.
+  const distributionFetcher = useCallback(
+    () => api.featureDistribution(variant),
+    [variant],
+  );
+  const { state: distributionState } = useAsync<FeatureDistribution>(distributionFetcher);
+  const distribution =
+    distributionState.status === "ready" ? distributionState.data : null;
+
   const runSearch = useCallback(
     async (query: string, set: (updater: (side: Side) => Side) => void) => {
       if (!query.trim()) {
@@ -108,8 +140,12 @@ export default function ComparePage() {
       set((side) => ({ ...side, chosen: result, results: [] }));
       setPending(true);
       try {
-        const prediction = await api.predictForPlayer(result.player_id, variant);
-        set((side) => ({ ...side, prediction }));
+        const [prediction, player, neighbours] = await Promise.all([
+          api.predictForPlayer(result.player_id, variant),
+          api.player(result.player_id),
+          api.similarPlayers(result.player_id, 5, variant).catch(() => ({ results: [] })),
+        ]);
+        set((side) => ({ ...side, prediction, player, similar: neighbours.results }));
       } catch (caught) {
         setError(caught);
       } finally {
@@ -211,6 +247,75 @@ export default function ComparePage() {
                 xaxis: { title: { text: "contribution (log space)" } },
               }}
             />
+          </Card>
+
+          {distribution && left.player && right.player && (
+            <Card
+              title="Profile"
+              subtitle="Each axis is a percentile across the whole panel"
+            >
+              <Radar
+                distribution={distribution}
+                series={[
+                  {
+                    label: left.chosen?.name ?? "A",
+                    colour: COLOURS[0],
+                    features: left.player.features,
+                  },
+                  {
+                    label: right.chosen?.name ?? "B",
+                    colour: COLOURS[1],
+                    features: right.player.features,
+                  },
+                ]}
+              />
+            </Card>
+          )}
+
+          <div className="grid gap-6 sm:grid-cols-2">
+            {[left, right].map((side, index) => (
+              <Card key={index} title={`Similar to ${side.chosen?.name ?? ""}`}>
+                {side.similar.length === 0 ? (
+                  <Empty>No comparable seasons.</Empty>
+                ) : (
+                  <ul className="divide-y divide-slate-100 dark:divide-slate-800">
+                    {side.similar.map((player) => (
+                      <li key={`${player.player_id}-${player.season}`}>
+                        <Link
+                          href={`/players/${player.player_id}`}
+                          className="flex justify-between gap-3 py-2 text-sm hover:bg-slate-50 dark:hover:bg-slate-800/50"
+                        >
+                          <span className="truncate">
+                            {player.name ?? `Player ${player.player_id}`}
+                          </span>
+                          <span className="shrink-0 tabular-nums text-slate-500 dark:text-slate-400">
+                            {eur(player.market_value_in_eur)}
+                          </span>
+                        </Link>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </Card>
+            ))}
+          </div>
+
+          <Card>
+            <p className="text-sm text-slate-600 dark:text-slate-400">
+              To change either player&apos;s season and watch the value move, open
+              their page:{" "}
+              {[left, right].map((side, index) => (
+                <span key={index}>
+                  {index > 0 && " · "}
+                  <Link
+                    href={`/players/${side.chosen?.player_id}`}
+                    className="text-sky-600 hover:underline dark:text-sky-400"
+                  >
+                    {side.chosen?.name}
+                  </Link>
+                </span>
+              ))}
+            </p>
           </Card>
         </>
       )}

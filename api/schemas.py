@@ -245,6 +245,35 @@ class SimilarPlayersResponse(BaseModel):
     results: list[SimilarPlayer]
 
 
+class HistoryPoint(BaseModel):
+    """One season, predicted against what actually happened."""
+
+    season: int
+    predicted_eur: float
+    actual_eur: float
+    error_eur: float = Field(description="predicted − actual, so positive means overvalued")
+    in_training_range: bool = Field(
+        description="The model trained on this season. Agreement here is not evidence."
+    )
+    held_out: bool = Field(description="A test season the model never saw.")
+
+
+class PredictionHistoryResponse(BaseModel):
+    player_id: int
+    variant: str
+    points: list[HistoryPoint]
+
+
+class FeatureDistributionResponse(BaseModel):
+    """Population quantiles, so a client can place a value in context."""
+
+    variant: str
+    grid: list[float] = Field(description="Quantile levels the values correspond to.")
+    features: dict[str, Any] = Field(
+        description="Per feature: quantiles at each grid level, median and n."
+    )
+
+
 class PlayerResponse(BaseModel):
     """A player's attributes and every season on file."""
 

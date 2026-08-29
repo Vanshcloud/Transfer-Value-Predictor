@@ -403,3 +403,75 @@ class TestFeatureSeed:
 
     def test_the_player_payload_carries_a_name(self, service: PredictionService) -> None:
         assert service.player(7)["name"] == "Erling Test"
+
+
+class TestPredictionHistory:
+    def test_it_covers_every_modellable_season(self, service: PredictionService) -> None:
+        history = service.prediction_history(1)
+        assert [point["season"] for point in history] == [2022, 2023, 2024]
+
+    def test_each_point_carries_prediction_and_truth(self, service: PredictionService) -> None:
+        for point in service.prediction_history(1):
+            assert point["predicted_eur"] > 0
+            assert point["actual_eur"] > 0
+            assert point["error_eur"] == pytest.approx(point["predicted_eur"] - point["actual_eur"])
+
+    def test_predictions_match_the_single_season_endpoint(self, service: PredictionService) -> None:
+        """Two paths to the same number must not disagree."""
+        history = {p["season"]: p["predicted_eur"] for p in service.prediction_history(1)}
+        single = service.predict_for_player(1, season=2023)
+        assert history[2023] == pytest.approx(single.prediction_eur)
+
+    def test_points_say_whether_the_model_trained_on_them(
+        self, artifact: ModelArtifact, players: pd.DataFrame
+    ) -> None:
+        # Agreement inside the training range is not evidence, so the flag has
+        # to travel with the point rather than be inferred by the reader.
+        import dataclasses
+
+        split = {"strategy": "temporal", "train_end_season": 2022, "test_start_season": 2024}
+        service = PredictionService(
+            {"performance_only": dataclasses.replace(artifact, split=split)},
+            players,
+            NAMES,
+        )
+        history = {p["season"]: p for p in service.prediction_history(1)}
+
+        assert history[2022]["in_training_range"] is True
+        assert history[2022]["held_out"] is False
+        assert history[2024]["held_out"] is True
+
+    def test_an_unknown_player_raises(self, service: PredictionService) -> None:
+        with pytest.raises(PlayerNotFoundError):
+            service.prediction_history(999_999)
+
+
+class TestFeatureDistribution:
+    def test_it_reports_quantiles_per_numeric_feature(self, service: PredictionService) -> None:
+        distribution = service.feature_distribution()
+        assert distribution["features"]
+        assert "goals" in distribution["features"]
+
+    def test_quantiles_are_monotonic(self, service: PredictionService) -> None:
+        """A radar axis built on a non-monotonic grid would place values wrongly."""
+        for feature in service.feature_distribution()["features"].values():
+            quantiles = feature["quantiles"]
+            assert quantiles == sorted(quantiles)
+
+    def test_the_grid_and_the_quantiles_line_up(self, service: PredictionService) -> None:
+        distribution = service.feature_distribution()
+        for feature in distribution["features"].values():
+            assert len(feature["quantiles"]) == len(distribution["grid"])
+
+    def test_the_grid_spans_zero_to_one(self, service: PredictionService) -> None:
+        grid = service.feature_distribution()["grid"]
+        assert grid[0] == 0.0
+        assert grid[-1] == 1.0
+
+    def test_it_is_cached(self, service: PredictionService) -> None:
+        assert service.feature_distribution() is service.feature_distribution()
+
+    def test_it_serialises_to_json(self, service: PredictionService) -> None:
+        import json
+
+        assert json.loads(json.dumps(service.feature_distribution()))["features"]

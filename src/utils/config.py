@@ -3,7 +3,8 @@
 Precedence, lowest to highest: ``configs/config.yaml`` -> ``.env`` -> real
 environment variables. Secrets live only in the environment, never in the YAML.
 
-Pydantic v2 only. ``@validator``, ``.dict()`` and ``class Config`` are v1 idioms
+Pydantic v2 only. The v1 ``validator`` decorator, ``.dict()`` and the nested
+``Config`` class are v1 idioms
 that still run but emit deprecation warnings; the test suite runs with
 ``-W error::DeprecationWarning`` so they cannot creep back in.
 

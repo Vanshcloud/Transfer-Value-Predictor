@@ -315,6 +315,8 @@ class TestContract:
             "/api/v1/players",
             "/api/v1/players/{player_id}",
             "/api/v1/players/{player_id}/similar",
+            "/api/v1/players/{player_id}/history",
+            "/api/v1/features/distribution",
             "/api/v1/models",
             "/api/v1/models/{variant}",
             "/api/v1/models/{variant}/metrics",
@@ -426,3 +428,41 @@ class TestWhatIfSupport:
         high = client.post("/api/v1/predict", json={"features": {**features, "goals": 22}}).json()
 
         assert high["prediction_eur"] > low["prediction_eur"]
+
+
+class TestHistoryEndpoint:
+    def test_it_returns_a_point_per_season(self, client: TestClient) -> None:
+        body = client.get("/api/v1/players/101/history").json()
+        assert body["player_id"] == 101
+        assert [point["season"] for point in body["points"]] == [2023, 2024]
+
+    def test_each_point_flags_whether_the_model_saw_it(self, client: TestClient) -> None:
+        for point in client.get("/api/v1/players/101/history").json()["points"]:
+            assert "in_training_range" in point
+            assert "held_out" in point
+
+    def test_it_agrees_with_the_predict_endpoint(self, client: TestClient) -> None:
+        points = client.get("/api/v1/players/101/history").json()["points"]
+        latest = max(points, key=lambda p: p["season"])
+        single = client.post("/api/v1/predict", json={"player_id": 101}).json()
+
+        assert latest["predicted_eur"] == pytest.approx(single["prediction_eur"])
+
+    def test_an_unknown_player_is_404(self, client: TestClient) -> None:
+        assert client.get("/api/v1/players/999999/history").status_code == 404
+
+
+class TestDistributionEndpoint:
+    def test_it_returns_a_quantile_grid(self, client: TestClient) -> None:
+        body = client.get("/api/v1/features/distribution").json()
+        assert body["grid"][0] == 0.0
+        assert body["grid"][-1] == 1.0
+        assert body["features"]
+
+    def test_quantiles_are_monotonic(self, client: TestClient) -> None:
+        body = client.get("/api/v1/features/distribution").json()
+        for feature in body["features"].values():
+            assert feature["quantiles"] == sorted(feature["quantiles"])
+
+    def test_without_a_model_it_is_503(self, empty_client: TestClient) -> None:
+        assert empty_client.get("/api/v1/features/distribution").status_code == 503

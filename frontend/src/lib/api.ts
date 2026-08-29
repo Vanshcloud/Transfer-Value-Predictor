@@ -88,6 +88,23 @@ export interface SimilarPlayer {
   distance: number;
 }
 
+export interface HistoryPoint {
+  season: number;
+  predicted_eur: number;
+  actual_eur: number;
+  error_eur: number;
+  /** The model trained on this season. Agreement here is not evidence. */
+  in_training_range: boolean;
+  held_out: boolean;
+}
+
+export interface FeatureDistribution {
+  variant: string;
+  /** Quantile levels the values correspond to, e.g. [0, 0.05, ... 1]. */
+  grid: number[];
+  features: Record<string, { quantiles: number[]; median: number; n: number }>;
+}
+
 export interface Metrics {
   mae_eur: number | null;
   rmse_eur: number | null;
@@ -204,6 +221,16 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ features, variant, top_n: 8 }),
     }),
+
+  predictionHistory: (id: number, variant?: Variant) =>
+    request<{ player_id: number; variant: string; points: HistoryPoint[] }>(
+      `/api/v1/players/${id}/history${variant ? `?variant=${variant}` : ""}`,
+    ),
+
+  featureDistribution: (variant?: Variant) =>
+    request<FeatureDistribution>(
+      `/api/v1/features/distribution${variant ? `?variant=${variant}` : ""}`,
+    ),
 
   models: () => request<{ variants: string[]; default: string | null }>("/api/v1/models"),
 

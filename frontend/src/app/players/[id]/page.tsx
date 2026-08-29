@@ -13,6 +13,7 @@ import { useAsync } from "@/lib/useAsync";
 import Link from "next/link";
 import {
   api,
+  type HistoryPoint,
   type ModelInfo,
   type ModelMetrics,
   type Player,
@@ -22,6 +23,7 @@ import {
 } from "@/lib/api";
 import Contributions from "@/components/Contributions";
 import ModelMetadata from "@/components/ModelMetadata";
+import PredictionHistory from "@/components/PredictionHistory";
 import PredictionPanel from "@/components/PredictionPanel";
 import SimilarPlayers from "@/components/SimilarPlayers";
 import ValueHistory from "@/components/ValueHistory";
@@ -47,6 +49,7 @@ interface PageData {
   similar: SimilarPlayer[];
   info: ModelInfo;
   metrics: ModelMetrics;
+  history: HistoryPoint[];
 }
 
 export default function PlayerPage({ params }: { params: Promise<{ id: string }> }) {
@@ -60,22 +63,30 @@ export default function PlayerPage({ params }: { params: Promise<{ id: string }>
     // awaited first: a 404 here should not wait on four other requests.
     const player = await api.player(playerId);
 
-    const [prediction, neighbours, info, metrics] = await Promise.all([
+    const [prediction, neighbours, info, metrics, history] = await Promise.all([
       api.predictForPlayer(playerId, variant),
-      // Neighbours are a nice-to-have. Losing them should not blank a page
-      // that has a prediction to show.
+      // Neighbours and history are nice-to-haves. Losing either should not
+      // blank a page that has a prediction to show.
       api.similarPlayers(playerId, 8, variant).catch(() => ({ results: [] })),
       api.modelInfo(variant),
       api.modelMetrics(variant),
+      api.predictionHistory(playerId, variant).catch(() => ({ points: [] })),
     ]);
 
-    return { player, prediction, similar: neighbours.results, info, metrics };
+    return {
+      player,
+      prediction,
+      similar: neighbours.results,
+      info,
+      metrics,
+      history: history.points,
+    };
   }, [playerId, variant]);
 
   const { state, reload } = useAsync(fetcher);
   const loading = state.status === "loading";
   const error = state.status === "error" ? state.error : null;
-  const { player, prediction, similar, info, metrics } =
+  const { player, prediction, similar, info, metrics, history } =
     state.status === "ready"
       ? state.data
       : {
@@ -84,6 +95,7 @@ export default function PlayerPage({ params }: { params: Promise<{ id: string }>
           similar: [] as SimilarPlayer[],
           info: null,
           metrics: null,
+          history: [] as HistoryPoint[],
         };
 
   if (error != null) {
@@ -167,7 +179,11 @@ export default function PlayerPage({ params }: { params: Promise<{ id: string }>
                   negative={prediction.explanation.top_negative_features}
                 />
               )}
-              {player && <ValueHistory seasons={player.seasons} />}
+              {history.length > 0 ? (
+                <PredictionHistory points={history} />
+              ) : (
+                player && <ValueHistory seasons={player.seasons} />
+              )}
             </div>
 
             <div className="space-y-6">
