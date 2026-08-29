@@ -3,8 +3,9 @@
 Predict the market value (EUR) of professional footballers from performance,
 biographical and contextual data — and explain every prediction.
 
-> **Status: Phase 7 of 13.** Ingestion, validation, the training table, the
-> baselines and the tuned model zoo are built. The API and dashboard are not. See
+> **Status: Phase 8 of 13.** Ingestion, validation, the training table, the
+> baselines, the tuned model zoo, and evaluation with explanations are built.
+> The API and dashboard are not. See
 > [`plans/IMPLEMENTATION_PLAN.md`](plans/IMPLEMENTATION_PLAN.md).
 
 ## Why this repository looks the way it does
@@ -54,6 +55,7 @@ python scripts/validate_data.py    # contract checks; --strict fails on warnings
 python scripts/build_features.py   # one row per player-season, labelled and leak-checked
 python scripts/train_baseline.py   # baselines across all three splits
 python scripts/train_models.py     # nine tuned families, best saved per variant
+python scripts/build_reports.py    # evaluation, SHAP, error analysis, model cards
 ```
 
 The training table as of the 2026-08-05 dataset refresh:
@@ -119,6 +121,37 @@ and estimator as one object, plus metrics, named feature importance, the full
 leaderboard and the seed — with a readable JSON sidecar. A test asserts a
 reloaded artifact reproduces its recorded metrics exactly. The contract is
 [`docs/EXPERIMENT_TRACKING.md`](docs/EXPERIMENT_TRACKING.md).
+
+## Evaluation and explanations
+
+`scripts/build_reports.py` reads the saved models — it trains nothing — and
+writes self-contained HTML into `reports/`, plus a model card per variant and
+[`docs/model_comparison.md`](docs/model_comparison.md), which shows *why*
+LightGBM was selected rather than just that it was:
+
+| | |
+|---|---|
+| `reports/baseline_report.html` | every family, accuracy beside training time, prediction time and model size |
+| `reports/evaluation.html` | test metrics, predicted-vs-actual, residuals |
+| `reports/feature_importance.html` | what the fitted model leans on |
+| `reports/shap_summary.html` | global impact plus worked per-player waterfalls |
+| `reports/error_analysis.html` | error by value band, age, position and season |
+
+Two things the cost columns showed that accuracy alone would not: Random Forest
+serialises to **458 MB** against LightGBM's 1.7 MB while scoring worse, and
+CatBoost is within **0.75%** of the winner for 5.7× faster training and 4.8×
+less disk — so if serving cost ever matters, that is the switch to make.
+
+**Explanations are data, not pictures.** `src/explainability/` returns
+dataclasses and floats and imports no plotting library, because Phase 9's
+`POST /predict` has to return contributions as JSON and Phase 10 has to draw
+them in a browser. The HTML is a rendering layer on top of the same functions.
+
+SHAP values are additive in **log space**, since the models fit `log1p(EUR)`.
+They are *not* additive in euros — the same contribution is worth a different
+number of euros for a €500k player and a €90M one — so each one also carries
+an exact multiplicative reading (`effect_multiplier`), which is the honest unit
+for a log-target model and the one the API surfaces.
 
 ## Development
 

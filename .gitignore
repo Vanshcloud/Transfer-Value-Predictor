@@ -51,3 +51,11 @@ out/
 .claude/
 .DS_Store
 *.swp
+
+# Generated reports. The HTML embeds every figure as a base64 PNG so each file
+# stands alone, which also makes them large and binary-ish — poor things to
+# version. `python scripts/build_reports.py` regenerates them in seconds from
+# the saved models. The Markdown they produce (docs/model_comparison.md, the
+# model cards) IS committed: it is small, diffable, and worth reviewing.
+reports/*
+!reports/.gitkeep

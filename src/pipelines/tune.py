@@ -15,10 +15,14 @@ a leak is before a metric built on it has been written down and believed.
 
 from __future__ import annotations
 
+import io
+import time
 from dataclasses import dataclass
 from pathlib import Path
 
+import joblib
 import pandas as pd
+from sklearn.pipeline import Pipeline
 
 from src.evaluation.metrics import Metrics, evaluate
 from src.feature_engineering.build import CATEGORICAL_FEATURES, TARGET_COLUMN, select_variant
@@ -37,14 +41,36 @@ logger = get_logger(__name__)
 
 @dataclass(frozen=True)
 class FamilyResult:
-    """One model family's tuned score on the validation season."""
+    """One model family's tuned score on the validation season, and what it cost.
+
+    Accuracy alone does not explain a choice. A family that matches the winner
+    on MAE while taking twenty times as long to fit, or producing a model forty
+    times the size, lost for reasons the metric column cannot show — so the
+    cost columns are recorded next to it rather than reconstructed later from
+    memory.
+    """
 
     tuning: TuningResult
     validation: Metrics
+    fit_seconds: float
+    predict_seconds: float
+    size_bytes: int
 
     @property
     def name(self) -> str:
         return self.tuning.model_name
+
+
+def _serialised_size(pipeline: Pipeline) -> int:
+    """Bytes the fitted pipeline occupies on disk.
+
+    The whole pipeline, preprocessing included, because that is what actually
+    gets deployed — measuring the bare estimator would understate every family
+    by the same one-hot encoder and flatter none of them usefully.
+    """
+    buffer = io.BytesIO()
+    joblib.dump(pipeline, buffer)
+    return buffer.getbuffer().nbytes
 
 
 def _numeric_features(feature_columns: tuple[str, ...]) -> list[str]:
@@ -123,11 +149,21 @@ def _tune_and_validate(
 
     features = list(feature_columns)
     train, validation = frame.loc[split.train], frame.loc[split.validation]
+
+    started = time.perf_counter()
     pipeline.fit(train[features], train[TARGET_COLUMN])
+    fit_seconds = time.perf_counter() - started
+
+    started = time.perf_counter()
+    predictions = pipeline.predict(validation[features])
+    predict_seconds = time.perf_counter() - started
 
     return FamilyResult(
         tuning=tuning,
-        validation=evaluate(validation[TARGET_COLUMN], pipeline.predict(validation[features])),
+        validation=evaluate(validation[TARGET_COLUMN], predictions),
+        fit_seconds=fit_seconds,
+        predict_seconds=predict_seconds,
+        size_bytes=_serialised_size(pipeline),
     )
 
 
@@ -175,7 +211,13 @@ def _fit_winner(
                 "model": result.name,
                 "validation_mae_eur": result.validation.mae,
                 "validation_r2": result.validation.r2,
+                "validation_rmse_eur": result.validation.rmse,
+                "validation_mape": result.validation.mape,
                 "cv_mae_eur": result.tuning.cv_mae,
+                "fit_seconds": result.fit_seconds,
+                "predict_seconds": result.predict_seconds,
+                "predict_rows": result.validation.n,
+                "size_bytes": result.size_bytes,
                 "params": result.tuning.best_params,
             }
             for result in sorted(results, key=lambda r: r.validation.mae)

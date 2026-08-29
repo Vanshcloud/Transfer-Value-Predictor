@@ -62,10 +62,10 @@ strict_equality = true
 module = ["sklearn.*"]
 ignore_missing_imports = true
 
-# joblib and catboost likewise. xgboost and lightgbm ship their own types.
-# Introduced in Phase 7 (model zoo and persistence).
+# joblib, catboost and shap likewise. xgboost and lightgbm ship their own
+# types. Introduced in Phases 7 and 8 (model persistence, explainability).
 [[tool.mypy.overrides]]
-module = ["catboost.*", "joblib.*"]
+module = ["catboost.*", "joblib.*", "shap.*"]
 ignore_missing_imports = true
 
 # ---- pytest ----
@@ -87,6 +87,11 @@ filterwarnings = [
     # DeprecationWarning, which would let a real one through. Introduced in
     # Phase 7 with model persistence.
     "ignore:Setting the shape on a NumPy array has been deprecated:DeprecationWarning:joblib.numpy_pickle",
+    # shap builds its colormaps at import time using matplotlib's set_bad /
+    # set_over / set_under, which matplotlib 3.11 flags as pending. Raised on
+    # `import shap`, so it fires on any test that touches explainability, and
+    # nothing in this project can avoid it. Introduced in Phase 8.
+    "ignore:The set_(bad|over|under) function will be deprecated:PendingDeprecationWarning",
 ]
 markers = [
     "integration: needs downloaded data or a trained model (deselect with -m 'not integration')",
