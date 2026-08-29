@@ -15,6 +15,7 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
 from api.dependencies import ServiceDep, build_service
 from api.errors import register_error_handlers
@@ -26,6 +27,21 @@ from src.utils.logging import configure_logging, get_logger
 logger = get_logger(__name__)
 
 VERSION = "0.1.0"
+
+DEV_ORIGINS = ("http://localhost:3000", "http://127.0.0.1:3000")
+"""Where the dashboard runs in development. A deployment overrides this with
+CORS_ORIGINS rather than editing code."""
+
+
+def settings_cors_origins() -> list[str]:
+    """Allowed browser origins, from CORS_ORIGINS or the development default."""
+    import os
+
+    configured = os.environ.get("CORS_ORIGINS", "").strip()
+    if configured:
+        return [origin.strip() for origin in configured.split(",") if origin.strip()]
+    return list(DEV_ORIGINS)
+
 
 DESCRIPTION = """
 Predict the market value of professional footballers, and explain every
@@ -82,6 +98,19 @@ def create_app() -> FastAPI:
         openapi_url="/api/v1/openapi.json",
         docs_url="/docs",
         redoc_url="/redoc",
+    )
+
+    # The dashboard is served from a different origin in development
+    # (localhost:3000 against localhost:8000), so the browser preflights every
+    # request. Origins are listed rather than wildcarded: this API is
+    # read-only and unauthenticated today, and "*" would be a habit that
+    # becomes wrong the moment either of those changes.
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=settings_cors_origins(),
+        allow_credentials=False,
+        allow_methods=["GET", "POST"],
+        allow_headers=["*"],
     )
 
     register_error_handlers(app)

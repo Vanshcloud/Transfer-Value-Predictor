@@ -1,0 +1,219 @@
+"use client";
+
+/** Two players, side by side, on the same model and the same season basis. */
+
+import { useCallback, useEffect, useState } from "react";
+import { api, type PredictResponse, type SearchResult, type Variant } from "@/lib/api";
+import { eur, featureLabel } from "@/lib/format";
+import Chart from "@/components/Chart";
+import { Card, Empty, ErrorPanel, Loading } from "@/components/ui";
+
+interface Side {
+  query: string;
+  results: SearchResult[];
+  chosen: SearchResult | null;
+  prediction: PredictResponse | null;
+}
+
+const EMPTY: Side = { query: "", results: [], chosen: null, prediction: null };
+
+function PlayerPicker({
+  side,
+  label,
+  onQuery,
+  onPick,
+}: {
+  side: Side;
+  label: string;
+  onQuery: (value: string) => void;
+  onPick: (result: SearchResult) => void;
+}) {
+  return (
+    <div>
+      <label className="text-xs tracking-wide text-slate-500 uppercase dark:text-slate-400">
+        {label}
+      </label>
+      <input
+        type="search"
+        value={side.query}
+        onChange={(event) => onQuery(event.target.value)}
+        placeholder="Search a player"
+        className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 dark:border-slate-700 dark:bg-slate-900"
+      />
+      {side.results.length > 0 && !side.chosen && (
+        <ul className="mt-2 max-h-48 overflow-y-auto rounded-lg border border-slate-200 dark:border-slate-800">
+          {side.results.slice(0, 8).map((result) => (
+            <li key={result.player_id}>
+              <button
+                onClick={() => onPick(result)}
+                className="w-full px-3 py-2 text-left text-sm hover:bg-slate-100 dark:hover:bg-slate-800"
+              >
+                {result.name}
+                <span className="ml-2 text-xs text-slate-400">{result.position}</span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+      {side.chosen && (
+        <div className="mt-2 flex items-center justify-between rounded-lg bg-slate-100 px-3 py-2 dark:bg-slate-800">
+          <span className="text-sm font-medium">{side.chosen.name}</span>
+          <button
+            onClick={() => onQuery("")}
+            className="text-xs text-slate-500 hover:underline"
+          >
+            change
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+export default function ComparePage() {
+  const [variant] = useState<Variant>("performance_only");
+  const [left, setLeft] = useState<Side>(EMPTY);
+  const [right, setRight] = useState<Side>(EMPTY);
+  const [error, setError] = useState<unknown>(null);
+  const [pending, setPending] = useState(false);
+
+  const runSearch = useCallback(
+    async (query: string, set: (updater: (side: Side) => Side) => void) => {
+      if (!query.trim()) {
+        set(() => EMPTY);
+        return;
+      }
+      try {
+        const { results } = await api.searchPlayers(query, 8);
+        set((side) => ({ ...side, results: results.filter((r) => r.predictable) }));
+      } catch (caught) {
+        setError(caught);
+      }
+    },
+    [],
+  );
+
+  useEffect(() => {
+    const timer = setTimeout(() => runSearch(left.query, setLeft), 250);
+    return () => clearTimeout(timer);
+  }, [left.query, runSearch]);
+
+  useEffect(() => {
+    const timer = setTimeout(() => runSearch(right.query, setRight), 250);
+    return () => clearTimeout(timer);
+  }, [right.query, runSearch]);
+
+  const pick = useCallback(
+    async (result: SearchResult, set: (updater: (side: Side) => Side) => void) => {
+      set((side) => ({ ...side, chosen: result, results: [] }));
+      setPending(true);
+      try {
+        const prediction = await api.predictForPlayer(result.player_id, variant);
+        set((side) => ({ ...side, prediction }));
+      } catch (caught) {
+        setError(caught);
+      } finally {
+        setPending(false);
+      }
+    },
+    [variant],
+  );
+
+  const both = left.prediction && right.prediction;
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <h1 className="text-3xl font-semibold tracking-tight">Compare</h1>
+        <p className="mt-2 text-slate-600 dark:text-slate-400">
+          Two players, the same model, the same basis.
+        </p>
+      </div>
+
+      {error != null && <ErrorPanel error={error} />}
+
+      <Card>
+        <div className="grid gap-6 sm:grid-cols-2">
+          <PlayerPicker
+            side={left}
+            label="Player A"
+            onQuery={(value) => setLeft({ ...EMPTY, query: value })}
+            onPick={(result) => pick(result, setLeft)}
+          />
+          <PlayerPicker
+            side={right}
+            label="Player B"
+            onQuery={(value) => setRight({ ...EMPTY, query: value })}
+            onPick={(result) => pick(result, setRight)}
+          />
+        </div>
+      </Card>
+
+      {pending && <Card><Loading /></Card>}
+
+      {!both && !pending && (
+        <Card>
+          <Empty>Choose two players to compare.</Empty>
+        </Card>
+      )}
+
+      {both && (
+        <>
+          <Card title="Predicted value">
+            <div className="grid gap-6 sm:grid-cols-2">
+              {[left, right].map((side, index) => (
+                <div key={index}>
+                  <div className="text-sm text-slate-500 dark:text-slate-400">
+                    {side.chosen?.name}
+                  </div>
+                  <div className="mt-1 text-4xl font-semibold tabular-nums">
+                    {eur(side.prediction!.prediction_eur)}
+                  </div>
+                  {side.prediction!.confidence && (
+                    <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                      {eur(side.prediction!.confidence.lower_eur)} —{" "}
+                      {eur(side.prediction!.confidence.upper_eur)}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          </Card>
+
+          <Card
+            title="What drives each"
+            subtitle="Contributions side by side, in the model's log space"
+          >
+            <Chart
+              title="Contribution comparison"
+              height={420}
+              data={[left, right].map((side, index) => {
+                const explanation = side.prediction!.explanation;
+                const contributions = [
+                  ...(explanation?.top_positive_features ?? []),
+                  ...(explanation?.top_negative_features ?? []),
+                ];
+                return {
+                  type: "bar" as const,
+                  name: side.chosen?.name ?? `Player ${index + 1}`,
+                  orientation: "h" as const,
+                  x: contributions.map((c) => c.shap_value),
+                  y: contributions.map((c) => featureLabel(c.feature)),
+                  marker: { color: index === 0 ? "#0284c7" : "#f59e0b" },
+                };
+              })}
+              layout={{
+                // Grouped is Plotly's default for bar traces, so barmode is
+                // left unset rather than restated.
+                showlegend: true,
+                legend: { orientation: "h", y: 1.08 },
+                margin: { l: 190, r: 20, t: 40, b: 40 },
+                xaxis: { title: { text: "contribution (log space)" } },
+              }}
+            />
+          </Card>
+        </>
+      )}
+    </div>
+  );
+}

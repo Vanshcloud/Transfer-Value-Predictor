@@ -31,6 +31,7 @@ def build_service(settings: Settings) -> PredictionService:
     deployment.
     """
     players: pd.DataFrame | None = None
+    names: dict[int, str] = {}
     try:
         store = DuckDBParquetStore(settings.paths.processed_dir)
         if store.has_table(TRAINING_TABLE):
@@ -38,10 +39,21 @@ def build_service(settings: Settings) -> PredictionService:
             logger.info("loaded %d player-season rows", len(players))
         else:
             logger.warning("no %s table; player lookup will be unavailable", TRAINING_TABLE)
+
+        # Names live in the raw players table, not the training table — the
+        # feature build drops them deliberately, since a name is not a feature.
+        # Search needs them, so they are joined back here rather than pushed
+        # into the model's input.
+        if store.has_table("players"):
+            raw = store.read_table("players")
+            names = dict(zip(raw["player_id"], raw["name"], strict=True))
+            logger.info("loaded %d player names", len(names))
+        else:
+            logger.warning("no players table; name search will be unavailable")
     except OSError as exc:  # pragma: no cover - depends on the deployment
         logger.warning("could not read player data: %s", exc)
 
-    return PredictionService.from_directory(settings.paths.model_dir, players)
+    return PredictionService.from_directory(settings.paths.model_dir, players, names)
 
 
 def get_service(request: Request) -> PredictionService:

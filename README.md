@@ -3,9 +3,8 @@
 Predict the market value (EUR) of professional footballers from performance,
 biographical and contextual data — and explain every prediction.
 
-> **Status: Phase 9 of 13.** Ingestion, validation, the training table, the
-> baselines, the tuned model zoo, evaluation with explanations, and the API are
-> built. The dashboard is not. See
+> **Status: Phase 10 of 13.** The pipeline, models, evaluation, API and
+> dashboard are built. Docker, CI and the optional FBref spike are not. See
 > [`plans/IMPLEMENTATION_PLAN.md`](plans/IMPLEMENTATION_PLAN.md).
 
 ## Why this repository looks the way it does
@@ -168,7 +167,8 @@ report.
 |---|---|
 | `GET` | `/health` (unversioned, for orchestrators) |
 | `POST` | `/api/v1/predict` |
-| `GET` | `/api/v1/players/{player_id}` |
+| `GET` | `/api/v1/players?q=` · `/api/v1/players/{player_id}` |
+| `GET` | `/api/v1/players/{player_id}/similar` |
 | `GET` | `/api/v1/models` · `/api/v1/models/{variant}` |
 | `GET` | `/api/v1/models/{variant}/metrics` · `/feature-importance` |
 
@@ -189,6 +189,42 @@ That is the honest finding, not a defect to tune away.
 asserts it, against parsed imports rather than a grep. That is what lets the
 same prediction path serve HTTP, a batch job or a CLI, and why the 29 tests for
 prediction logic need no running server.
+
+## Dashboard
+
+```bash
+make serve                          # API on :8000
+cd frontend && npm ci && npm run dev # dashboard on :3000
+```
+
+Next.js 16, React 19, Tailwind v4, Plotly. The flow is the product: search a
+player, get a prediction with its interval, see what drove it, see comparable
+seasons, then **change the inputs and watch the value move**.
+
+| Page | What it answers |
+|---|---|
+| `/players` | Which player? Modellable ones first. |
+| `/players/[id]` | What is he worth, why, next to whom — and what if? |
+| `/compare` | How do two players differ, and on what? |
+| `/analytics` | How is value distributed across the panel? |
+| `/model` | How good is this model, and why was it chosen? |
+| `/about` | Where the data came from and where not to trust it. |
+
+Every prediction is shown beside the model that produced it — family, training
+date, dataset size, artifact version, and the **temporal** MAE and R². A number
+with no attribution invites more trust than it has earned.
+
+Three frontend traps, each handled in exactly one place:
+
+- **Plotly and SSR.** A plain import fails `next build` with
+  `ReferenceError: self is not defined` even inside `"use client"`. The dynamic
+  import with `ssr: false` lives only in `src/components/Chart.tsx`, so every
+  chart inherits the fix.
+- **Bundle size.** The slim cartesian build is used, not full Plotly: 1.4 MB in
+  its own lazy chunk rather than 4 MB. `@types/react-plotly.js` is deliberately
+  not installed — v4 ships its own.
+- **Tailwind v4 is CSS-first.** There is no `tailwind.config.js`; creating one
+  would silently do nothing.
 
 ## Development
 

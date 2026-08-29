@@ -26,7 +26,9 @@ whether a process is alive.
 |---|---|---|
 | `GET` | `/health` | Liveness and readiness. Never versioned. |
 | `POST` | `/api/v1/predict` | Predict a market value, with an explanation. |
-| `GET` | `/api/v1/players/{player_id}` | A player's record and known history. |
+| `GET` | `/api/v1/players?q=` | Find players by name. |
+| `GET` | `/api/v1/players/{player_id}` | A player's record, history and feature seed. |
+| `GET` | `/api/v1/players/{player_id}/similar` | Comparable seasons, in the model's feature space. |
 | `GET` | `/api/v1/models` | Every loaded model variant. |
 | `GET` | `/api/v1/models/{variant}` | One model's card: family, params, features, training data. |
 | `GET` | `/api/v1/models/{variant}/metrics` | Held-out metrics, in EUR. |
@@ -121,6 +123,36 @@ value: 1.51 means this feature multiplied the prediction by 1.51.
 `top_positive_features` and `top_negative_features` are each ordered by
 magnitude, largest first, and capped at `top_n` (default 5, max 25).
 
+## 3a. Player endpoints
+
+`GET /api/v1/players?q=<name>&limit=<n>` is a **case-insensitive substring**
+match, not fuzzy search. Fuzzy matching needs a measured threshold and a way to
+judge a bad match, and neither exists yet; substring is honest about being
+exactly what it is. Players with a modellable season are ranked first, and each
+result carries `predictable` — a search result that leads to a 404 is worse
+than no result.
+
+`GET /api/v1/players/{player_id}` returns the player's seasons **and** a
+`features` map: the model-ready feature values for the latest season. It is
+there so a what-if form can start from the real values instead of
+reconstructing them, and so "change goals from 10 to 18" is a change from
+something true. Feeding that map straight back to `/predict` reproduces the
+stored prediction exactly, and a test asserts it.
+
+`GET /api/v1/players/{player_id}/similar` measures distance on the
+**preprocessed** matrix — the same scaled, encoded features the model sees — so
+"similar" means similar to the model rather than similar on a hand-picked pair
+of columns. The pool is restricted to the same season: market conditions differ
+across years, and a 2014 striker is not a comparison for a 2024 one.
+
+## 3b. CORS
+
+The dashboard runs on a different origin in development (`localhost:3000`
+against `localhost:8000`), so browsers preflight every request. Allowed origins
+are listed rather than wildcarded, set with `CORS_ORIGINS` in a deployment.
+This API is read-only and unauthenticated today; `*` would be a habit that
+becomes wrong the moment either of those changes.
+
 ## 4. Errors
 
 Every non-2xx response uses one envelope, so a client writes one error path:
@@ -185,3 +217,8 @@ without a trained model, which breaks collection of every test in the suite.
 - **No batch endpoint yet.** It will be `POST /api/v1/predict:batch` when a
   consumer needs one; guessing its shape now would freeze a wrong guess into a
   frozen v1.
+- **No fuzzy name search.** Substring only, until there is a way to measure
+  whether a fuzzy match is any good.
+- **No league-wide aggregates.** The dashboard's analytics page samples through
+  the search endpoint. If it ever needs the whole panel it wants a real
+  aggregate endpoint, not a hundred client-side requests.

@@ -207,16 +207,62 @@ class SeasonRow(BaseModel):
     market_value_in_eur: float
 
 
+class PlayerSearchResult(BaseModel):
+    """One hit from a name search."""
+
+    player_id: int
+    name: str
+    position: str | None = None
+    latest_season: int | None = None
+    market_value_in_eur: float | None = None
+    predictable: bool = Field(
+        description="Whether this player has a modellable season. A result that leads to a 404 is worse than no result."
+    )
+
+
+class PlayerSearchResponse(BaseModel):
+    query: str
+    results: list[PlayerSearchResult]
+
+
+class SimilarPlayer(BaseModel):
+    """A comparable season, measured in the model's own feature space."""
+
+    player_id: int
+    name: str | None = None
+    season: int
+    position: str | None = None
+    age: float
+    market_value_in_eur: float
+    distance: float = Field(
+        description="Euclidean distance on preprocessed features. Smaller is more alike."
+    )
+
+
+class SimilarPlayersResponse(BaseModel):
+    player_id: int
+    season: int | None = None
+    results: list[SimilarPlayer]
+
+
 class PlayerResponse(BaseModel):
     """A player's attributes and every season on file."""
 
     player_id: int
+    name: str | None = None
     position: str | None = None
     sub_position: str | None = None
     foot: str | None = None
     height_in_cm: float | None = None
     country_of_citizenship: str | None = None
     seasons: list[SeasonRow]
+    features: dict[str, Any] = Field(
+        default_factory=dict,
+        description=(
+            "Model-ready feature values for the latest season. Seeds a what-if "
+            "form with the real starting point instead of a guess."
+        ),
+    )
 
 
 class MetricsSchema(BaseModel):

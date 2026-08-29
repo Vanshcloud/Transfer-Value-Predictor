@@ -94,7 +94,8 @@ def service(players: pd.DataFrame) -> PredictionService:
             players[TARGET_COLUMN].to_numpy(dtype=float), np.asarray(predictions)
         ),
     )
-    return PredictionService({"performance_only": artifact}, players)
+    names = {pid: f"Player {pid}" for pid in players["player_id"].unique()}
+    return PredictionService({"performance_only": artifact}, players, names)
 
 
 def make_client(service: PredictionService) -> Iterator[TestClient]:
@@ -311,7 +312,9 @@ class TestContract:
         assert paths == {
             "/health",
             "/api/v1/predict",
+            "/api/v1/players",
             "/api/v1/players/{player_id}",
+            "/api/v1/players/{player_id}/similar",
             "/api/v1/models",
             "/api/v1/models/{variant}",
             "/api/v1/models/{variant}/metrics",
@@ -349,3 +352,77 @@ class TestContract:
             body = response.json()
             assert set(body) == {"error"}
             assert set(body["error"]) == {"code", "message", "detail"}
+
+
+class TestSearchEndpoint:
+    def test_it_finds_a_player_by_name(self, client: TestClient) -> None:
+        body = client.get("/api/v1/players?q=player%20101").json()
+        assert body["query"] == "player 101"
+        assert body["results"][0]["player_id"] == 101
+
+    def test_it_is_case_insensitive(self, client: TestClient) -> None:
+        assert client.get("/api/v1/players?q=PLAYER%20101").json()["results"]
+
+    def test_an_empty_query_is_rejected_by_the_schema(self, client: TestClient) -> None:
+        assert client.get("/api/v1/players?q=").status_code == 422
+
+    def test_the_limit_is_bounded(self, client: TestClient) -> None:
+        assert client.get("/api/v1/players?q=player&limit=999").status_code == 422
+
+    def test_results_say_whether_they_can_be_predicted(self, client: TestClient) -> None:
+        results = client.get("/api/v1/players?q=player&limit=5").json()["results"]
+        assert all("predictable" in row for row in results)
+
+
+class TestSimilarEndpoint:
+    def test_it_returns_neighbours(self, client: TestClient) -> None:
+        body = client.get("/api/v1/players/101/similar?k=3").json()
+        assert body["player_id"] == 101
+        assert len(body["results"]) == 3
+        assert 101 not in [row["player_id"] for row in body["results"]]
+
+    def test_neighbours_are_ordered_by_distance(self, client: TestClient) -> None:
+        results = client.get("/api/v1/players/101/similar?k=5").json()["results"]
+        distances = [row["distance"] for row in results]
+        assert distances == sorted(distances)
+
+    def test_an_unknown_player_is_404(self, client: TestClient) -> None:
+        response = client.get("/api/v1/players/999999/similar")
+        assert response.status_code == 404
+        assert response.json()["error"]["code"] == "player_not_found"
+
+    def test_k_is_bounded(self, client: TestClient) -> None:
+        assert client.get("/api/v1/players/101/similar?k=500").status_code == 422
+
+
+class TestWhatIfSupport:
+    def test_the_player_payload_seeds_a_what_if_form(self, client: TestClient) -> None:
+        """The dashboard needs the real starting point, not a guess at it."""
+        body = client.get("/api/v1/players/101").json()
+        assert body["features"]
+        assert body["name"]
+
+    def test_the_seeded_features_reproduce_the_stored_prediction(self, client: TestClient) -> None:
+        # If the seed did not round-trip, every what-if would start from a
+        # different player than the one on screen.
+        player = client.get("/api/v1/players/101").json()
+        stored = client.post("/api/v1/predict", json={"player_id": 101}).json()
+        replayed = client.post("/api/v1/predict", json={"features": player["features"]}).json()
+
+        assert replayed["prediction_eur"] == pytest.approx(stored["prediction_eur"])
+
+    def test_changing_one_feature_moves_the_prediction(self, client: TestClient) -> None:
+        """What-if is only useful if the sliders actually do something.
+
+        Compared across the training range rather than by a fixed increment:
+        adding 15 to an already-high value lands past every split the trees
+        learned, so the prediction legitimately does not move — which would
+        fail this test on a model that is working correctly.
+        """
+        player = client.get("/api/v1/players/101").json()
+        features = dict(player["features"])
+
+        low = client.post("/api/v1/predict", json={"features": {**features, "goals": 0}}).json()
+        high = client.post("/api/v1/predict", json={"features": {**features, "goals": 22}}).json()
+
+        assert high["prediction_eur"] > low["prediction_eur"]

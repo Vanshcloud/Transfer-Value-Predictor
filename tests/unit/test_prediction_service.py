@@ -88,9 +88,13 @@ def artifact(players: pd.DataFrame) -> ModelArtifact:
     )
 
 
+NAMES = {player_id: f"Player {player_id:03d}" for player_id in range(1, 41)}
+NAMES[7] = "Erling Test"
+
+
 @pytest.fixture
 def service(artifact: ModelArtifact, players: pd.DataFrame) -> PredictionService:
-    return PredictionService({"performance_only": artifact}, players)
+    return PredictionService({"performance_only": artifact}, players, NAMES)
 
 
 class TestPredictForPlayer:
@@ -310,3 +314,92 @@ def test_the_service_imports_no_web_framework() -> None:
             imported.add(node.module.split(".")[0])
 
     assert not imported & {"fastapi", "starlette", "pydantic"}, sorted(imported)
+
+
+class TestSearch:
+    def test_it_matches_case_insensitively(self, service: PredictionService) -> None:
+        assert service.search_players("erling")[0]["player_id"] == 7
+        assert service.search_players("ERLING")[0]["player_id"] == 7
+
+    def test_it_matches_a_substring(self, service: PredictionService) -> None:
+        assert service.search_players("rling Te")[0]["name"] == "Erling Test"
+
+    def test_an_empty_query_returns_nothing_rather_than_everything(
+        self, service: PredictionService
+    ) -> None:
+        assert service.search_players("   ") == []
+
+    def test_results_are_limited(self, service: PredictionService) -> None:
+        assert len(service.search_players("Player", limit=3)) == 3
+
+    def test_a_result_says_whether_it_can_be_predicted(self, service: PredictionService) -> None:
+        # A search result that leads to a 404 is worse than no result.
+        assert all(row["predictable"] for row in service.search_players("Player"))
+
+    def test_modellable_players_are_ranked_first(
+        self, artifact: ModelArtifact, players: pd.DataFrame
+    ) -> None:
+        names = {**NAMES, 9999: "Player unknown"}
+        service = PredictionService({"performance_only": artifact}, players, names)
+        results = service.search_players("Player", limit=50)
+        assert results[-1]["player_id"] == 9999
+        assert results[-1]["predictable"] is False
+
+    def test_search_without_names_reports_rather_than_returning_empty(
+        self, artifact: ModelArtifact, players: pd.DataFrame
+    ) -> None:
+        service = PredictionService({"performance_only": artifact}, players)
+        with pytest.raises(PlayerNotFoundError):
+            service.search_players("anything")
+
+
+class TestSimilarPlayers:
+    def test_it_returns_neighbours_excluding_the_query(self, service: PredictionService) -> None:
+        results = service.similar_players(1, k=5)
+        assert 1 not in [row["player_id"] for row in results]
+        assert len(results) == 5
+
+    def test_results_are_ordered_by_distance(self, service: PredictionService) -> None:
+        distances = [row["distance"] for row in service.similar_players(1, k=5)]
+        assert distances == sorted(distances)
+
+    def test_comparisons_stay_within_one_season(self, service: PredictionService) -> None:
+        """Market conditions differ across years; a 2022 season is not a
+        comparison for a 2024 one."""
+        results = service.similar_players(1, k=5)
+        assert {row["season"] for row in results} == {2024}
+
+    def test_it_carries_names_when_they_are_loaded(self, service: PredictionService) -> None:
+        assert all(row["name"] for row in service.similar_players(1, k=3))
+
+    def test_an_unknown_player_raises(self, service: PredictionService) -> None:
+        with pytest.raises(PlayerNotFoundError):
+            service.similar_players(999_999)
+
+
+class TestFeatureSeed:
+    def test_it_returns_every_feature_the_model_expects(self, service: PredictionService) -> None:
+        # What-if starts from the real values, not a guess at what is needed.
+        features = service.features_for(1)
+        assert set(features) == set(FEATURES)
+
+    def test_the_seeded_features_reproduce_the_stored_prediction(
+        self, service: PredictionService
+    ) -> None:
+        """The seed must round-trip, or what-if starts from a different player."""
+        stored = service.predict_for_player(1).prediction_eur
+        replayed = service.predict_from_features(service.features_for(1)).prediction_eur
+        assert replayed == pytest.approx(stored)
+
+    def test_a_specific_season_can_be_seeded(self, service: PredictionService) -> None:
+        assert service.features_for(1, season=2022) != service.features_for(1, season=2024)
+
+    def test_an_unknown_season_raises(self, service: PredictionService) -> None:
+        with pytest.raises(SeasonNotFoundError):
+            service.features_for(1, season=1990)
+
+    def test_the_player_payload_carries_the_seed(self, service: PredictionService) -> None:
+        assert set(service.player(1)["features"]) == set(FEATURES)
+
+    def test_the_player_payload_carries_a_name(self, service: PredictionService) -> None:
+        assert service.player(7)["name"] == "Erling Test"

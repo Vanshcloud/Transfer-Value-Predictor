@@ -22,8 +22,10 @@ from api.schemas import (
     ModelMetricsResponse,
     ModelSummary,
     PlayerResponse,
+    PlayerSearchResponse,
     PredictRequest,
     PredictResponse,
+    SimilarPlayersResponse,
 )
 
 router = APIRouter(prefix="/api/v1")
@@ -72,6 +74,44 @@ def predict(request: PredictRequest, service: ServiceDep) -> PredictResponse:
         season=result.season,
         confidence=ConfidenceSchema(**result.confidence) if result.confidence else None,
         explanation=explanation,
+    )
+
+
+@router.get(
+    "/players",
+    response_model=PlayerSearchResponse,
+    summary="Find players by name",
+    responses={404: {"description": "No player names are loaded"}},
+)
+def search_players(
+    service: ServiceDep,
+    q: Annotated[str, Query(min_length=1, max_length=100, description="Name substring")],
+    limit: Annotated[int, Query(ge=1, le=50)] = 20,
+) -> PlayerSearchResponse:
+    """Case-insensitive substring match, modellable players first."""
+    return PlayerSearchResponse(query=q, results=service.search_players(q, limit=limit))  # type: ignore[arg-type]
+
+
+@router.get(
+    "/players/{player_id}/similar",
+    response_model=SimilarPlayersResponse,
+    summary="Comparable seasons, in the model's own feature space",
+    responses={404: {"description": "No such player"}},
+)
+def similar_players(
+    service: ServiceDep,
+    player_id: Annotated[int, Path(ge=1)],
+    k: Annotated[int, Query(ge=1, le=25)] = 8,
+    variant: Annotated[str | None, Query()] = None,
+) -> SimilarPlayersResponse:
+    """Distance is on the preprocessed matrix the model actually sees, and the
+    pool is restricted to the same season — a 2014 striker is not a comparison
+    for a 2024 one."""
+    results = service.similar_players(player_id, k=k, variant=variant)
+    return SimilarPlayersResponse(
+        player_id=player_id,
+        season=results[0]["season"] if results else None,
+        results=results,  # type: ignore[arg-type]
     )
 
 

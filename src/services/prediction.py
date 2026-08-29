@@ -23,6 +23,7 @@ from pathlib import Path
 from typing import Any
 
 import pandas as pd
+from sklearn.neighbors import NearestNeighbors
 
 from src.explainability.shap_explainer import (
     PredictionExplanation,
@@ -39,6 +40,8 @@ logger = get_logger(__name__)
 
 DEFAULT_TOP_N = 5
 MAX_TOP_N = 25
+MAX_SEARCH_RESULTS = 50
+DEFAULT_SIMILAR = 8
 """How many contributions a response carries. The service always computes the
 full explanation; truncation belongs to the caller, which is why these are
 defaults for the transport layer rather than parameters of the service."""
@@ -112,19 +115,33 @@ class PredictionService:
     """
 
     def __init__(
-        self, artifacts: Mapping[str, ModelArtifact], players: pd.DataFrame | None = None
+        self,
+        artifacts: Mapping[str, ModelArtifact],
+        players: pd.DataFrame | None = None,
+        names: Mapping[int, str] | None = None,
     ) -> None:
         self._artifacts = dict(artifacts)
         self._players = players if players is not None else pd.DataFrame()
+        self._names = dict(names or {})
         self._explainable = {
             name: supports_shap(artifact) for name, artifact in self._artifacts.items()
         }
+        # Built lazily: fitting the neighbour index costs a pass over every row
+        # and most requests never ask for similar players.
+        self._neighbours: dict[str, tuple[NearestNeighbors, pd.DataFrame]] = {}
+
+    def name_for(self, player_id: int) -> str | None:
+        """Display name, when the players table was loaded alongside."""
+        return self._names.get(int(player_id))
 
     # -- construction ----------------------------------------------------
 
     @classmethod
     def from_directory(
-        cls, model_directory: Path, players: pd.DataFrame | None = None
+        cls,
+        model_directory: Path,
+        players: pd.DataFrame | None = None,
+        names: Mapping[int, str] | None = None,
     ) -> PredictionService:
         """Load every artifact in a directory, newest per variant."""
         artifacts: dict[str, ModelArtifact] = {}
@@ -141,7 +158,7 @@ class PredictionService:
 
         if not artifacts:
             logger.warning("no usable model artifacts in %s", model_directory)
-        return cls(artifacts, players)
+        return cls(artifacts, players, names)
 
     # -- introspection ---------------------------------------------------
 
@@ -231,6 +248,7 @@ class PredictionService:
 
         return {
             "player_id": int(player_id),
+            "name": self.name_for(player_id),
             "position": _plain(latest.get("position")),
             "sub_position": _plain(latest.get("sub_position")),
             "foot": _plain(latest.get("foot")),
@@ -248,7 +266,150 @@ class PredictionService:
                 }
                 for _, row in rows.iterrows()
             ],
+            "features": self.features_for(player_id),
         }
+
+    def features_for(
+        self, player_id: int, *, season: int | None = None, variant: str | None = None
+    ) -> dict[str, Any]:
+        """The model-ready feature values for one player-season.
+
+        Returned so a client can seed a what-if form with the real starting
+        point rather than reconstructing it, and so "change goals from 10 to
+        18" is a change from something true.
+        """
+        artifact = self.artifact(variant)
+        rows = self._player_rows(player_id)
+        if season is not None:
+            rows = rows[rows["season"] == season]
+            if rows.empty:
+                raise SeasonNotFoundError(f"player {player_id} has no row for season {season}")
+
+        latest = rows.iloc[-1]
+        return {
+            column: _plain(latest.get(column))
+            for column in artifact.feature_columns
+            if column in rows.columns
+        }
+
+    # -- search and neighbours -------------------------------------------
+
+    def search_players(self, query: str, *, limit: int = 20) -> list[dict[str, Any]]:
+        """Find players by name, case-insensitively.
+
+        Substring rather than fuzzy matching. Fuzzy search needs a measured
+        threshold and a way to judge a bad match, and neither exists yet; a
+        substring match is honest about being exactly what it is.
+        """
+        cleaned = query.strip().lower()
+        if not cleaned:
+            return []
+        if not self._names:
+            raise PlayerNotFoundError("no player names are loaded; search is unavailable")
+
+        modelled = set(self._players["player_id"]) if not self._players.empty else set()
+        matches = [
+            (player_id, name) for player_id, name in self._names.items() if cleaned in name.lower()
+        ]
+        # Players the model can actually predict for come first: a search
+        # result that leads to a 404 is worse than no result.
+        matches.sort(key=lambda pair: (pair[0] not in modelled, len(pair[1]), pair[1]))
+
+        results = []
+        for player_id, name in matches[: min(limit, MAX_SEARCH_RESULTS)]:
+            row = self._latest_row(player_id)
+            results.append(
+                {
+                    "player_id": int(player_id),
+                    "name": name,
+                    "position": _plain(row.get("position")) if row is not None else None,
+                    "latest_season": int(row["season"]) if row is not None else None,
+                    "market_value_in_eur": (float(row[TARGET_COLUMN]) if row is not None else None),
+                    "predictable": player_id in modelled,
+                }
+            )
+        return results
+
+    def _latest_row(self, player_id: int) -> pd.Series | None:
+        if self._players.empty:
+            return None
+        rows = self._players[self._players["player_id"] == player_id]
+        if rows.empty:
+            return None
+        return rows.sort_values("season").iloc[-1]
+
+    def similar_players(
+        self, player_id: int, *, k: int = DEFAULT_SIMILAR, variant: str | None = None
+    ) -> list[dict[str, Any]]:
+        """Players whose season most resembles this one, in the model's own space.
+
+        Distance is measured on the *preprocessed* features — the same scaled,
+        encoded matrix the model sees — so "similar" means similar to the model
+        rather than similar on a hand-picked pair of columns.
+
+        Restricted to the same season, because market conditions differ across
+        years and a 2014 striker is not a comparison for a 2024 one.
+        """
+        artifact = self.artifact(variant)
+        rows = self._player_rows(player_id)
+        season = int(rows.iloc[-1]["season"])
+
+        index, pool = self._neighbour_index(artifact, season)
+        if index is None or len(pool) <= 1:
+            return []
+
+        query = pool[pool["player_id"] == player_id]
+        if query.empty:
+            return []
+
+        features = artifact.pipeline.named_steps["preprocess"].transform(
+            query[list(artifact.feature_columns)]
+        )
+        wanted = min(k + 1, len(pool))
+        distances, positions = index.kneighbors(features, n_neighbors=wanted)
+
+        results = []
+        for distance, position in zip(distances[0], positions[0], strict=True):
+            row = pool.iloc[position]
+            if int(row["player_id"]) == int(player_id):
+                continue
+            results.append(
+                {
+                    "player_id": int(row["player_id"]),
+                    "name": self.name_for(int(row["player_id"])),
+                    "season": int(row["season"]),
+                    "position": _plain(row.get("position")),
+                    "age": float(row["age"]),
+                    "market_value_in_eur": float(row[TARGET_COLUMN]),
+                    "distance": float(distance),
+                }
+            )
+        return results[:k]
+
+    def _neighbour_index(
+        self, artifact: ModelArtifact, season: int
+    ) -> tuple[NearestNeighbors | None, pd.DataFrame]:
+        cache_key = f"{artifact.variant}:{season}"
+        if cache_key in self._neighbours:
+            index, pool = self._neighbours[cache_key]
+            return index, pool
+
+        pool = self._rows_for_variant(artifact)
+        pool = pool[pool["season"] == season] if not pool.empty else pool
+        if pool.empty:
+            return None, pool
+
+        matrix = artifact.pipeline.named_steps["preprocess"].transform(
+            pool[list(artifact.feature_columns)]
+        )
+        # Fitted on the frame, not a bare array: the preprocessor emits named
+        # columns, and querying a name-less fit with a named frame makes
+        # sklearn warn that the two do not agree. They should agree.
+        index = NearestNeighbors(n_neighbors=min(DEFAULT_SIMILAR + 1, len(pool)))
+        index.fit(matrix)
+
+        self._neighbours[cache_key] = (index, pool)
+        return index, pool
 
     def _player_rows(self, player_id: int) -> pd.DataFrame:
         if self._players.empty:

@@ -1,0 +1,35 @@
+@import "tailwindcss";
+
+/*
+ * Tailwind v4 is CSS-first: there is no tailwind.config.js, and config lives
+ * in @theme blocks here. Creating that file would silently do nothing.
+ */
+@theme {
+  --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, monospace;
+}
+
+/*
+ * Dark mode is class-driven rather than media-driven, so the toggle can
+ * override the system preference. The class is applied to <html> before paint
+ * by an inline script in the layout, which is what prevents a light flash on
+ * a dark-mode reload.
+ */
+@custom-variant dark (&:where(.dark, .dark *));
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  @apply bg-slate-50 text-slate-900 antialiased dark:bg-slate-950 dark:text-slate-100;
+}
+
+/* Plotly injects its own cursor styles; keep links and buttons obvious. */
+.js-plotly-plot .plotly .cursor-crosshair {
+  cursor: crosshair;
+}
+
+:focus-visible {
+  @apply outline-2 outline-offset-2 outline-sky-500;
+}
