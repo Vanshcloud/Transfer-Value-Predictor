@@ -19,7 +19,7 @@ evidence; Vansh reviewed and adjusted them on 2026-08-28. Current standing decis
 | Brief said | Plan does | Why (evidence in 00-discovery.md) |
 |---|---|---|
 | Scrape Transfermarkt, respecting ToS | **Never scrape it** | ToS §11.1 bans scraping *and* bans ML training on the content. Respecting the ToS means not doing it. CC0 Kaggle mirror used instead. |
-| FBref as a core feature source | **Optional enrichment, Phase 12** | FBref is 403-Cloudflared; `soccerdata` emits no player ID so the join degrades to name matching; upstream issue #967 reports this exact call broken. `appearances.csv` gives per-match stats on the *same* `player_id` as the label. Retained as optional, not removed. |
+| FBref as a core feature source | **Spiked in Phase 12, declined** | FBref is 403-Cloudflared to `requests`; the only working transport is Selenium, which is banned by adjustment #1. `soccerdata` emits no player ID, so the join degrades to name matching — and the columns it returns duplicate `appearances.csv`, which carries the *same* `player_id` as the label. Measured: plans/02-fbref-spike.md. |
 | StatsBomb as a source | **Placeholder module, retained** | Aggregated stats are paywalled and coverage doesn't overlap the label panel, so it is not wired into the pipeline — but `src/ingestion/statsbomb.py` ships conforming to the ingestion Protocol so future expansion needs no refactor. |
 | PostgreSQL + Redis | **DuckDB + Parquet now, Postgres-ready** | The data layer sits behind a storage Protocol from Phase 3, so Postgres is an added implementation, not a refactor. Redis waits for a measurement that justifies it. |
 
@@ -285,19 +285,26 @@ before this phase.
 
 ---
 
-## Phase 12 — FBref enrichment (optional, gated)
+## Phase 12 — FBref enrichment (optional, gated) — **DECIDED: no-go, 2026-08-29**
 
-**Spike first, decide second.** Install `soccerdata`, attempt one
-`read_player_season_stats(stat_type="standard")` call with `headless=True`. Upstream issue
-#967 says this is currently broken; if it fails, stop and use the MIT-licensed
-`hubertsidorowicz/football-players-stats-2024-2025` Kaggle mirror instead.
+Spiked and declined. Full measurements in **plans/02-fbref-spike.md**; the short form:
 
-Only if it works: name-based join via the latin-1 crosswalk, disambiguated by birth year
-and nation, with a **measured coverage report**. Accept the enrichment only if temporal
-MAE improves on the Phase 6 baseline.
+- Upstream issue #967 is stale — on `soccerdata` 1.9.1 the call works (580 rows, EPL
+  2023-24). That blocker is not why this phase closed.
+- It works *only* through Selenium. `fbref.com` 403s plain `requests` on any User-Agent,
+  and adjustment #1 bans Selenium outright.
+- The columns returned duplicate what `appearances.csv` already gives us **on a real
+  integer `player_id`**. The advanced signal that justified the phase — xG, xA,
+  progressive passes, carries — is not reachable: `passing` and `possession` are rejected
+  for every season tried, and `shooting` carries no xG in 2015-16, 2017-18, 2020-21 or
+  2023-24. Net new signal: shots and shots-on-target, via a name-only join.
+- The documented Kaggle fallback is single-season 2024-25, which lands entirely inside
+  the test split (train ≤2021 / val 2022 / test ≥2023). A feature absent from training
+  cannot improve temporal MAE.
 
-**Do NOT** let this phase block anything. **Do NOT** assume >80% join yield — that figure
-is ID-to-ID; the name-matching hop degrades it by an unmeasured amount.
+The acceptance gate — "temporal MAE improves on the Phase 6 baseline" — cannot be met, so
+nothing was merged and no dependency was added. Reopen only if a successor library
+exposes pre-2022 xG **and** a player ID.
 
 ---
 

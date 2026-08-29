@@ -3,9 +3,10 @@
 Predict the market value (EUR) of professional footballers from performance,
 biographical and contextual data — and explain every prediction.
 
-> **Status: Phase 11 of 13.** The pipeline, models, evaluation, API, dashboard,
-> containers and CI are built. Final verification and the optional FBref spike
-> remain. See
+> **Status: Phase 12 of 13.** The pipeline, models, evaluation, API, dashboard,
+> containers and CI are built. The optional FBref enrichment was spiked and
+> declined ([`plans/02-fbref-spike.md`](plans/02-fbref-spike.md)); final
+> verification remains. See
 > [`plans/IMPLEMENTATION_PLAN.md`](plans/IMPLEMENTATION_PLAN.md).
 
 ## Why this repository looks the way it does
@@ -20,7 +21,10 @@ findings shaped it, all recorded with evidence in
   `davidcariboo/player-scores` instead.
 - **There is no entity-resolution problem.** `appearances.csv` ships in the same
   CC0 download as the labels and shares its `player_id`, so features and labels
-  join on an integer key. FBref remains available as optional enrichment.
+  join on an integer key. FBref was spiked as optional enrichment and declined —
+  it is 403-Cloudflared to `requests`, reachable only via banned Selenium, and
+  the columns it returns duplicate `appearances.csv` on a worse (name-based) key
+  ([`plans/02-fbref-spike.md`](plans/02-fbref-spike.md)).
 - **Temporal evaluation is the headline.** A measured spike
   ([`plans/01-feasibility-spike.md`](plans/01-feasibility-spike.md)) put EUR MAE
   at €2.37M under a group split and €3.96M under a temporal one. The temporal
