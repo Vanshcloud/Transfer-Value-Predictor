@@ -14,9 +14,12 @@ pyarrow>=17.0
 duckdb>=1.1
 
 # ---- Ingestion ----
+# `requests` only. Every source in the pipeline serves CSV or JSON, so no HTML
+# parser is installed: beautifulsoup4 and lxml were carried for a Transfermarkt
+# scrape that the licence forbids and an FBref one that Phase 12 declined
+# (plans/02-fbref-spike.md). A parser with nothing to parse is a supply-chain
+# surface with no upside.
 requests>=2.32
-beautifulsoup4>=4.12
-lxml>=5.0
 
 # ---- Machine learning ----
 scikit-learn>=1.9
@@ -28,8 +31,11 @@ catboost>=1.2.7
 shap>=0.48
 
 # ---- Visualisation ----
+# matplotlib only. The interactive charts are Plotly, but they render in the
+# browser from the npm package; the Python side ships static PNGs and imports
+# plotly nowhere. It stays installed regardless — catboost requires it — but a
+# direct pin here would claim this project chose it, and it did not.
 matplotlib>=3.9
-plotly>=5.24
 
 # ---- API ----
 fastapi>=0.115

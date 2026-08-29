@@ -29,6 +29,8 @@ whether a process is alive.
 | `GET` | `/api/v1/players?q=` | Find players by name. |
 | `GET` | `/api/v1/players/{player_id}` | A player's record, history and feature seed. |
 | `GET` | `/api/v1/players/{player_id}/similar` | Comparable seasons, in the model's feature space. |
+| `GET` | `/api/v1/players/{player_id}/history` | Predicted against actual, season by season. |
+| `GET` | `/api/v1/features/distribution` | Population quantiles per feature, for percentile framing. |
 | `GET` | `/api/v1/models` | Every loaded model variant. |
 | `GET` | `/api/v1/models/{variant}` | One model's card: family, params, features, training data. |
 | `GET` | `/api/v1/models/{variant}/metrics` | Held-out metrics, in EUR. |
@@ -144,6 +146,20 @@ stored prediction exactly, and a test asserts it.
 "similar" means similar to the model rather than similar on a hand-picked pair
 of columns. The pool is restricted to the same season: market conditions differ
 across years, and a 2014 striker is not a comparison for a 2024 one.
+
+`GET /api/v1/players/{player_id}/history` returns the model's prediction beside
+the recorded value for every season the player has. Each point carries
+`in_training_range`: agreement on a season the model trained on is not evidence
+about the model, and a chart that does not say which is which invites the reader
+to count it as such.
+
+`GET /api/v1/features/distribution` returns population quantiles per feature on
+a fixed grid, so a client can say "92nd percentile for goals per 90" rather than
+normalising against whichever two players are on screen. Both endpoints accept
+`?variant=`; both default to the same variant as `/predict`. With no model
+loaded, the distribution endpoint is `503` like every other model-backed route.
+With a model whose training frame yields no usable quantiles it returns an empty
+`grid` and `features` instead — an absent population is not a failed request.
 
 ## 3b. CORS
 

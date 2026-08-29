@@ -10,6 +10,7 @@ card per variant. Exit code 0 on success, 1 if no model has been trained yet.
 
 from __future__ import annotations
 
+import argparse
 import sys
 from pathlib import Path
 
@@ -22,7 +23,11 @@ from src.utils.logging import configure_logging  # noqa: E402
 from src.utils.paths import PROJECT_ROOT  # noqa: E402
 
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
+    # No options, but a parser anyway: without one, `--help` ran the whole
+    # pipeline instead of describing it, and a typo'd flag was ignored.
+    argparse.ArgumentParser(description=__doc__).parse_args(argv)
+
     settings = load_settings()
     configure_logging(settings.logging.level, settings.logging.format)
     store = DuckDBParquetStore(settings.paths.processed_dir)

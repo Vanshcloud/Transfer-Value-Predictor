@@ -308,14 +308,22 @@ exposes pre-2022 xG **and** a player ID.
 
 ---
 
-## Phase 13 — Final verification
+## Phase 13 — Final verification — **DONE, 2026-08-29**
 
-- `make quality`, full test suite, Docker build, CI all green.
-- `git log --format='%(trailers:key=Co-Authored-By)' | grep -c .` → **0**.
-- `git log --format='%an' | sort -u` → **Vanshcloud only**.
-- Grep the tree for the removed APIs: `mean_squared_error(.*squared=`,
-  `OneHotEncoder(.*sparse=`, `@app.on_event`, `@validator`, `\.dict()`,
-  `tailwind.config.js`, `from ["']plotly.js["']` → all zero hits.
-- Storage: no phase outside `src/storage/` imports `duckdb` directly.
-- Every number in the README traceable to a command that regenerates it.
-- Confirm no code path fetches transfermarkt.com.
+Full record in **plans/03-final-verification.md**. Every gate below was run:
+
+- `make quality`, 517 tests (integration included), dashboard lint/types/build,
+  both Docker images, and the compose stack end to end — all green.
+- 0 `Co-Authored-By` trailers; Vanshcloud is the sole author and committer.
+- All seven removed-API patterns: 0 real hits. `duckdb` confined to
+  `src/storage/`. No code path fetches transfermarkt.com. No TODOs, no
+  unreferenced modules, 0 npm vulnerabilities.
+- Every README number re-derived from the parquet and the model artifacts rather
+  than trusted: 36,880 rows / 17,053 players / 19,827 with a prior value, and
+  test MAE €4.44M (R² 0.441) and €3.71M (R² 0.775).
+
+Five gates found something, all fixed in this phase: two live endpoints missing
+from the API contract (now documented, with a drift test); MIT declared without a
+`LICENSE` file; `beautifulsoup4`, `lxml` and `plotly` installed and imported
+nowhere; `--help` running the pipeline on three scripts; and no CI guard on the
+transfermarkt no-fetch rule.

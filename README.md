@@ -3,10 +3,10 @@
 Predict the market value (EUR) of professional footballers from performance,
 biographical and contextual data — and explain every prediction.
 
-> **Status: Phase 12 of 13.** The pipeline, models, evaluation, API, dashboard,
-> containers and CI are built. The optional FBref enrichment was spiked and
-> declined ([`plans/02-fbref-spike.md`](plans/02-fbref-spike.md)); final
-> verification remains. See
+> **Status: complete, all 13 phases.** The optional FBref enrichment was spiked
+> and declined ([`plans/02-fbref-spike.md`](plans/02-fbref-spike.md)); final
+> verification is recorded in
+> [`plans/03-final-verification.md`](plans/03-final-verification.md). See
 > [`plans/IMPLEMENTATION_PLAN.md`](plans/IMPLEMENTATION_PLAN.md).
 
 ## Why this repository looks the way it does
@@ -295,4 +295,9 @@ version-controlled and wired via `core.hooksPath`, so it survives a reclone.
 
 ## Licence
 
-MIT.
+MIT — full text in [`LICENSE`](LICENSE).
+
+The data carries its own terms and they are not MIT. Labels and appearances come
+from `davidcariboo/player-scores`, which is CC0. Transfermarkt's own Terms of Use
+§11.1 prohibit both automated access and ML training on the content, which is why
+nothing here fetches it.

@@ -136,6 +136,20 @@ jobs:
           fi
           echo "duckdb confined to src/storage"
 
+      - name: Transfermarkt is never fetched
+        # The one invariant with a legal edge rather than a technical one.
+        # Transfermarkt's ToU 11.1 bans automated access AND bans training a
+        # model on the content; labels come from the CC0 Kaggle mirror. A
+        # reviewer cannot see this rule being broken, so a grep enforces it.
+        run: |
+          if grep -rniE "https?://[^\"']*transfermarkt" src api tests scripts frontend/src 2>/dev/null; then
+            echo "a transfermarkt.com URL appears in code"; exit 1
+          fi
+          if grep -rnE "^\s*(import|from) (bs4|lxml)\b" src api tests scripts 2>/dev/null; then
+            echo "an HTML parser is back — nothing here parses HTML, see requirements.txt"; exit 1
+          fi
+          echo "no transfermarkt fetch, no HTML parser"
+
       - name: Plotly stays behind one wrapper
         run: |
           hits=$(grep -rln "react-plotly\|plotly.js-cartesian" frontend/src | grep -v "Chart.tsx\|\.d\.ts" || true)
