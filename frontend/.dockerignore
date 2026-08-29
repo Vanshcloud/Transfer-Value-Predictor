@@ -1,0 +1,9 @@
+# The build context for this image is frontend/, so the repository root
+# .dockerignore does not apply here.
+node_modules
+.next
+out
+.env*.local
+AGENTS.md
+CLAUDE.md
+Dockerfile

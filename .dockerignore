@@ -1,0 +1,31 @@
+# Build context hygiene: everything here is either huge, regenerable, or
+# host-specific. Sending it wastes time on every build and risks baking a
+# developer's local state into an image.
+.git
+.venv
+__pycache__
+*.pyc
+.pytest_cache
+.mypy_cache
+.ruff_cache
+htmlcov
+.coverage
+
+# Data and models are mounted at runtime, never copied in: the parquet files
+# are hundreds of megabytes and change weekly, and an image that embeds them
+# is stale the day it is built.
+data/raw
+data/processed
+data/external
+models/*.joblib
+models/*.json
+reports
+
+frontend/node_modules
+frontend/.next
+frontend/out
+
+plans
+notebooks
+*.md
+!README.md

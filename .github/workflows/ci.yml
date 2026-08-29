@@ -1,0 +1,140 @@
+name: CI
+
+# Runs on a clean checkout, where data/raw/, data/processed/ and models/ are
+# all absent. Every test that needs them skips rather than fails — that is the
+# property this workflow exists to protect, because a suite that only passes on
+# a machine with a trained model is not a suite anyone can trust.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: Backend — lint, types, tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          # The same minor the project develops against. A silent 3.14 would
+          # change behaviour with no diff to point at.
+          python-version: "3.13"
+          cache: pip
+
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-dev.txt
+
+      - name: Lint
+        run: ruff check src tests scripts api
+
+      - name: Format check
+        run: black --check src tests scripts api
+
+      - name: Types
+        run: mypy src api
+
+      - name: Tests
+        # Integration tests are excluded by marker AND would skip anyway. Both,
+        # so a missing marker cannot quietly turn a skip into a failure.
+        run: pytest -m "not integration" -q
+
+      - name: Confirm the suite is green without any data present
+        run: |
+          test ! -d data/processed/players.parquet
+          test -z "$(ls -A models/*.joblib 2>/dev/null || true)"
+          echo "clean checkout confirmed: no data, no models, suite passed"
+
+  frontend:
+    name: Dashboard — lint, types, build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install
+        run: npm ci
+
+      - name: Types
+        run: npx tsc --noEmit
+
+      - name: Lint
+        run: npx eslint src
+
+      - name: Build
+        # The step that catches the Plotly SSR trap: a plain import fails here
+        # with "ReferenceError: self is not defined" even inside "use client".
+        run: npm run build
+
+  authorship:
+    name: Authorship
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: No AI attribution in commit history
+        run: |
+          trailers=$(git log --format='%(trailers:key=Co-Authored-By)' | grep -c . || true)
+          if [ "$trailers" -ne 0 ]; then
+            echo "found $trailers Co-Authored-By trailer(s)"; exit 1
+          fi
+          # Anchored to line start: an attribution is a trailer or its own
+          # line, never a mid-sentence mention. Without the anchor this fails
+          # on the Phase 1 commit that quotes the authorship hook's own test
+          # case — a false positive that would teach people to ignore the job.
+          if git log --format='%B' | grep -qiE '^(co-authored-by:|generated with )'; then
+            echo "found an AI attribution line in a commit message"; exit 1
+          fi
+          echo "authorship clean: $(git log --oneline | wc -l) commits"
+
+  removed-apis:
+    name: Removed APIs
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Grep for APIs that no longer exist
+        # Each of these was removed or deprecated in a dependency this project
+        # pins, and each fails at runtime rather than at import — which is why
+        # a grep is worth more than a code review here.
+        run: |
+          set -e
+          patterns='mean_squared_error\(.*squared=|OneHotEncoder\(.*sparse=[^o]|@app\.on_event|@validator|@root_validator|\.parse_obj\(|tailwind\.config\.(js|ts)'
+          if grep -rEn "$patterns" src api tests scripts frontend/src 2>/dev/null; then
+            echo "found a removed or deprecated API above"; exit 1
+          fi
+          echo "no removed APIs in use"
+
+      - name: Storage stays behind its Protocol
+        run: |
+          if grep -rn "import duckdb" src api tests scripts | grep -v "^src/storage/"; then
+            echo "duckdb imported outside src/storage"; exit 1
+          fi
+          echo "duckdb confined to src/storage"
+
+      - name: Plotly stays behind one wrapper
+        run: |
+          hits=$(grep -rln "react-plotly\|plotly.js-cartesian" frontend/src | grep -v "Chart.tsx\|\.d\.ts" || true)
+          if [ -n "$hits" ]; then
+            echo "Plotly imported outside the Chart wrapper:"; echo "$hits"; exit 1
+          fi
+          echo "Plotly confined to the Chart wrapper"

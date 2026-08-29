@@ -1,7 +1,7 @@
 # Target names deliberately match the sibling predictive-maintenance project,
 # so muscle memory carries between the two repositories.
 
-.PHONY: help setup install install-dev hooks serve test test-cov lint format format-check typecheck quality clean
+.PHONY: help setup install install-dev hooks serve test test-cov lint format format-check typecheck quality docker-build docker-up clean
 
 PYTHON := python3.13
 VENV   := .venv
@@ -50,6 +50,13 @@ typecheck: ## Run mypy
 	$(BIN)/mypy src api
 
 quality: lint format-check typecheck ## Run every quality gate
+
+docker-build: ## Build both images
+	docker build -t transfer-value-predictor-api .
+	docker build -t transfer-value-predictor-frontend ./frontend
+
+docker-up: ## Run API + dashboard in containers
+	docker compose up --build
 
 clean: ## Remove caches and build artefacts
 	find . -type d -name __pycache__ -prune -exec rm -rf {} +

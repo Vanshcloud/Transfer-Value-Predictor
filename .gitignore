@@ -71,3 +71,7 @@ frontend/next-env.d.ts
 frontend/AGENTS.md
 frontend/CLAUDE.md
 frontend/.env*.local
+
+# Stray uv lockfile. This project pins with requirements*.txt; a second,
+# unmaintained lockfile in the tree is a source of confusion, not of truth.
+uv.lock

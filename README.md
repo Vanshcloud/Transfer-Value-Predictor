@@ -3,8 +3,9 @@
 Predict the market value (EUR) of professional footballers from performance,
 biographical and contextual data — and explain every prediction.
 
-> **Status: Phase 10 of 13.** The pipeline, models, evaluation, API and
-> dashboard are built. Docker, CI and the optional FBref spike are not. See
+> **Status: Phase 11 of 13.** The pipeline, models, evaluation, API, dashboard,
+> containers and CI are built. Final verification and the optional FBref spike
+> remain. See
 > [`plans/IMPLEMENTATION_PLAN.md`](plans/IMPLEMENTATION_PLAN.md).
 
 ## Why this repository looks the way it does
@@ -225,6 +226,50 @@ Three frontend traps, each handled in exactly one place:
   not installed — v4 ships its own.
 - **Tailwind v4 is CSS-first.** There is no `tailwind.config.js`; creating one
   would silently do nothing.
+
+## Running it in containers
+
+```bash
+docker compose up --build       # API on :8000, dashboard on :3000
+```
+
+The images deliberately **do not contain the data or the models**. The parquet
+panel is hundreds of megabytes and refreshes weekly; the models are regenerated
+by `scripts/train_models.py`. An image with either baked in is stale the day it
+is built, so compose mounts `data/processed/` and `models/` read-only instead.
+Run the three pipeline commands above at least once before `docker compose up`,
+or the API starts *degraded*: `/health` returns 200 and reports
+`ready: false`, which is the honest answer for a process that is alive but has
+nothing to serve.
+
+`NEXT_PUBLIC_API_BASE` is baked into the dashboard at **build** time, not run
+time — Next inlines `NEXT_PUBLIC_*` into the client bundle. A deployment
+pointing at a different API rebuilds the image. That is the real consequence of
+shipping a URL to the browser, so it is stated rather than hidden behind a
+runtime variable that would not work.
+
+Postgres is not in the compose file. The storage layer sits behind a Protocol
+(`src/storage/base.py`), so adding it later is a second implementation rather
+than a rewrite — and running a database nothing reads from yet would be a
+service to maintain for no measured benefit.
+
+## CI
+
+[`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs four jobs on every
+push and pull request:
+
+- **Backend** — ruff, black, mypy, and the unit suite.
+- **Dashboard** — tsc, eslint, and `next build`, the step that catches the
+  Plotly SSR trap.
+- **Authorship** — no `Co-Authored-By` trailers, no AI attribution lines.
+- **Removed APIs** — greps for APIs that were deleted from dependencies this
+  project pins, plus two architectural boundaries: `duckdb` may only be
+  imported inside `src/storage/`, and Plotly only inside `Chart.tsx`.
+
+CI runs on a clean checkout, where `data/` and `models/` are empty. Every test
+that needs them **skips** rather than fails — verified: 45 integration tests
+skip and the rest pass. A suite that is only green on a machine with a trained
+model is not a suite anyone can trust.
 
 ## Development
 
