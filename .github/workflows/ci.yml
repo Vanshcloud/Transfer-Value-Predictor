@@ -122,6 +122,20 @@ jobs:
           fi
           echo "authorship clean: $(git log --oneline | wc -l) commits"
 
+      - name: No host-specific detail anywhere in the history
+        # A redaction commit does not redact anything: the text stays in every
+        # earlier commit, and the removing diff prints it again in its own '-'
+        # lines. The release audit found a home-directory path, an account name
+        # and a machine inventory sitting in 16 of 17 commits after they had
+        # been "removed". The history was rewritten; this stops it recurring,
+        # and it has to run over `git log -p` because a tip-only check is
+        # exactly the check that missed it the first time.
+        run: |
+          if git log -p --all | grep -nEi '/(Users|home)/[a-z0-9._-]+/|[0-9]+ ?GB free'; then
+            echo "a local path or host inventory appears in the history"; exit 1
+          fi
+          echo "no host-specific detail in $(git log --oneline | wc -l) commits"
+
   removed-apis:
     name: Removed APIs
     runs-on: ubuntu-latest

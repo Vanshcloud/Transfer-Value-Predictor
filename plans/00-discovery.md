@@ -260,6 +260,13 @@ Toolchain versions the plan depends on. Host-specific inventory that was here
 during development — local paths, an account name, free disk — has been removed:
 it explained nothing a reader of this repository needs.
 
+Removed from the **history** as well, not only from this file. Deleting it in a
+later commit leaves it in every earlier one, and the deleting diff renders it
+again in its own `-` lines; the release audit found exactly that. The history
+was rewritten with `git filter-repo` while the repository was still private with
+no forks, and `.github/workflows/ci.yml` now greps every commit so it cannot
+come back.
+
 - Python 3.13, node 24 / npm 11. Both are what CI and the Dockerfiles pin.
 - Kaggle credentials are required for ingestion and are supplied by the operator,
   never committed. See `.env.example`.
