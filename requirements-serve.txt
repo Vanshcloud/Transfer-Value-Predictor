@@ -1,0 +1,50 @@
+# Runtime dependencies for SERVING ONLY — what the API image installs.
+#
+# The full requirements.txt trains nine model families. Serving loads one, and
+# the difference is not small: xgboost pulls 291 MB of CUDA libraries it will
+# never use on a CPU inference path, and catboost brings 269 MB of itself plus
+# plotly. Together with their transitives that is roughly 700 MB of a 1.6 GB
+# site-packages, carried so that an image whose only command is `uvicorn` could
+# in principle fit a gradient booster it is never asked to fit.
+#
+# THE COUPLING, STATED PLAINLY: this file is only correct while the winning
+# artifact in every shipped variant is a family listed below. LightGBM wins
+# both today (docs/model_comparison.md). If a tuning run ever selects XGBoost
+# or CatBoost, the artifact will not unpickle in this image and
+# tests/unit/test_dependencies.py will fail first, which is the point of that
+# test — the failure is loud, early and in CI rather than at 3am on a
+# deployment.
+#
+# REGENERATE the lock after editing:
+#   uv pip compile requirements-serve.txt --python-version 3.13 \
+#       --output-file requirements-serve-lock.txt
+
+# ---- Data ----
+# Pinned <3 for the same reason as requirements.txt: pandas 3 changes the
+# default string dtype and makes Copy-on-Write permanent, which is a silent
+# behaviour change in a categorical-heavy pipeline.
+pandas>=2.2,<3
+numpy>=2.0
+pyarrow>=17.0
+duckdb>=1.1
+
+# ---- Model loading and inference ----
+# lightgbm is required to *unpickle* the artifact, not merely to fit one: the
+# saved object is a scikit-learn Pipeline wrapping an LGBMRegressor.
+scikit-learn>=1.9
+lightgbm>=4.5
+
+# ---- Explainability ----
+# Not optional. Every prediction returns SHAP contributions, so this is a
+# serving dependency. It drags matplotlib, numba and llvmlite with it, which
+# is the price of the feature rather than an oversight.
+shap>=0.48
+
+# ---- API ----
+fastapi>=0.115
+uvicorn[standard]>=0.32
+pydantic>=2.9
+
+# ---- Configuration ----
+python-dotenv>=1.0
+PyYAML>=6.0

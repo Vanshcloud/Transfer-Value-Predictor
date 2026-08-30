@@ -311,6 +311,17 @@ Three frontend traps, each handled in exactly one place:
 docker compose up --build       # API on :8000, dashboard on :3000
 ```
 
+The API image installs `requirements-serve-lock.txt`, not the full stack: the
+zoo trains nine families and serving loads one, and the difference is 291 MB of
+CUDA libraries that xgboost brings for a GPU this inference path never touches,
+plus 269 MB of catboost and its plotly. Dropping both took the image from
+**2.62 GB to 1.32 GB** with an identical prediction on the same input. The
+trade is stated in `requirements-serve.txt` and guarded by
+`tests/integration/test_serving_dependencies.py`, which fails if a tuning run
+ever ships an artifact the serving image cannot unpickle. `scripts/` is left
+out of that image for the same reason — commands that would raise ImportError
+are worse than commands that are absent.
+
 The images deliberately **do not contain the data or the models**. The parquet
 panel is hundreds of megabytes and refreshes weekly; the models are regenerated
 by `scripts/train_models.py`. An image with either baked in is stale the day it

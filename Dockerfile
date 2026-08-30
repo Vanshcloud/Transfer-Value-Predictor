@@ -16,11 +16,21 @@ WORKDIR /build
 
 # Requirements first, and only requirements: Docker caches this layer, so
 # editing source does not reinstall the whole ML stack.
-# The lock, not the declaration: an image rebuilt in March must contain the
-# same packages as one built today, or "it worked when we shipped it" is
-# unfalsifiable.
-COPY requirements-lock.txt ./
-RUN pip install --no-cache-dir --prefix=/install -r requirements-lock.txt
+# The SERVE lock, not the full one, and the lock rather than the declaration.
+#
+# Serving loads one model; the full set trains nine. xgboost brings 291 MB of
+# CUDA libraries that a CPU inference path never opens, and catboost 269 MB of
+# itself plus plotly — roughly 700 MB of a 1.6 GB site-packages, carried by an
+# image whose only command is `uvicorn`. requirements-serve.txt states the
+# coupling this creates: it is correct only while every shipped variant's
+# winning family is one it lists, and tests/unit/test_dependencies.py fails
+# in CI if that stops being true.
+#
+# The lock rather than the declaration because an image rebuilt in March must
+# contain the same packages as one built today, or "it worked when we shipped
+# it" is unfalsifiable.
+COPY requirements-serve-lock.txt ./
+RUN pip install --no-cache-dir --prefix=/install -r requirements-serve-lock.txt
 
 
 FROM python:3.13-slim AS runtime
@@ -42,8 +52,13 @@ COPY --from=build /install /usr/local
 WORKDIR /app
 COPY --chown=app:app src ./src
 COPY --chown=app:app api ./api
-COPY --chown=app:app scripts ./scripts
 COPY --chown=app:app configs ./configs
+
+# scripts/ is deliberately absent. This image serves; it does not train. The
+# pipeline scripts need xgboost, catboost and requests, none of which are
+# installed here, so shipping them would mean shipping commands that fail with
+# an ImportError. The README runs them on the host, which is also where the
+# data they need lives.
 
 # Mount points for the two things the image deliberately does not contain.
 RUN mkdir -p /app/data/processed /app/models && chown -R app:app /app/data /app/models

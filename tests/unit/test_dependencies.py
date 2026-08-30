@@ -19,6 +19,8 @@ ROOT = Path(__file__).resolve().parents[2]
 DECLARATION = ROOT / "requirements.txt"
 LOCK = ROOT / "requirements-lock.txt"
 DEV = ROOT / "requirements-dev.txt"
+SERVE = ROOT / "requirements-serve.txt"
+SERVE_LOCK = ROOT / "requirements-serve-lock.txt"
 
 REQUIREMENT = re.compile(r"^([A-Za-z0-9._-]+)\s*(\[[^\]]*\])?\s*(.*)$")
 
@@ -88,10 +90,14 @@ def test_dev_installs_the_lock_not_the_declaration() -> None:
     assert not re.search(r"^-r requirements\.txt\s*$", body, re.MULTILINE)
 
 
-def test_the_docker_image_installs_the_lock() -> None:
+def test_the_docker_image_installs_the_serve_lock() -> None:
+    """The image installs the pinned *serving* set — never the declaration,
+    which would float, and never the full lock, which would carry the two
+    trainers and their 700 MB for an image whose only command is uvicorn."""
     body = (ROOT / "Dockerfile").read_text()
-    assert "requirements-lock.txt" in body
+    assert "requirements-serve-lock.txt" in body
     assert "-r requirements.txt" not in body
+    assert "-r requirements-lock.txt" not in body
 
 
 def test_no_html_parser_is_installed() -> None:
@@ -111,6 +117,35 @@ def test_pyproject_reads_the_declaration_not_the_lock() -> None:
     assert files == ["requirements.txt"]
 
 
-@pytest.mark.parametrize("path", [DECLARATION, LOCK, DEV, ROOT / "requirements-lint.txt"])
+def test_the_serve_set_is_a_subset_of_the_full_one() -> None:
+    """Serving must not need a package training does not declare, or the two
+    resolutions describe different projects."""
+    extra = sorted(set(_entries(SERVE)) - set(_entries(DECLARATION)))
+    assert not extra, f"declared for serving but not for the project: {extra}"
+
+
+def test_the_serve_set_agrees_with_the_full_set_on_shared_bounds() -> None:
+    """A bound with a reason behind it must not be relaxed for the image."""
+    full, serve = _entries(DECLARATION), _entries(SERVE)
+    for name, spec in serve.items():
+        assert (
+            spec == full[name]
+        ), f"{name} is {spec!r} for serving and {full[name]!r} for the project"
+
+
+def test_the_serve_lock_pins_exactly_and_omits_the_trainers() -> None:
+    """xgboost brings 291 MB of CUDA the inference path never opens; catboost
+    269 MB plus plotly. Neither is needed to load a LightGBM artifact."""
+    locked = _entries(SERVE_LOCK)
+    loose = sorted(n for n, spec in locked.items() if not spec.startswith("=="))
+    assert not loose, f"not pinned exactly: {loose}"
+    assert not set(locked) & {"xgboost", "catboost", "plotly", "nvidia-nccl-cu12"}
+    # The things serving genuinely cannot do without.
+    assert {"lightgbm", "shap", "scikit-learn", "fastapi", "duckdb"} <= set(locked)
+
+
+@pytest.mark.parametrize(
+    "path", [DECLARATION, LOCK, DEV, SERVE, SERVE_LOCK, ROOT / "requirements-lint.txt"]
+)
 def test_every_requirements_file_parses(path: Path) -> None:
     assert _entries(path) or path.read_text().strip()
