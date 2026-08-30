@@ -145,19 +145,27 @@ jobs:
           fi
           echo "authorship clean: $(git log --oneline | wc -l) commits"
 
-      - name: Every commit is authored and committed by one person
-        # scripts/hooks/commit-msg enforces this at commit time, but a hook
-        # only runs where someone has run `make hooks` — never on a fork, and
-        # never on a clone that skipped setup. The repository's claim is about
-        # the history, so the history is what gets checked.
+      - name: Every commit on main is authored and committed by one person
+        # scripts/hooks/commit-msg enforces this at commit time, but a hook only
+        # runs where someone has run `make hooks` — never on a fork, and never
+        # on a clone that skipped setup.
+        #
+        # Scoped to origin/main, not to whatever ref is checked out. The claim
+        # is about the history this project ships; a Dependabot branch is
+        # authored by dependabot[bot] and is never merged (CONTRIBUTING: pull
+        # requests are not accepted, the change is applied by hand and the PR
+        # closed). Checking the PR head instead failed every Dependabot run on
+        # a rule none of them can satisfy or violate — a red X that means
+        # nothing is worse than no check, because it is the one people learn to
+        # skim past.
         run: |
-          authors=$(git log --format='%ae%n%ce' | sort -u)
+          git fetch --quiet origin main
           expected="vanshwar@gmail.com"
-          unexpected=$(echo "$authors" | grep -v "^${expected}$" || true)
+          unexpected=$(git log --format='%ae%n%ce' origin/main | sort -u | grep -v "^${expected}$" || true)
           if [ -n "$unexpected" ]; then
-            echo "unexpected author or committer address:"; echo "$unexpected"; exit 1
+            echo "unexpected author or committer address on main:"; echo "$unexpected"; exit 1
           fi
-          echo "single author across $(git log --oneline | wc -l) commits"
+          echo "single author across $(git rev-list --count origin/main) commits on main"
 
       - name: No host-specific detail anywhere in the history
         # A redaction commit does not redact anything: the text stays in every
