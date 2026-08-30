@@ -11,5 +11,5 @@ types-PyYAML==6.0.12.20260815
 # Matched to the installed pandas 2.3.x, NOT the latest release. pandas-stubs
 # tracks pandas versions, so the 3.0.x stubs describe an API that pandas 2.3
 # does not have — mypy would then check against the wrong library.
-pandas-stubs==2.3.3.260113
-types-requests==2.32.4.20250913
+pandas-stubs==3.0.5.260730
+types-requests==2.33.0.20260712
