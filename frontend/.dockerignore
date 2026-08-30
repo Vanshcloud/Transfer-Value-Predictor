@@ -8,9 +8,14 @@ AGENTS.md
 CLAUDE.md
 Dockerfile
 
-# Tests run in CI, never in the image build. They would be traced by the
-# standalone output step and add weight for something the container never runs.
-*.test.ts
-*.test.tsx
-src/test
-vitest.config.mts
+# Test files are deliberately NOT excluded. .dockerignore matches with Go's
+# filepath.Match, so `*.test.tsx` matches only the context root and misses
+# src/components/*.test.tsx — while `src/test/setup.ts`, which registers the
+# jest-dom matchers, WAS excluded. `next build` then type-checked the tests
+# without their matcher types and failed on ~30 TS2339 errors.
+#
+# Excluding them properly would mean `**/*.test.tsx` plus keeping that list in
+# step with the vitest config forever, to save a few KB from a *build* stage.
+# The runtime stage copies only .next/standalone, .next/static and public, so
+# nothing here reaches the shipped image regardless. Letting the image build
+# type-check exactly what CI type-checks is worth more than the KB.
