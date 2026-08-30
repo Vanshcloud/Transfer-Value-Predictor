@@ -19,9 +19,12 @@
 import { defineConfig } from "vitest/config";
 import path from "node:path";
 
+// import.meta.dirname, not __dirname: this file is ESM, and Vite's native
+// config loader (the coming default) cannot see the CJS global.
+
 export default defineConfig({
   resolve: {
-    alias: { "@": path.join(__dirname, "src") },
+    alias: { "@": path.join(import.meta.dirname, "src") },
   },
   test: {
     environment: "jsdom",
