@@ -33,7 +33,7 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@v7
         with:
           # The same minor the project develops against. A silent 3.14 would
           # change behaviour with no diff to point at.
