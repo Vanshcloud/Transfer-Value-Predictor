@@ -1,11 +1,23 @@
 /** Display helpers. Money is formatted in one place so it reads the same everywhere. */
 
-/** EUR, abbreviated. Full precision on a €47,300,000 figure is noise on a card. */
+/**
+ * EUR, abbreviated. Full precision on a €47,300,000 figure is noise on a card.
+ *
+ * The thresholds are the value at which the *next unit down* would round up to
+ * 1000, not the unit boundary itself. At 1e6 exactly, €999,999 formats as
+ * "€1000k" — arithmetically fine and obviously wrong to read. Each cut-off is
+ * therefore set where the smaller unit stops being able to represent the
+ * number in three digits: k carries no decimals, so it tops out at 999,500;
+ * M carries two, so it tops out at 999,995,000.
+ */
+const K_ROUNDS_UP_AT = 999_500;
+const M_ROUNDS_UP_AT = 999_995_000;
+
 export function eur(value: number | null | undefined): string {
   if (value === null || value === undefined || Number.isNaN(value)) return "—";
   const abs = Math.abs(value);
-  if (abs >= 1e9) return `€${(value / 1e9).toFixed(2)}B`;
-  if (abs >= 1e6) return `€${(value / 1e6).toFixed(2)}M`;
+  if (abs >= M_ROUNDS_UP_AT) return `€${(value / 1e9).toFixed(2)}B`;
+  if (abs >= K_ROUNDS_UP_AT) return `€${(value / 1e6).toFixed(2)}M`;
   if (abs >= 1e3) return `€${(value / 1e3).toFixed(0)}k`;
   return `€${value.toFixed(0)}`;
 }

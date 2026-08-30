@@ -278,6 +278,21 @@ Every prediction is shown beside the model that produced it — family, training
 date, dataset size, artifact version, and the **temporal** MAE and R². A number
 with no attribution invites more trust than it has earned.
 
+```bash
+cd frontend && npm test        # 70 tests, ~1.5s
+```
+
+The suite covers the parts of the dashboard where being wrong is silent: the
+error mapping in `lib/api.ts` (every failure becomes one `ApiError` carrying
+the server's own `code`), the race guard in `useAsync` (navigate mid-request
+and the stale response must not overwrite the fresh one), the money formatting,
+and the state each component renders — including that a per-feature euro figure
+never appears next to a SHAP contribution, because that number would be false.
+
+It does not test what Plotly draws. jsdom cannot answer that, and the frontend
+failure that actually breaks this app is the SSR trap, which `next build`
+catches in CI.
+
 Three frontend traps, each handled in exactly one place:
 
 - **Plotly and SSR.** A plain import fails `next build` with

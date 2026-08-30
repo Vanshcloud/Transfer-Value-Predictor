@@ -7,3 +7,10 @@ out
 AGENTS.md
 CLAUDE.md
 Dockerfile
+
+# Tests run in CI, never in the image build. They would be traced by the
+# standalone output step and add weight for something the container never runs.
+*.test.ts
+*.test.tsx
+src/test
+vitest.config.mts

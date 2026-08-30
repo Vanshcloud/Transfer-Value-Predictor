@@ -106,6 +106,14 @@ jobs:
       - name: Lint
         run: npx eslint src
 
+      - name: Tests
+        # 2,804 lines of TypeScript shipped with no test at all until Phase 14:
+        # CI type-checked it and built it, and never once ran it. These cover
+        # the parts where being wrong is silent — the error mapping in lib/api,
+        # the race guard in useAsync, the money formatting, and the states each
+        # component renders.
+        run: npm test
+
       - name: Build
         # The step that catches the Plotly SSR trap: a plain import fails here
         # with "ReferenceError: self is not defined" even inside "use client".
