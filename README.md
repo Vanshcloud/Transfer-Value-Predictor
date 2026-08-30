@@ -279,7 +279,7 @@ date, dataset size, artifact version, and the **temporal** MAE and R². A number
 with no attribution invites more trust than it has earned.
 
 ```bash
-cd frontend && npm test        # 70 tests, ~1.5s
+cd frontend && npm test        # 77 tests, ~2s
 ```
 
 The suite covers the parts of the dashboard where being wrong is silent: the
@@ -292,6 +292,12 @@ never appears next to a SHAP contribution, because that number would be false.
 It does not test what Plotly draws. jsdom cannot answer that, and the frontend
 failure that actually breaks this app is the SSR trap, which `next build`
 catches in CI.
+
+Charts are not only pictures. Plotly emits an SVG of positioned shapes, so a
+screen reader would otherwise get a label and no numbers — and the numbers are
+the content. `Chart.tsx` marks the SVG `aria-hidden` and renders the same
+series as a visually-hidden table, derived from the one `data` prop so the two
+cannot describe different charts.
 
 Three frontend traps, each handled in exactly one place:
 
