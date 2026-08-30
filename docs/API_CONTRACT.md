@@ -183,12 +183,44 @@ Every non-2xx response uses one envelope, so a client writes one error path:
 | 404 | `player_not_found` | The player id is not in the dataset. |
 | 404 | `season_not_found` | The player exists but has no row for that season. |
 | 404 | `model_not_found` | No such variant is loaded. |
-| 422 | `validation_error` | The body failed schema validation. `detail` carries the field-level errors. |
+| 404 | `not_found` | No route matches the path. |
+| 405 | `method_not_allowed` | The route exists but not for that method. |
+| 422 | `validation_error` | The body failed schema validation, named an unknown feature, or gave a feature a value the model cannot be asked about. `detail` carries the field-level errors. |
+| 500 | `internal_error` | The service failed unexpectedly. The cause is logged; the response deliberately carries no detail. |
 | 503 | `model_unavailable` | No model artifact is loaded; the service is up but cannot predict. |
 
 `422` bodies keep FastAPI's field-level detail inside `detail`, because "which
 field, and why" is the entire value of a validation error. A bare
 `{"detail": "Unprocessable Entity"}` forces a client to guess.
+
+**Every** row above is the same envelope, including the ones this application
+does not raise itself. Starlette's own `404` and `405`, and any unhandled
+exception, are re-shaped by handlers in `api/errors.py`; without them a client
+would need three parsers — the envelope, `{"detail": ...}`, and a `text/plain`
+body. `tests/unit/test_api.py::TestContract::test_every_error_uses_one_envelope`
+asserts it against a client configured the way a real deployment behaves.
+
+`500` is the one status whose `message` is fixed and whose `detail` is always
+`null`. An exception's text can carry a path, a query or a fragment of the data
+it choked on, and this API is unauthenticated; the detail goes to the log.
+
+### Feature values
+
+`features` rejects more than unknown names. A value is refused, with the
+feature named in the message, when it is:
+
+- not a single value (an object, array or set),
+- not a number where the model expects one — including `true`/`false`, since
+  `float(True)` is `1.0` and would otherwise be answered confidently,
+- not finite (`NaN`, `Infinity`, `1e999` — reachable in a raw body even though
+  most JSON encoders refuse to write them),
+- negative for a feature that cannot be (`src.feature_engineering.build.NON_NEGATIVE_FEATURES`:
+  counts, durations, rates and physical measurements), or
+- a category longer than 200 characters.
+
+Every offending value is reported in one response rather than one per round
+trip. An explicit `null` is **not** an error: it means "absent", and the fitted
+imputer fills it exactly as it did during training.
 
 ## 5. OpenAPI
 

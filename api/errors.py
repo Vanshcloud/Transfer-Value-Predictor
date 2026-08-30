@@ -14,6 +14,7 @@ from typing import Any
 from fastapi import FastAPI, Request, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from src.services.prediction import (
     InvalidFeaturesError,
@@ -36,6 +37,14 @@ STATUS_FOR: dict[type[ServiceError], int] = {
     InvalidFeaturesError: status.HTTP_422_UNPROCESSABLE_CONTENT,
     ModelUnavailableError: status.HTTP_503_SERVICE_UNAVAILABLE,
 }
+
+
+CODE_FOR: dict[int, str] = {
+    status.HTTP_404_NOT_FOUND: "not_found",
+    status.HTTP_405_METHOD_NOT_ALLOWED: "method_not_allowed",
+    status.HTTP_500_INTERNAL_SERVER_ERROR: "internal_error",
+}
+"""Codes for the failures Starlette raises before this application sees them."""
 
 
 def error_response(
@@ -64,6 +73,38 @@ def register_error_handlers(app: FastAPI) -> None:
             "the request body failed validation",
             status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=_serialisable(exc.errors()),
+        )
+
+    @app.exception_handler(StarletteHTTPException)
+    async def _http_error(_: Request, exc: StarletteHTTPException) -> JSONResponse:
+        # 404s for unrouted paths and 405s for the wrong method are raised by
+        # Starlette itself, never by this code, so without this they come back
+        # as {"detail": "Not Found"} — a second shape for the same client to
+        # parse. CODE_FOR names the common ones; anything else gets a code
+        # derived from the status rather than a fabricated one.
+        code = CODE_FOR.get(exc.status_code, f"http_{exc.status_code}")
+        return error_response(code, str(exc.detail), exc.status_code)
+
+    @app.exception_handler(Exception)
+    async def _unhandled(_: Request, exc: Exception) -> JSONResponse:
+        """The envelope of last resort.
+
+        This module's whole claim is that *every* non-2xx response has one
+        shape. Without this handler that claim is false for exactly the case
+        where a client can least afford to guess: FastAPI's default 500 is
+        ``text/plain`` "Internal Server Error", so a consumer parsing JSON gets
+        an exception while handling an exception.
+
+        The message is deliberately fixed. An unhandled exception's text can
+        carry a file path, a query or a fragment of data, and this endpoint is
+        unauthenticated; the detail goes to the log, where it belongs, and the
+        client gets a code it can branch on.
+        """
+        logger.exception("unhandled error serving a request: %s", exc)
+        return error_response(
+            "internal_error",
+            "the server failed to handle this request",
+            status.HTTP_500_INTERNAL_SERVER_ERROR,
         )
 
 

@@ -8,6 +8,7 @@ possible because the service takes no web framework.
 
 from __future__ import annotations
 
+import pathlib
 from collections.abc import Iterator
 
 import numpy as np
@@ -127,6 +128,21 @@ def client(service: PredictionService) -> Iterator[TestClient]:
 @pytest.fixture
 def empty_client() -> Iterator[TestClient]:
     yield from make_client(PredictionService({}))
+
+
+@pytest.fixture
+def deployed_client(service: PredictionService) -> Iterator[TestClient]:
+    """A client that reports the server's 500 instead of re-raising it.
+
+    The default TestClient re-raises an unhandled exception, which hides the
+    response a real deployment would send. Phase 14 found a bare `text/plain`
+    500 that way: every test passed while the running service broke its own
+    error contract.
+    """
+    app = create_app()
+    app.dependency_overrides[get_service] = lambda: service
+    yield TestClient(app, raise_server_exceptions=False)
+    app.dependency_overrides.clear()
 
 
 class TestHealth:
@@ -343,17 +359,123 @@ class TestContract:
         ]
         assert len(schema["examples"]) == 2
 
-    def test_every_error_uses_one_envelope(self, client: TestClient) -> None:
+    def test_every_error_uses_one_envelope(self, deployed_client: TestClient) -> None:
+        """Section 4 says *every* non-2xx uses one envelope. This checks it.
+
+        The last four used to be the exceptions: a malformed feature value
+        escaped as a `text/plain` 500, and Starlette's own 404/405 came back as
+        `{"detail": ...}` — three shapes for one client to parse.
+        """
         responses = [
-            client.post("/api/v1/predict", json={"player_id": 999999}),
-            client.post("/api/v1/predict", json={}),
-            client.get("/api/v1/models/nope"),
-            client.get("/api/v1/players/999999"),
+            deployed_client.post("/api/v1/predict", json={"player_id": 999999}),
+            deployed_client.post("/api/v1/predict", json={}),
+            deployed_client.get("/api/v1/models/nope"),
+            deployed_client.get("/api/v1/players/999999"),
+            deployed_client.post("/api/v1/predict", json={"features": {"age": "old"}}),
+            deployed_client.post("/api/v1/predict", json={"features": {"age": {"a": 1}}}),
+            deployed_client.get("/api/v1/no-such-route"),
+            deployed_client.get("/api/v1/predict"),
         ]
         for response in responses:
+            assert response.status_code >= 400
+            assert response.headers["content-type"].startswith("application/json")
             body = response.json()
-            assert set(body) == {"error"}
+            assert set(body) == {"error"}, response.text
             assert set(body["error"]) == {"code", "message", "detail"}
+            assert body["error"]["code"]
+            assert body["error"]["message"]
+
+    def test_the_error_envelope_is_documented_for_every_status(self) -> None:
+        """The contract's status table must not describe a status we never send."""
+        contract = (
+            pathlib.Path(__file__).resolve().parents[2] / "docs" / "API_CONTRACT.md"
+        ).read_text()
+        for code in (
+            "player_not_found",
+            "validation_error",
+            "model_unavailable",
+            "not_found",
+            "method_not_allowed",
+            "internal_error",
+        ):
+            assert code in contract, f"{code} is returned but not documented"
+
+
+class TestMalformedFeatureValues:
+    """Bad feature *values*, as opposed to bad feature *names*.
+
+    Names were always rejected. Values went straight into the fitted pipeline,
+    where scikit-learn raised a ValueError deep inside a transformer and the
+    caller got `text/plain` "Internal Server Error" — for something they typed.
+    """
+
+    @pytest.mark.parametrize(
+        ("features", "expected_fragment"),
+        [
+            ({"age": "twenty-five"}, "expected a number"),
+            ({"age": {"$ne": 1}}, "expected a single value"),
+            ({"age": [1, 2, 3]}, "expected a single value"),
+            ({"age": True}, "expected a number, got a boolean"),
+            ({"goals": -5}, "cannot be negative"),
+            ({"minutes_played": -1}, "cannot be negative"),
+            ({"position": "A" * 500}, "category longer than"),
+        ],
+    )
+    def test_a_bad_value_is_a_422_naming_the_feature(
+        self, deployed_client: TestClient, features: dict[str, object], expected_fragment: str
+    ) -> None:
+        response = deployed_client.post("/api/v1/predict", json={"features": features})
+        assert response.status_code == 422
+        assert response.headers["content-type"].startswith("application/json")
+        body = response.json()["error"]
+        assert body["code"] == "validation_error"
+        assert expected_fragment in body["message"]
+        # The offending feature is named, so a client knows which input to fix.
+        assert next(iter(features)) in body["message"]
+
+    @pytest.mark.parametrize("literal", ["1e999", "Infinity", "-Infinity", "NaN"])
+    def test_non_finite_numbers_are_rejected(
+        self, deployed_client: TestClient, literal: str
+    ) -> None:
+        """`inf` and `NaN` cannot be encoded by a JSON client, but a raw body
+        carries them happily and Python's parser accepts them."""
+        response = deployed_client.post(
+            "/api/v1/predict",
+            content=f'{{"features":{{"age":{literal}}}}}'.encode(),
+            headers={"Content-Type": "application/json"},
+        )
+        assert response.status_code == 422
+        assert "finite" in response.json()["error"]["message"]
+
+    def test_every_bad_value_is_reported_not_just_the_first(
+        self, deployed_client: TestClient
+    ) -> None:
+        """One round trip should be enough to fix the whole request."""
+        response = deployed_client.post(
+            "/api/v1/predict", json={"features": {"age": "x", "goals": -1}}
+        )
+        detail = response.json()["error"]["detail"]
+        assert len(detail) == 2
+        assert any("age" in item for item in detail)
+        assert any("goals" in item for item in detail)
+
+    def test_an_explicit_null_is_still_imputed(self, deployed_client: TestClient) -> None:
+        """Documented behaviour: omitted keys are imputed as during training."""
+        response = deployed_client.post("/api/v1/predict", json={"features": {"age": None}})
+        assert response.status_code == 200
+        assert response.json()["prediction_eur"] > 0
+
+    def test_a_valid_request_is_unaffected(self, deployed_client: TestClient) -> None:
+        response = deployed_client.post(
+            "/api/v1/predict", json={"features": {"age": 25.0, "goals": 12}}
+        )
+        assert response.status_code == 200
+        assert response.json()["prediction_eur"] > 0
+
+    def test_zero_is_allowed_for_a_non_negative_feature(self, deployed_client: TestClient) -> None:
+        """The bound is `< 0`, not `<= 0`: a player with no goals is ordinary."""
+        response = deployed_client.post("/api/v1/predict", json={"features": {"goals": 0}})
+        assert response.status_code == 200
 
 
 class TestSearchEndpoint:

@@ -104,6 +104,39 @@ CATEGORICAL_FEATURES = (
     "country_of_citizenship",
 )
 
+NON_NEGATIVE_FEATURES = frozenset(
+    {
+        "age",
+        "age_squared",
+        "appearances",
+        "goals",
+        "assists",
+        "minutes_played",
+        "yellow_cards",
+        "red_cards",
+        "goals_per_90",
+        "assists_per_90",
+        "cards_per_90",
+        "minutes_per_appearance",
+        "height_in_cm",
+        "years_since_debut",
+        "seasons_observed",
+    }
+)
+"""Features that cannot be negative by definition — counts, durations, rates
+and physical measurements.
+
+Listed here rather than in the API layer because it is a property of what the
+feature *means*, and the same rule has to hold for a batch job or a CLI that
+never touches HTTP. A negative goal count is not an unusual player; it is a
+caller bug, and answering it with a confident number is the failure mode this
+project spends most of its effort avoiding.
+
+``prev_log_market_value_in_eur`` and ``prev_value_age_days`` are deliberately
+absent: the first is a log of a value that can legitimately sit below 1, and
+the second is a signed staleness in days.
+"""
+
 PRIOR_VALUE_FEATURES = ("prev_log_market_value_in_eur", "prev_value_age_days")
 """The lagged label in log space, and how stale it was when the current label
 was set.

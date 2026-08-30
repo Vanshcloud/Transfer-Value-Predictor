@@ -17,6 +17,7 @@ Layering, top to bottom:
 
 from __future__ import annotations
 
+import math
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -31,7 +32,7 @@ from src.explainability.shap_explainer import (
     explain_prediction,
     supports_shap,
 )
-from src.feature_engineering.build import TARGET_COLUMN
+from src.feature_engineering.build import NON_NEGATIVE_FEATURES, TARGET_COLUMN
 from src.models.artifact import ModelArtifact, load, predict
 from src.models.calibration import interval_for
 from src.utils.logging import get_logger
@@ -47,9 +48,12 @@ QUANTILE_GRID = tuple(round(0.05 * step, 2) for step in range(21))
 """0, 0.05 ... 1.0. A grid rather than a handful of named quantiles so a
 client can interpolate a value's percentile without another request — which is
 what a radar chart needs to place an axis honestly."""
-"""How many contributions a response carries. The service always computes the
-full explanation; truncation belongs to the caller, which is why these are
-defaults for the transport layer rather than parameters of the service."""
+
+MAX_CATEGORY_LENGTH = 200
+"""Longest accepted categorical value. Every real category in this dataset is
+a position, a foot or a country name; nothing legitimate approaches this. The
+cap exists because ``/api/v1/predict`` is unauthenticated, and an unbounded
+string is free memory and free log volume for anyone who asks."""
 
 
 class ServiceError(Exception):
@@ -135,6 +139,7 @@ class PredictionService:
         # and most requests never ask for similar players.
         self._neighbours: dict[str, tuple[NearestNeighbors, pd.DataFrame]] = {}
         self._distribution: dict[str, Any] = {}
+        self._numeric_columns: dict[str, frozenset[str]] = {}
 
     def name_for(self, player_id: int) -> str | None:
         """Display name, when the players table was loaded alongside."""
@@ -568,7 +573,9 @@ class PredictionService:
         as they were during training.
 
         Raises:
-            InvalidFeaturesError: on an unknown key.
+            InvalidFeaturesError: on an unknown key, or a value the model
+                cannot be asked about — a wrong type, a non-finite number, a
+                negative count, or an implausibly long category.
         """
         artifact = self.artifact(variant)
         expected = set(artifact.feature_columns)
@@ -577,8 +584,92 @@ class PredictionService:
         if unknown:
             raise InvalidFeaturesError(f"unknown feature(s): {', '.join(unknown)}", detail=unknown)
 
+        self._validate_values(artifact, features)
+
         row = pd.DataFrame([{column: features.get(column) for column in artifact.feature_columns}])
-        return self._predict(artifact, row, player_id=None, season=None)
+        try:
+            return self._predict(artifact, row, player_id=None, season=None)
+        except (ValueError, TypeError) as exc:
+            # Backstop. _validate_values catches every malformed value seen so
+            # far, but the fitted pipeline is the only thing that knows its own
+            # full expectations, and a value it rejects is a bad request rather
+            # than a broken server. Without this the caller gets a bare 500 for
+            # something they typed.
+            raise InvalidFeaturesError(
+                f"the model could not be evaluated on these features: {exc}",
+                detail=sorted(features),
+            ) from exc
+
+    def _numeric_features(self, artifact: ModelArtifact) -> frozenset[str]:
+        """Which of this artifact's features the preprocessor treats as numeric.
+
+        Read from the fitted ColumnTransformer rather than re-listed here, so
+        it cannot disagree with what the model was actually trained on.
+        """
+        cached = self._numeric_columns.get(artifact.variant)
+        if cached is not None:
+            return cached
+
+        numeric: set[str] = set()
+        try:
+            columns = artifact.pipeline.named_steps["preprocess"].named_steps["columns"]
+            for name, _, selected in columns.transformers_:
+                if name == "numeric":
+                    numeric.update(str(column) for column in selected)
+        except (AttributeError, KeyError):  # pragma: no cover - defensive
+            # An artifact built by another pipeline shape still predicts; it
+            # just falls back to the type and finiteness checks below.
+            pass
+
+        resolved = frozenset(numeric)
+        self._numeric_columns[artifact.variant] = resolved
+        return resolved
+
+    def _validate_values(self, artifact: ModelArtifact, features: Mapping[str, Any]) -> None:
+        """Reject values the model must not be asked to answer for.
+
+        The keys were checked above; these are the values. Rejecting them here
+        rather than letting scikit-learn raise deep inside a transformer is
+        what turns an opaque 500 into a 422 that names the offending feature.
+
+        Raises:
+            InvalidFeaturesError: listing every bad feature, not just the first.
+        """
+        numeric = self._numeric_features(artifact)
+        problems: list[str] = []
+
+        for name, value in features.items():
+            if value is None:
+                # Explicitly absent. The fitted imputer fills it exactly as it
+                # did during training, which is the documented behaviour.
+                continue
+
+            if isinstance(value, (dict, list, tuple, set)):
+                problems.append(f"{name}: expected a single value, got {type(value).__name__}")
+                continue
+
+            if name in numeric:
+                if isinstance(value, bool):
+                    # float(True) is 1.0, so this would otherwise be accepted
+                    # silently — a confident answer to a question nobody asked.
+                    problems.append(f"{name}: expected a number, got a boolean")
+                    continue
+                try:
+                    number = float(value)
+                except (TypeError, ValueError):
+                    problems.append(f"{name}: expected a number, got {value!r}")
+                    continue
+                if not math.isfinite(number):
+                    problems.append(f"{name}: expected a finite number, got {value!r}")
+                elif name in NON_NEGATIVE_FEATURES and number < 0:
+                    problems.append(f"{name}: cannot be negative, got {number:g}")
+            elif isinstance(value, str) and len(value) > MAX_CATEGORY_LENGTH:
+                problems.append(f"{name}: category longer than {MAX_CATEGORY_LENGTH} characters")
+
+        if problems:
+            raise InvalidFeaturesError(
+                f"invalid feature value(s): {'; '.join(problems)}", detail=problems
+            )
 
     def _predict(
         self,

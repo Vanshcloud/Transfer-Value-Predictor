@@ -167,6 +167,74 @@ class TestPredictFromFeatures:
         assert high > low
 
 
+class TestFeatureValueValidation:
+    """Values, not names.
+
+    An unknown *name* was always rejected. An unknown-shaped *value* went into
+    the fitted pipeline and surfaced as a ValueError from inside a scikit-learn
+    transformer — which the API turned into a bare 500 for input a caller
+    typed. These run at the service level because the rule belongs to the
+    service: a batch job passing a negative goal count is just as wrong as an
+    HTTP client doing it.
+    """
+
+    @pytest.mark.parametrize(
+        ("features", "fragment"),
+        [
+            ({"age": "twenty-five"}, "expected a number"),
+            ({"age": {"$ne": 1}}, "expected a single value"),
+            ({"age": [1, 2, 3]}, "expected a single value"),
+            ({"age": (1, 2)}, "expected a single value"),
+            ({"age": True}, "got a boolean"),
+            ({"age": float("nan")}, "finite"),
+            ({"age": float("inf")}, "finite"),
+            ({"goals": -1}, "cannot be negative"),
+            ({"minutes_played": -0.5}, "cannot be negative"),
+            ({"position": "x" * 201}, "category longer than"),
+        ],
+    )
+    def test_a_bad_value_raises_rather_than_reaching_the_model(
+        self, service: PredictionService, features: dict[str, object], fragment: str
+    ) -> None:
+        with pytest.raises(InvalidFeaturesError) as caught:
+            service.predict_from_features(features)
+        assert fragment in caught.value.message
+        assert caught.value.code == "validation_error"
+        assert next(iter(features)) in caught.value.message
+
+    def test_all_bad_values_are_reported_at_once(self, service: PredictionService) -> None:
+        """One round trip should be enough to fix the whole request."""
+        with pytest.raises(InvalidFeaturesError) as caught:
+            service.predict_from_features({"age": "x", "goals": -3})
+        assert len(caught.value.detail) == 2  # type: ignore[arg-type]
+
+    def test_zero_is_valid_for_a_non_negative_feature(self, service: PredictionService) -> None:
+        """The bound is `< 0`. A player with no goals is ordinary, not invalid."""
+        assert service.predict_from_features({"goals": 0}).prediction_eur > 0
+
+    def test_an_explicit_none_still_means_absent(self, service: PredictionService) -> None:
+        assert service.predict_from_features({"age": None}).prediction_eur > 0
+
+    def test_a_long_category_under_the_cap_is_accepted(self, service: PredictionService) -> None:
+        """Unknown categories are the encoder's job; only absurd ones are ours."""
+        assert service.predict_from_features({"position": "x" * 199}).prediction_eur > 0
+
+    def test_numeric_columns_come_from_the_fitted_preprocessor(
+        self, service: PredictionService
+    ) -> None:
+        """Re-listing them here would let the check disagree with the model."""
+        numeric = service._numeric_features(service.artifact())
+        assert "age" in numeric and "goals" in numeric
+        assert "position" not in numeric
+
+    def test_a_valid_call_is_unchanged(self, service: PredictionService) -> None:
+        """Validation must not move the number it guards."""
+        features = {"age": 24.0, "goals": 15, "minutes_played": 2500, "position": "Attack"}
+        assert service.predict_from_features(features).prediction_eur == pytest.approx(
+            service.predict_from_features(features).prediction_eur
+        )
+
+
 class TestConfidence:
     def test_it_is_an_interval_not_a_made_up_probability(self, service: PredictionService) -> None:
         confidence = service.predict_for_player(1).confidence
