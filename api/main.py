@@ -21,12 +21,15 @@ from api.dependencies import ServiceDep, build_service
 from api.errors import register_error_handlers
 from api.routes import router
 from api.schemas import HealthResponse
+from src import __version__
 from src.utils.config import load_settings
 from src.utils.logging import configure_logging, get_logger
 
 logger = get_logger(__name__)
 
-VERSION = "0.1.0"
+VERSION = __version__
+"""Reported by /health and OpenAPI. Re-exported rather than redeclared:
+the audit found five copies of the version and one of them was wrong."""
 
 DEV_ORIGINS = ("http://localhost:3000", "http://127.0.0.1:3000")
 """Where the dashboard runs in development. A deployment overrides this with

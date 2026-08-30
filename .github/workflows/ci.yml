@@ -10,6 +10,12 @@ name: CI
 # property this workflow exists to protect, because a suite that only passes on
 # a machine with a trained model is not a suite anyone can trust.
 
+# Least privilege. Every job here only reads the checkout — nothing publishes,
+# comments or tags — so GITHUB_TOKEN gets read access and nothing else rather
+# than whatever the repository default happens to be.
+permissions:
+  contents: read
+
 on:
   push:
     branches: [main]

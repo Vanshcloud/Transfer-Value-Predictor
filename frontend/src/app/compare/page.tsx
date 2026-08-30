@@ -50,12 +50,22 @@ function PlayerPicker({
   onQuery: (value: string) => void;
   onPick: (result: SearchResult) => void;
 }) {
+  // Two identical search boxes sit on this page. Without htmlFor, a screen
+  // reader announces both as an unlabelled "search" field and the visible
+  // "Player A" / "Player B" never reaches it — so which box sets which side of
+  // the comparison is unknowable without sight.
+  const inputId = `compare-${label.replace(/\s+/g, "-").toLowerCase()}`;
+
   return (
     <div>
-      <label className="text-xs tracking-wide text-slate-500 uppercase dark:text-slate-400">
+      <label
+        htmlFor={inputId}
+        className="text-xs tracking-wide text-slate-500 uppercase dark:text-slate-400"
+      >
         {label}
       </label>
       <input
+        id={inputId}
         type="search"
         value={side.query}
         onChange={(event) => onQuery(event.target.value)}

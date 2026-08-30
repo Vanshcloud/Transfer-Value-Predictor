@@ -3,11 +3,24 @@
 Predict the market value (EUR) of professional footballers from performance,
 biographical and contextual data — and explain every prediction.
 
-> **Status: complete, all 13 phases.** The optional FBref enrichment was spiked
-> and declined ([`plans/02-fbref-spike.md`](plans/02-fbref-spike.md)); final
-> verification is recorded in
-> [`plans/03-final-verification.md`](plans/03-final-verification.md). See
-> [`plans/IMPLEMENTATION_PLAN.md`](plans/IMPLEMENTATION_PLAN.md).
+Search a player, get a valuation with a confidence interval, see the SHAP
+contributions that produced it, compare him to the seasons nearest him in the
+model's own feature space — then change the inputs and watch the number move.
+
+Metrics are reported on **held-out seasons the model has never seen**: test MAE
+**€4.44M** (R² 0.441) for the scouting model, **€3.71M** (R² 0.775) with a prior
+valuation. A random split would read about 35% better and answer a question
+nobody deploying this will ever ask.
+
+**Try it without signing up for anything:** `make setup && make test` runs the
+suite against the committed sample data — no Kaggle account, no download, no
+trained model. Roughly fifteen seconds.
+
+![A player's valuation, its 80% interval, and the SHAP contributions that produced it](docs/img/player-detail.png)
+
+*Every prediction arrives with the interval it earned, the features that moved
+it — read multiplicatively, because the model predicts log value — and the model
+that produced it.*
 
 ## Why this repository looks the way it does
 
@@ -49,6 +62,24 @@ doesn't" is such a common and confusing report. On Linux and in Docker the
 manylinux wheels bundle libgomp and no action is needed.
 
 ## Pipeline
+
+**First, data access.** `fetch_data.py` downloads the CC0 Kaggle mirror
+`davidcariboo/player-scores`, which needs a free Kaggle account. Create a token
+at [kaggle.com/settings](https://www.kaggle.com/settings), then either:
+
+```bash
+cp .env.example .env        # fill in KAGGLE_USERNAME and KAGGLE_KEY
+```
+
+or place the downloaded `kaggle.json` at `~/.kaggle/kaggle.json`. Without one of
+those, `fetch_data.py` stops with a message naming both options rather than
+failing obscurely.
+
+**You do not need an account to run the project.** `data/sample/` is committed,
+so `make test` gives you 475 passing tests and 45 skips with no credentials at
+all — the 45 are the integration tests that need the full panel, and they skip
+rather than fail by design. Only the three pipeline commands below need the
+download.
 
 Three stages, each reading what the last one wrote. Every figure below is
 printed by the command above it, so nothing here is a number someone typed in.
@@ -112,6 +143,11 @@ test seasons. LightGBM wins both variants.
 |---|---|---|---|---|
 | performance-only | LightGBM | €4.44M | 0.441 | 0.414 |
 | with prior value | LightGBM | €3.71M | 0.775 | 0.766 |
+
+![The model page: held-out metrics, provenance, and every family ranked by validation MAE](docs/img/model.png)
+
+*`/model` shows the winner's held-out metrics, its full provenance, and the nine
+families it beat — with the spread between them stated rather than hidden.*
 
 **The zoo barely beats the baseline** — R² moves 0.414 → 0.441 and 0.766 →
 0.775. Nine families and a hyperparameter search bought about 0.03 and 0.01.
@@ -215,6 +251,11 @@ seasons, then **change the inputs and watch the value move**.
 | `/model` | How good is this model, and why was it chosen? |
 | `/about` | Where the data came from and where not to trust it. |
 
+![Two players compared: predictions, side-by-side contributions, and a percentile radar](docs/img/compare.png)
+
+*`/compare` puts two players through the same model on the same basis —
+contributions side by side, then a percentile radar across the whole panel.*
+
 Every prediction is shown beside the model that produced it — family, training
 date, dataset size, artifact version, and the **temporal** MAE and R². A number
 with no attribution invites more trust than it has earned.
@@ -271,8 +312,8 @@ push and pull request:
   imported inside `src/storage/`, and Plotly only inside `Chart.tsx`.
 
 CI runs on a clean checkout, where `data/` and `models/` are empty. Every test
-that needs them **skips** rather than fails — verified: 45 integration tests
-skip and the rest pass. A suite that is only green on a machine with a trained
+that needs them **skips** rather than fails — verified on a fresh clone: 475
+pass, the 45 integration tests skip, nothing fails. A suite that is only green on a machine with a trained
 model is not a suite anyone can trust.
 
 ## Development
@@ -292,6 +333,18 @@ This project has a single author, Vansh Tomar. `scripts/hooks/commit-msg`
 enforces it: commits carrying a `Co-Authored-By` trailer or an AI-generation
 marker are rejected, as are commits authored by anyone else. The hook is
 version-controlled and wired via `core.hooksPath`, so it survives a reclone.
+
+## How it was built
+
+Thirteen phases, each leaving the repository runnable, green and committed. The
+plan and the decisions that changed on contact with the data are in
+[`plans/IMPLEMENTATION_PLAN.md`](plans/IMPLEMENTATION_PLAN.md). Two are worth
+reading on their own: the optional FBref enrichment was spiked and **declined on
+measured evidence** ([`plans/02-fbref-spike.md`](plans/02-fbref-spike.md)), and
+the release audit is recorded with its findings in
+[`plans/03-final-verification.md`](plans/03-final-verification.md).
+
+Backend test coverage is **97%** (`make test-cov`), across 520 tests.
 
 ## Licence
 

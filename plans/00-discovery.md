@@ -256,14 +256,17 @@ const Plot = dynamic(() => import("react-plotly.js"), { ssr: false });
 
 ## 4. Environment facts
 
-- Repo root currently resolves to `$HOME` — a stray `git init` in `$HOME`
-  with **0 tracked files and no commits**. `git add .` from this folder would target the
-  entire home directory. Phase 1 creates a real repo here.
-- Kaggle credentials present and valid at `~/.kaggle/kaggle.json` (user `[redacted]`).
-- Docker installed, **daemon not running**. node 24 / npm 11. ample free disk.
-- `psql` not on PATH.
-- Vansh's sibling repo (a sibling repository) has **0 `Co-Authored-By` trailers
-  across 69 commits** — the authorship rule is already this project's house style.
+Toolchain versions the plan depends on. Host-specific inventory that was here
+during development — local paths, an account name, free disk — has been removed:
+it explained nothing a reader of this repository needs.
+
+- Python 3.13, node 24 / npm 11. Both are what CI and the Dockerfiles pin.
+- Kaggle credentials are required for ingestion and are supplied by the operator,
+  never committed. See `.env.example`.
+- A stray `git init` in `$HOME` was found before Phase 1 — hence Phase 1's first
+  step verifying `git rev-parse --show-toplevel` resolves to the project
+  directory. `git add .` from the wrong root would stage a home directory.
+- `psql` is not required: the storage layer is DuckDB behind a Protocol.
 
 ## 5. UNVERIFIED — do not treat as fact
 

@@ -8,7 +8,6 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "transfer-value-predictor"
-version = "0.1.0"
 description = "Predict the market value of professional footballers, and explain each prediction"
 readme = "README.md"
 # 3.13 is chosen over 3.12/3.14 for wheel-coverage headroom: the full ML stack
@@ -16,12 +15,16 @@ readme = "README.md"
 # three, and 3.13 has the longest track record of the three going forward.
 requires-python = ">=3.13,<3.14"
 license = {text = "MIT"}
-dynamic = ["dependencies"]
+dynamic = ["version", "dependencies"]
 authors = [{name = "Vansh Tomar", email = "vanshwar@gmail.com"}]
 maintainers = [{name = "Vansh Tomar", email = "vanshwar@gmail.com"}]
 keywords = ["football", "soccer", "machine-learning", "market-value", "analytics", "shap"]
 
+# Version is read from src/__init__.py rather than repeated here. Phase 13's
+# audit found 0.1.0 in five places while the release tag said v1.0.0; the
+# fix is fewer copies, plus a test that fails when the survivors disagree.
 [tool.setuptools.dynamic]
+version = {attr = "src.__version__"}
 dependencies = {file = ["requirements.txt"]}
 
 [tool.setuptools.packages.find]

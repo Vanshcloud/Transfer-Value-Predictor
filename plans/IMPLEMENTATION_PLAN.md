@@ -43,7 +43,7 @@ commit authorship.
 
 **Implement**
 1. `git init` in this directory. Confirm `git rev-parse --show-toplevel` returns this
-   folder, **not** `$HOME` (see 00-discovery.md §4 — there is a stray empty
+   folder, **not** the home directory (see 00-discovery.md §4 — there was a stray empty
    repo in `$HOME`).
 2. `.git/hooks/commit-msg`, executable, rejecting the message if it matches
    `Co-Authored-By|Generated with|Claude` (case-insensitive). Mirror it into
