@@ -73,10 +73,6 @@ class PathsConfig(_Strict):
         return self.data_dir / "processed"
 
     @property
-    def external_dir(self) -> Path:
-        return self.data_dir / "external"
-
-    @property
     def sample_dir(self) -> Path:
         return self.data_dir / "sample"
 

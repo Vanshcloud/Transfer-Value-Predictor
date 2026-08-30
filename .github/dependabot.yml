@@ -1,0 +1,45 @@
+# Dependency updates arrive as reviewable pull requests rather than as a build
+# that broke overnight.
+#
+# Note the tension with CONTRIBUTING.md: pull requests are not accepted here,
+# because scripts/hooks/commit-msg and the CI authorship job enforce a single
+# author. Dependabot's PRs are therefore read as *notifications with a diff* —
+# the change is applied locally, the lock is regenerated, and the PR is closed.
+# That is more useful than the alternative, which is finding out from a red
+# build weeks later.
+version: 2
+updates:
+  - package-ecosystem: pip
+    directory: /
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 5
+    groups:
+      # One PR for the ML stack: these move together and reviewing them
+      # together is the only way to tell whether a metric shifted.
+      ml:
+        patterns: ["scikit-learn", "xgboost", "lightgbm", "catboost", "shap", "numpy", "pandas", "scipy"]
+      tooling:
+        patterns: ["ruff", "black", "mypy", "pytest*", "*-stubs", "types-*"]
+    ignore:
+      # pandas 3 changes the default string dtype and makes Copy-on-Write
+      # permanent — a silent behaviour change in a categorical-heavy pipeline.
+      # It is a deliberate migration, not an automated bump.
+      - dependency-name: pandas
+        versions: [">=3.0"]
+
+  - package-ecosystem: npm
+    directory: /frontend
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 5
+    groups:
+      react:
+        patterns: ["react", "react-dom", "@types/react", "@types/react-dom"]
+      next:
+        patterns: ["next", "eslint-config-next"]
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly

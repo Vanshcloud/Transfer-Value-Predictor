@@ -1,0 +1,30 @@
+name: Documented behaviour differs from actual behaviour
+description: The API contract, the README or a docstring describes something the code does not do.
+title: "[docs] "
+labels: ["documentation"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        `tests/unit/test_api_contract_sync.py` keeps the endpoint tables and the
+        live OpenAPI document in step, and `tests/unit/test_documented_numbers.py`
+        checks the counts the README states — but prose still drifts in ways a
+        test cannot see. Where the two disagree, the document is the defect report.
+  - type: input
+    id: document
+    attributes:
+      label: Where it is documented
+      placeholder: "docs/API_CONTRACT.md section 4"
+    validations: { required: true }
+  - type: textarea
+    id: expected
+    attributes:
+      label: What the document says will happen
+    validations: { required: true }
+  - type: textarea
+    id: actual
+    attributes:
+      label: What actually happens
+      description: A request and its response, or a snippet and its output.
+      render: shell
+    validations: { required: true }

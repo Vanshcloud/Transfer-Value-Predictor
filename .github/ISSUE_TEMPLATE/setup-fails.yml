@@ -1,0 +1,37 @@
+name: Setup fails on a platform
+description: make setup, the pipeline or the containers fail somewhere not yet tried.
+title: "[setup] "
+labels: ["setup"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Developed on macOS with Python 3.13 and Node 24; CI runs Ubuntu. Anything
+        else is untested, and a report is genuinely useful.
+
+        Before filing: on macOS, LightGBM and XGBoost need `brew install libomp`
+        — they link `@rpath/libomp.dylib` and bundle no copy of it.
+  - type: dropdown
+    id: step
+    attributes:
+      label: Which step
+      options:
+        - make setup
+        - make test
+        - scripts/fetch_data.py
+        - the training pipeline
+        - docker compose up
+        - the dashboard (npm)
+    validations: { required: true }
+  - type: textarea
+    id: error
+    attributes:
+      label: The full error
+      render: shell
+    validations: { required: true }
+  - type: input
+    id: platform
+    attributes:
+      label: OS, Python and Node versions
+      placeholder: "Windows 11, Python 3.13.2, Node 24.4.0"
+    validations: { required: true }

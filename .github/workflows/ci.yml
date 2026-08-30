@@ -142,6 +142,20 @@ jobs:
           fi
           echo "authorship clean: $(git log --oneline | wc -l) commits"
 
+      - name: Every commit is authored and committed by one person
+        # scripts/hooks/commit-msg enforces this at commit time, but a hook
+        # only runs where someone has run `make hooks` — never on a fork, and
+        # never on a clone that skipped setup. The repository's claim is about
+        # the history, so the history is what gets checked.
+        run: |
+          authors=$(git log --format='%ae%n%ce' | sort -u)
+          expected="vanshwar@gmail.com"
+          unexpected=$(echo "$authors" | grep -v "^${expected}$" || true)
+          if [ -n "$unexpected" ]; then
+            echo "unexpected author or committer address:"; echo "$unexpected"; exit 1
+          fi
+          echo "single author across $(git log --oneline | wc -l) commits"
+
       - name: No host-specific detail anywhere in the history
         # A redaction commit does not redact anything: the text stays in every
         # earlier commit, and the removing diff prints it again in its own '-'

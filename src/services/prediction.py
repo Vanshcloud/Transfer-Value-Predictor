@@ -118,9 +118,17 @@ class PredictionResult:
 class PredictionService:
     """Loaded models and player history, behind one object.
 
-    Constructed once per process. Loading is eager and explicit rather than
-    lazy-on-first-request, so a broken artifact fails at startup where someone
-    is watching, instead of on a user's first prediction.
+    Constructed once per process, in the lifespan handler — eagerly rather than
+    on first request, so the cost of reading a hundred megabytes of artifact is
+    paid at startup where someone is watching, and `/health` can answer
+    truthfully from the moment it is up.
+
+    Eager does not mean fatal. :meth:`from_directory` logs and skips an
+    artifact it cannot read rather than refusing to start: one stale file must
+    not take down the variants that are fine, and `/health` reports `ready`
+    from what actually loaded. A process that is alive with nothing to serve
+    still answers 200 with ``ready: false`` — the honest state, and the one an
+    orchestrator can act on without restart-looping.
     """
 
     def __init__(

@@ -76,8 +76,8 @@ those, `fetch_data.py` stops with a message naming both options rather than
 failing obscurely.
 
 **You do not need an account to run the project.** `data/sample/` is committed,
-so `make test` gives you 475 passing tests and 45 skips with no credentials at
-all — the 45 are the integration tests that need the full panel, and they skip
+so `make test` gives you 536 passing tests and 48 skips with no credentials at
+all — the 48 are the integration tests that need the full panel, and they skip
 rather than fail by design. Only the three pipeline commands below need the
 download.
 
@@ -246,7 +246,7 @@ That is the honest finding, not a defect to tune away.
 
 **Layering.** `src/services/prediction.py` imports no web framework — a test
 asserts it, against parsed imports rather than a grep. That is what lets the
-same prediction path serve HTTP, a batch job or a CLI, and why the 29 tests for
+same prediction path serve HTTP, a batch job or a CLI, and why the 74 tests for
 prediction logic need no running server.
 
 ## Dashboard
@@ -356,8 +356,8 @@ push and pull request:
   imported inside `src/storage/`, and Plotly only inside `Chart.tsx`.
 
 CI runs on a clean checkout, where `data/` and `models/` are empty. Every test
-that needs them **skips** rather than fails — verified on a fresh clone: 475
-pass, the 45 integration tests skip, nothing fails. A suite that is only green on a machine with a trained
+that needs them **skips** rather than fails — verified on a fresh clone: 536
+pass, the 48 integration tests skip, nothing fails. A suite that is only green on a machine with a trained
 model is not a suite anyone can trust.
 
 ## Development
@@ -407,8 +407,8 @@ Backend test coverage, with the command that prints each number:
 
 | | Coverage | Tests |
 |---|---|---|
-| `make test-cov` — no credentials, no data | **89%** | 507 pass, 45 deselected |
-| `make test-cov-all` — needs the Kaggle download and a trained model | **97%** | 552 pass |
+| `make test-cov` — no credentials, no data | **89%** | 536 pass, 48 deselected |
+| `make test-cov-all` — needs the Kaggle download and a trained model | **97%** | 584 pass |
 
 The gap is the pipeline orchestration in `src/pipelines/`, which is what the
 integration tests exercise. Both targets fail below their floor, so neither

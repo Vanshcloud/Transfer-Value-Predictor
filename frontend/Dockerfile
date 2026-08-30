@@ -46,4 +46,11 @@ COPY --from=build --chown=app:app /app/public ./public
 USER app
 EXPOSE 3000
 
+# node's built-in fetch, because this image has no curl and adding one to run a
+# health check would be a package installed for the check rather than for the
+# app. Checks the root route: Next serving HTML is the thing being asserted,
+# and a dashboard that cannot render is down whatever the process says.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
+    CMD node -e "fetch('http://127.0.0.1:3000/').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+
 CMD ["node", "server.js"]

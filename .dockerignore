@@ -16,7 +16,6 @@ htmlcov
 # is stale the day it is built.
 data/raw
 data/processed
-data/external
 models/*.joblib
 models/*.json
 reports
@@ -26,6 +25,5 @@ frontend/.next
 frontend/out
 
 plans
-notebooks
 *.md
 !README.md

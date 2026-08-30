@@ -157,6 +157,19 @@ def save(artifact: ModelArtifact, directory: Path) -> Path:
 def load(path: Path) -> ModelArtifact:
     """Load an artifact, refusing one written by an incompatible schema.
 
+    **This unpickles.** ``joblib.load`` executes whatever the file tells it to,
+    and the ``artifact_version`` check below runs *after* that has already
+    happened — it is a compatibility guard, never a security one. Load only
+    artifacts this project produced. The deployment shape assumes exactly that:
+    ``docker-compose.yml`` mounts ``models/`` read-only, nothing downloads an
+    artifact, and no endpoint accepts one.
+
+    Replacing joblib with a format that cannot execute — ONNX, or the booster's
+    own text dump — would remove the assumption rather than document it. It
+    would also cost the fitted preprocessing travelling inside the same object,
+    which is the property that stops training and serving drifting apart, so it
+    is a trade to make deliberately and not a bug to patch.
+
     Raises:
         ValueError: if the artifact's schema version is not the current one.
     """
