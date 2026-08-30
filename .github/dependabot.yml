@@ -51,7 +51,10 @@ updates:
       #     before linting anything.
       #   typescript 7 is refused outright by typescript-eslint
       #     ("typescript-eslint does not support TS 7.0"), so `npx eslint src`
-      #     exits 2 even though tsc and `next build` both pass.
+      #     exits 2 even though tsc and `next build` both pass. TypeScript *6*
+      #     was tested separately and is fine — the bound is >=7 and not >=6
+      #     for that reason, because "a major bump broke it" would have thrown
+      #     away a working upgrade.
       # Both come back monthly otherwise. Revisit when eslint-config-next
       # ships support; see typescript-eslint#10940 for the TS side.
       - dependency-name: eslint
