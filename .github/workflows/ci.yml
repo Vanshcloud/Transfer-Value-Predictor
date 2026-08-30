@@ -1,9 +1,12 @@
 name: CI
 
-# Action majors are kept current deliberately: v4/v5 of these target Node 20,
-# which GitHub deprecated and now force-runs on Node 24, and a workflow that
-# greps this codebase for deprecated APIs while itself using deprecated actions
-# is not a standard anyone will keep.
+# Action majors are kept current deliberately: older majors target Node runtimes
+# GitHub has deprecated, and a workflow that greps this codebase for deprecated
+# APIs while itself using deprecated actions is not a standard anyone will keep.
+#
+# "Deliberately" used to mean "by hand", and by the next audit checkout was two
+# majors behind while this comment still claimed otherwise. Dependabot now
+# watches github-actions monthly, so the claim has something behind it.
 #
 # Runs on a clean checkout, where data/raw/, data/processed/ and models/ are
 # all absent. Every test that needs them skips rather than fails — that is the
@@ -31,9 +34,9 @@ jobs:
     name: Backend — lint, types, tests
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@v7
         with:
           # The same minor the project develops against. A silent 3.14 would
           # change behaviour with no diff to point at.
@@ -89,9 +92,9 @@ jobs:
       run:
         working-directory: frontend
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v5
+      - uses: actions/setup-node@v7
         with:
           node-version: "24"
           cache: npm
@@ -123,7 +126,7 @@ jobs:
     name: Authorship
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
@@ -174,7 +177,7 @@ jobs:
     name: Removed APIs
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
       - name: Grep for APIs that no longer exist
         # Each of these was removed or deprecated in a dependency this project

@@ -53,3 +53,26 @@ pytest                            # integration tests now run instead of skippin
 
 Integration tests **skip** rather than fail when data and models are absent.
 That is deliberate: a suite that is only green on one machine is not a suite.
+
+## Two traps worth knowing before you touch dependencies
+
+**Regenerate `frontend/package-lock.json` on Linux, not on macOS.** Some
+transitive packages (`@emnapi/*`, and anything else resolved per-platform)
+resolve differently, and a lock written on macOS is one `npm ci` on Linux
+rejects — which is both CI's frontend job and the Docker build. The lock is
+generated in the same image they use:
+
+```bash
+docker run --rm -v "$PWD/frontend:/w" -w /w node:24-slim \
+    sh -c "npm install --package-lock-only && npm ci"
+```
+
+**Regenerate `requirements-lock.txt` after editing `requirements.txt`**, and
+`requirements-serve-lock.txt` after editing `requirements-serve.txt`:
+
+```bash
+uv pip compile requirements.txt --python-version 3.13 --output-file requirements-lock.txt
+uv pip compile requirements-serve.txt --python-version 3.13 --output-file requirements-serve-lock.txt
+```
+
+`tests/unit/test_dependencies.py` fails if a declaration and its lock disagree.
