@@ -10,8 +10,12 @@ CatBoost produces an artifact that trains fine, scores fine, saves fine — and
 then fails to unpickle inside the container, at startup, in production. This
 test is where that gets caught instead.
 
-Marked ``integration``: it reads the artifacts on disk, so it skips on a clean
-checkout like every other test that needs a trained model.
+Marked ``integration``: every test here reads the artifacts on disk, so they
+skip on a clean checkout like everything else that needs a trained model. The
+registry-coverage check that used to live here does *not* need them, and moved
+to tests/unit/test_dependencies.py — a test that passes on a clean checkout
+inside an integration module makes the suite's own counts inconsistent, which
+is a small thing that made the README's fresh-clone figure wrong by one.
 """
 
 from __future__ import annotations
@@ -82,14 +86,6 @@ def test_the_serve_set_can_load_every_shipped_artifact(shipped: list[Path]) -> N
             f"--python-version 3.13 --output-file requirements-serve-lock.txt`, "
             f"or ship a family the serving image can load."
         )
-
-
-def test_every_family_the_zoo_can_pick_is_accounted_for() -> None:
-    """A new family added to the registry must declare what loading it needs."""
-    from src.models.registry import MODEL_REGISTRY
-
-    unknown = sorted(set(MODEL_REGISTRY) - set(PACKAGE_FOR_FAMILY))
-    assert not unknown, f"add these to PACKAGE_FOR_FAMILY: {unknown}"
 
 
 def test_the_artifacts_actually_load_in_this_process(shipped: list[Path]) -> None:

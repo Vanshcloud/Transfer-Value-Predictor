@@ -22,7 +22,7 @@ previous phase.
 | "RF serialises to 458 MB … LightGBM 1.7 MB" | leaderboard `size_bytes` | 457.5 MiB / 1.72 MB |
 | "CatBoost within 0.75%, 5.7× faster, 4.8× less disk" | leaderboard | 0.748%, 5.73×, 4.80× |
 | Screenshot's 80% interval | recomputed from `calibration.bands` | €14.28M–€80.0M, n=145 |
-| Clean clone, no credentials | fresh `git clone` + venv | 536 pass, 48 skip, 0 fail |
+| Clean clone, no credentials | fresh `git clone` + venv | 537 pass, 47 skip, 0 fail |
 | "roughly fifteen seconds" | timed on that clone | 14.9s |
 | Containers run as non-root | `docker compose exec id` | uid 10001, both |
 | Mounts are read-only | `docker inspect` | `RW=false`, both |
@@ -106,7 +106,7 @@ Green before tagging `v1.1.0`. Everything here is a command.
 
 ```sh
 make quality                          # ruff, black, mypy
-make test-cov                         # 536 pass, 48 deselected, >= 88%
+make test-cov                         # 537 pass, 47 deselected, >= 88%
 pytest                                # 584, integration included
 cd frontend && npm test && npx tsc --noEmit && npx eslint src && npm run build
 docker compose build && docker compose up -d

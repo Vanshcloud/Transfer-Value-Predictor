@@ -149,3 +149,30 @@ def test_the_serve_lock_pins_exactly_and_omits_the_trainers() -> None:
 )
 def test_every_requirements_file_parses(path: Path) -> None:
     assert _entries(path) or path.read_text().strip()
+
+
+def test_every_model_family_declares_what_loading_it_needs() -> None:
+    """Adding a family to the registry must not silently make the serving image
+    unable to load an artifact that family produces.
+
+    The mapping itself lives in tests/integration/test_serving_dependencies.py,
+    which checks it against the artifacts actually on disk. This half needs no
+    artifacts, so it runs on a clean checkout — which is where a new family is
+    most likely to be added without one.
+    """
+    from src.models.registry import MODEL_REGISTRY
+    from tests.integration.test_serving_dependencies import PACKAGE_FOR_FAMILY
+
+    unknown = sorted(set(MODEL_REGISTRY) - set(PACKAGE_FOR_FAMILY))
+    assert not unknown, f"add these to PACKAGE_FOR_FAMILY: {unknown}"
+
+    serve = _entries(SERVE)
+    for family, package in PACKAGE_FOR_FAMILY.items():
+        if package in serve:
+            continue
+        # Not installed for serving is fine — it just means an artifact from
+        # that family could not be loaded by the image, which is what the
+        # integration test checks against what is actually shipped.
+        assert package in _entries(
+            DECLARATION
+        ), f"{family} needs {package}, which no requirements file declares"
