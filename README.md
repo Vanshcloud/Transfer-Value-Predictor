@@ -357,8 +357,23 @@ make test          # unit tests
 make quality       # ruff + black --check + mypy
 ```
 
-Python 3.13. `pandas` is pinned `<3` deliberately — see the comment in
-`requirements.txt`.
+Python 3.13.
+
+Dependencies are declared in two files on purpose. `requirements.txt` carries
+reasoned ranges, each with a comment saying why the bound exists — `pandas<3`
+because pandas 3 changes the default string dtype and makes Copy-on-Write
+permanent, which is a silent behaviour change in a categorical-heavy pipeline.
+`requirements-lock.txt` pins all 55 packages, transitives included, and is what
+CI, the Docker image and `make setup` install, so a build today and a build in
+March contain the same bytes. Regenerate it with:
+
+```bash
+uv pip compile requirements.txt --python-version 3.13 --output-file requirements-lock.txt
+```
+
+`tests/unit/test_dependencies.py` fails if the two disagree, if the lock stops
+pinning exactly, if it steps over a declared bound, or if an HTML parser
+reappears through a transitive dependency.
 
 ## Contributors
 

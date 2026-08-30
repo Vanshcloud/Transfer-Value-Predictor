@@ -1,4 +1,6 @@
--r requirements.txt
+# The lock, not the declaration: local development and CI must install the
+# same resolution the images do, or "works on my machine" is a real defence.
+-r requirements-lock.txt
 -r requirements-lint.txt
 
 pytest==9.1.1

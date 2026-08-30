@@ -1,0 +1,181 @@
+# Fully-resolved runtime dependencies, every version and every transitive
+# dependency pinned exactly.
+#
+# WHY BOTH THIS AND requirements.txt:
+#   requirements.txt is the *declaration* — reasoned lower bounds and the one
+#   upper bound that matters, each with a comment saying why. It is what
+#   pyproject.toml publishes and what a human edits.
+#   This file is the *resolution* — what CI and the Docker images install, so a
+#   build today and a build in March install the same bytes. Without it, an
+#   upstream release turns the build red with no commit to point at, and the
+#   lint tooling being pinned exactly (requirements-lint.txt) while the entire
+#   ML stack floated was an argument this project had already made and only
+#   half applied.
+#
+# REGENERATE after editing requirements.txt:
+#   uv pip compile requirements.txt --python-version 3.13 \
+#       --output-file requirements-lock.txt
+#
+# Upgrading is then a reviewable diff rather than a silent event.
+#
+annotated-doc==0.0.5
+    # via fastapi
+annotated-types==0.8.0
+    # via pydantic
+anyio==4.14.2
+    # via
+    #   starlette
+    #   watchfiles
+catboost==1.2.10
+    # via -r requirements.txt
+certifi==2026.7.22
+    # via requests
+charset-normalizer==3.5.1
+    # via requests
+click==8.5.0
+    # via uvicorn
+cloudpickle==3.1.2
+    # via shap
+contourpy==1.3.3
+    # via matplotlib
+cycler==0.12.1
+    # via matplotlib
+duckdb==1.5.5
+    # via -r requirements.txt
+fastapi==0.141.1
+    # via -r requirements.txt
+fonttools==4.63.0
+    # via matplotlib
+graphviz==0.21
+    # via catboost
+h11==0.16.0
+    # via uvicorn
+httptools==0.8.0
+    # via uvicorn
+idna==3.19
+    # via
+    #   anyio
+    #   requests
+joblib==1.5.3
+    # via scikit-learn
+kiwisolver==1.5.1
+    # via matplotlib
+lightgbm==4.7.0
+    # via -r requirements.txt
+llvmlite==0.49.0
+    # via
+    #   numba
+    #   shap
+matplotlib==3.11.1
+    # via
+    #   -r requirements.txt
+    #   catboost
+narwhals==2.25.0
+    # via
+    #   lightgbm
+    #   plotly
+    #   scikit-learn
+numba==0.67.0
+    # via shap
+numpy==2.5.2
+    # via
+    #   -r requirements.txt
+    #   catboost
+    #   contourpy
+    #   lightgbm
+    #   matplotlib
+    #   numba
+    #   pandas
+    #   scikit-learn
+    #   scipy
+    #   shap
+    #   xgboost
+packaging==26.3
+    # via
+    #   matplotlib
+    #   plotly
+    #   shap
+pandas==2.3.3
+    # via
+    #   -r requirements.txt
+    #   catboost
+    #   shap
+pillow==12.3.0
+    # via matplotlib
+plotly==7.0.0
+    # via catboost
+pyarrow==25.0.1
+    # via -r requirements.txt
+pydantic==2.13.5
+    # via
+    #   -r requirements.txt
+    #   fastapi
+pydantic-core==2.46.5
+    # via pydantic
+pyparsing==3.3.2
+    # via matplotlib
+python-dateutil==2.9.0.post0
+    # via
+    #   matplotlib
+    #   pandas
+python-dotenv==1.2.3
+    # via
+    #   -r requirements.txt
+    #   uvicorn
+pytz==2026.3.post1
+    # via pandas
+pyyaml==6.0.3
+    # via
+    #   -r requirements.txt
+    #   uvicorn
+requests==2.34.2
+    # via -r requirements.txt
+scikit-learn==1.9.0
+    # via
+    #   -r requirements.txt
+    #   shap
+scipy==1.18.1
+    # via
+    #   catboost
+    #   lightgbm
+    #   scikit-learn
+    #   shap
+    #   xgboost
+shap==0.52.0
+    # via -r requirements.txt
+six==1.17.0
+    # via
+    #   catboost
+    #   python-dateutil
+slicer==0.0.8
+    # via shap
+starlette==1.6.0
+    # via fastapi
+threadpoolctl==3.6.0
+    # via scikit-learn
+tqdm==4.70.0
+    # via shap
+typing-extensions==4.16.0
+    # via
+    #   fastapi
+    #   pydantic
+    #   pydantic-core
+    #   typing-inspection
+typing-inspection==0.4.4
+    # via
+    #   fastapi
+    #   pydantic
+tzdata==2026.3
+    # via pandas
+urllib3==2.7.0
+    # via requests
+uvicorn==0.52.4
+    # via -r requirements.txt
+uvloop==0.22.1
+    # via uvicorn
+watchfiles==1.2.0
+    # via uvicorn
+websockets==17.1
+    # via uvicorn
+xgboost==3.4.1
+    # via -r requirements.txt

@@ -16,8 +16,11 @@ WORKDIR /build
 
 # Requirements first, and only requirements: Docker caches this layer, so
 # editing source does not reinstall the whole ML stack.
-COPY requirements.txt ./
-RUN pip install --no-cache-dir --prefix=/install -r requirements.txt
+# The lock, not the declaration: an image rebuilt in March must contain the
+# same packages as one built today, or "it worked when we shipped it" is
+# unfalsifiable.
+COPY requirements-lock.txt ./
+RUN pip install --no-cache-dir --prefix=/install -r requirements-lock.txt
 
 
 FROM python:3.13-slim AS runtime
