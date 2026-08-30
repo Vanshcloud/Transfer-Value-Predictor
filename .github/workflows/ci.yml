@@ -167,6 +167,12 @@ jobs:
         # been "removed". The history was rewritten; this stops it recurring,
         # and it has to run over `git log -p` because a tip-only check is
         # exactly the check that missed it the first time.
+        #
+        # It earned its place immediately: it failed on the window between
+        # `git push --force origin main` and `git push --force --tags`, when
+        # the remote v1.0.0 tag still pointed at a pre-rewrite commit. `--all`
+        # reads tags, so the old history was reachable and this said so. Push
+        # the tags with the branch — a rewrite is not done until they move.
         run: |
           if git log -p --all | grep -nEi '/(Users|home)/[a-z0-9._-]+/|[0-9]+ ?GB free'; then
             echo "a local path or host inventory appears in the history"; exit 1

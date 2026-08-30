@@ -27,6 +27,12 @@ updates:
       # It is a deliberate migration, not an automated bump.
       - dependency-name: pandas
         versions: [">=3.0"]
+      # pandas-stubs tracks pandas versions. While pandas is held at 2.x, the
+      # 3.x stubs describe an API this project does not have and mypy would
+      # check against the wrong library — the exact trap requirements-lint.txt
+      # already warns about. Unpin this the same day pandas moves, not before.
+      - dependency-name: pandas-stubs
+        versions: [">=3.0"]
 
   - package-ecosystem: npm
     directory: /frontend
@@ -38,6 +44,20 @@ updates:
         patterns: ["react", "react-dom", "@types/react", "@types/react-dom"]
       next:
         patterns: ["next", "eslint-config-next"]
+    ignore:
+      # Both blocked upstream, both verified rather than assumed:
+      #   eslint 10 crashes inside eslint-config-next's bundled
+      #     eslint-plugin-react, which cannot read the React version and throws
+      #     before linting anything.
+      #   typescript 7 is refused outright by typescript-eslint
+      #     ("typescript-eslint does not support TS 7.0"), so `npx eslint src`
+      #     exits 2 even though tsc and `next build` both pass.
+      # Both come back monthly otherwise. Revisit when eslint-config-next
+      # ships support; see typescript-eslint#10940 for the TS side.
+      - dependency-name: eslint
+        versions: [">=10"]
+      - dependency-name: typescript
+        versions: [">=7"]
 
   - package-ecosystem: github-actions
     directory: /

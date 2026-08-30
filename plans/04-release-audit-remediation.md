@@ -82,6 +82,31 @@ suites; only one was stated. This is the claim a sceptical reader checks first.
   declaration, the serve set against the shipped artifacts, and the release tag
   against the declared version.
 
+## What the new guards caught, on their first run
+
+Two things, neither of which any pre-existing gate would have seen.
+
+**A history rewrite is not finished when `main` is pushed.** Between
+`git push --force origin main` and `git push --force --tags`, the remote tag
+`v1.0.0` still pointed at a pre-rewrite commit — so the old history, PII
+included, was reachable from the remote for about ninety seconds. `git log -p
+--all` reads tags, so the new CI grep failed on exactly that window and named
+the line. A local clone showed nothing, because locally the tag had already
+moved. Push the tags in the same breath as the branch, or the rewrite is only
+half done.
+
+Worth stating plainly: GitHub retains unreferenced objects after a force-push,
+and a commit SHA remains fetchable for a while even with no ref pointing at it.
+The rewrite was done while the repository was private and never forked, so
+nobody outside the account has ever had a SHA to ask for. That is the reason
+this was worth doing before publishing rather than after.
+
+**A lockfile written on macOS is one `npm ci` rejects on Linux.** `@emnapi/*`
+resolves per platform, and CI's frontend job and the Docker build both run
+`npm ci` on Linux. Adding vitest on a Mac produced a lock that would have
+failed CI on the very first push. The lock is now generated inside
+`node:24-slim`, and CONTRIBUTING says so.
+
 ## Deliberately not done
 
 - **Bounding feature values from above.** `age: 1e308` is finite and returns a
