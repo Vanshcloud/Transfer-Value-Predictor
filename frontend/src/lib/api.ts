@@ -54,7 +54,13 @@ export interface SeasonRow {
   goals: number;
   assists: number;
   minutes_played: number;
-  market_value_in_eur: number;
+  /** Null for the season in progress: not yet published, never zero. */
+  market_value_in_eur: number | null;
+  /**
+   * False for the season being played. Its statistics are complete enough to
+   * predict from; no valuation exists yet to compare against.
+   */
+  has_label: boolean;
 }
 
 export interface Player {

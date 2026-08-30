@@ -95,6 +95,16 @@ filterwarnings = [
     # `import shap`, so it fires on any test that touches explainability, and
     # nothing in this project can avoid it. Introduced in Phase 8.
     "ignore:The set_(bad|over|under) function will be deprecated:PendingDeprecationWarning",
+    # pandas 2.3.3 builds a NaT for a datetime column inside
+    # `concatenate_managers` with `np.datetime64("NaT")` — no unit — and numpy
+    # 2.5 deprecates the generic unit. It fires on *any* concat of frames with
+    # a datetime column, which Phase 15's service does when it appends the
+    # season-in-progress rows to the labelled panel. Nothing in this project
+    # can avoid it: the dtypes on both sides are already datetime64[ns] and the
+    # call is pandas' own. Targeted at the one message and the one module
+    # rather than blanket-ignoring DeprecationWarning, which would let a real
+    # one through. Revisit when pandas 2.4 lands.
+    "ignore:The 'generic' unit for NumPy timedelta is deprecated:DeprecationWarning:pandas.core.internals.concat",
 ]
 markers = [
     "integration: needs downloaded data or a trained model (deselect with -m 'not integration')",

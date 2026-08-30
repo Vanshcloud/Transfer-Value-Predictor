@@ -29,10 +29,24 @@ class Metrics:
     r2: float
     mape: float
     n: int
+    mae_standard_error: float = 0.0
+    """Standard error of the MAE: ``std(|error|) / sqrt(n)``.
+
+    A metric without one invites a decision it cannot support. Phase 15 chose
+    XGBoost over LightGBM by EUR 7,917 of validation MAE — 0.38% — and the
+    standard error of that MAE is EUR 58,508. The gap was a seventh of one
+    standard error, which is to say the two models were indistinguishable and
+    the leaderboard's ordering between them was noise.
+
+    Recorded so that selection can apply the one-standard-error rule (Breiman,
+    Friedman, Olshen and Stone, 1984) rather than treating the third decimal as
+    a result.
+    """
 
     def render(self) -> str:
         return (
-            f"MAE EUR {self.mae:>12,.0f}  RMSE EUR {self.rmse:>12,.0f}  "
+            f"MAE EUR {self.mae:>12,.0f} ± {self.mae_standard_error:>9,.0f}  "
+            f"RMSE EUR {self.rmse:>12,.0f}  "
             f"R2 {self.r2:>6.3f}  MAPE {self.mape:>6.1%}  n {self.n:>6,}"
         )
 
@@ -46,6 +60,7 @@ def evaluate(y_true: np.ndarray | object, y_pred: np.ndarray | object) -> Metric
     """
     truth = np.asarray(y_true, dtype=float)
     predicted = np.asarray(y_pred, dtype=float)
+    absolute_errors = np.abs(truth - predicted)
 
     return Metrics(
         mae=float(mean_absolute_error(truth, predicted)),
@@ -53,4 +68,11 @@ def evaluate(y_true: np.ndarray | object, y_pred: np.ndarray | object) -> Metric
         r2=float(r2_score(truth, predicted)),
         mape=float(mean_absolute_percentage_error(truth, predicted)),
         n=len(truth),
+        # ddof=1: these are a sample of the errors the model would make, not
+        # the population of them.
+        mae_standard_error=(
+            float(absolute_errors.std(ddof=1) / np.sqrt(len(absolute_errors)))
+            if len(absolute_errors) > 1
+            else 0.0
+        ),
     )

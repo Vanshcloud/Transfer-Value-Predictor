@@ -17,9 +17,24 @@ kaggle:
   # source rather than scraping Transfermarkt directly.
   dataset: davidcariboo/player-scores
   files:
+    # Phase 15: the project used three of the ten files this dataset ships.
+    # The other seven carried competition identity, club results, starts versus
+    # substitute appearances and transfer fees — every one of which was listed
+    # as an unsolvable limitation while sitting in the same download.
+    #
+    # clubs.csv is deliberately NOT among them. Its interesting columns
+    # (total_market_value, squad_size, average_age, national_team_players) are
+    # all *current* state, exactly like the banned columns in players.csv:
+    # joining today's squad value to a 2013 row states a fact from 2026. Club
+    # strength is derived from club_games.csv instead, which is dated results.
     - players.csv
     - player_valuations.csv
     - appearances.csv
+    - competitions.csv
+    - games.csv
+    - club_games.csv
+    - transfers.csv
+    - game_lineups.csv
   # Re-download when the local copy is older than this. The upstream dataset
   # refreshes weekly, so a shorter window only costs bandwidth.
   max_age_days: 7
@@ -31,7 +46,21 @@ data:
   # Label = the first valuation recorded AFTER the season ends. Valuations are
   # an irregular on-change event series, never a fixed grid, so this is an
   # as-of join with a tolerance rather than an equality merge.
-  label_tolerance_days: 120
+  #
+  # 365, not 120. Measured over the full panel (plans/05):
+  #     120d -> 39.0% of player-seasons labelled
+  #     180d -> 74.7%
+  #     365d -> 90.8%
+  # The 120-day window closes on 29 October and misses Transfermarkt's winter
+  # revaluation batch entirely, which is what discarded 61% of the data. Every
+  # label is still strictly forward of the as-of date, so widening the window
+  # cannot introduce leakage — it changes how far ahead the label sits, and
+  # that distance is now carried as `label_horizon_days`, a feature the caller
+  # supplies at prediction time rather than noise the model averages over.
+  label_tolerance_days: 365
+  # Horizon used when a caller does not name one: the median training lag,
+  # so the default prediction answers the question the model saw most often.
+  default_horizon_days: 120
   min_age: 15
   max_age: 45
 

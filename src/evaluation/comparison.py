@@ -19,10 +19,12 @@ DISPLAY_NAMES = {
     "lasso": "Lasso",
     "elastic_net": "ElasticNet",
     "random_forest": "Random Forest",
+    "extra_trees": "Extra Trees",
     "gradient_boosting": "GradientBoosting (hist)",
     "xgboost": "XGBoost",
     "lightgbm": "LightGBM",
     "catboost": "CatBoost",
+    "stacked": "Stacked (LGBM+XGB+Cat)",
 }
 
 

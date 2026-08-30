@@ -31,10 +31,16 @@ from src.validation.leakage import detect_leakage
 
 pytestmark = pytest.mark.integration
 
-# Spike figures (plans/01-feasibility-spike.md), ±5% for weekly refresh drift.
-EXPECTED_ROWS = 37_025
-EXPECTED_PLAYERS = 16_995
-EXPECTED_ROWS_WITH_PRIOR = 20_030
+# Phase 15 figures, +/-5% for weekly refresh drift.
+#
+# The spike numbers these replace (37,025 rows / 16,995 players / 20,030 with a
+# prior) were a property of the 120-day label window, not of the data: that
+# window closed before Transfermarkt's winter revaluation batch and discarded
+# 61% of the panel. At 365 days the same three source files yield the figures
+# below. See plans/05-limitation-remediation.md.
+EXPECTED_ROWS = 85_966
+EXPECTED_PLAYERS = 24_411
+EXPECTED_ROWS_WITH_PRIOR = 61_522
 DRIFT = 0.05
 
 
@@ -45,10 +51,23 @@ def full_table() -> pd.DataFrame:
     if missing:
         pytest.skip(f"run scripts/fetch_data.py first; missing {missing}")
 
+    # The context tables are passed when present, so this exercises the path
+    # the shipped model is actually trained on rather than a thinner one.
+    context = {
+        name: store.read_table(source)
+        for name, source in (
+            ("competitions", "competitions"),
+            ("games", "games"),
+            ("club_games", "club_games"),
+            ("lineups", "game_lineups"),
+        )
+        if store.has_table(source)
+    }
     return build_training_table(
         store.read_table("players"),
         store.read_table("player_valuations"),
         store.read_table("appearances"),
+        **context,
     )
 
 
@@ -66,7 +85,10 @@ def test_seasons_span_2011_to_2024(full_table: pd.DataFrame) -> None:
     assert full_table["season"].max() >= 2024
 
 
-def test_the_prior_value_variant_covers_about_half_the_rows(full_table: pd.DataFrame) -> None:
+def test_the_prior_value_variant_covers_most_of_the_rows(full_table: pd.DataFrame) -> None:
+    """Was "about half" at 19,827 of 36,880. The wider label window lifted it to
+    61,522 of 85,966 — 72% — because a player needs a labelled *previous*
+    season to have a prior value, and there are far more of those now."""
     with_prior, _ = select_variant(full_table, include_prior_value=True)
     assert within_drift(len(with_prior), EXPECTED_ROWS_WITH_PRIOR), len(with_prior)
 
@@ -80,7 +102,7 @@ def test_null_rates_match_the_discovery_profile(full_table: pd.DataFrame) -> Non
 
 
 def test_no_row_was_built_from_data_that_postdates_its_label(full_table: pd.DataFrame) -> None:
-    """The verification the whole phase exists to satisfy, on all 37,000 rows."""
+    """The verification the whole phase exists to satisfy, on all 86,000 rows."""
     assert (full_table[FEATURE_TIME_COLUMN] <= full_table[LABEL_TIME_COLUMN]).all()
 
 

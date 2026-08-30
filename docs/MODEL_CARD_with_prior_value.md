@@ -1,6 +1,6 @@
 # Model card — with_prior_value
 
-Generated 2026-08-29T09:10:44.583655+00:00 from `with_prior_value__lightgbm`.
+Generated 2026-08-30T22:19:56.027994+00:00 from `with_prior_value__lightgbm`.
 This file is written from the artifact, so it cannot describe a model that
 is no longer the one on disk.
 
@@ -18,14 +18,14 @@ Forecast how a player's *already known* market value will move. This is the trac
 
 | Family | `lightgbm` |
 |---|---|
-| Hyperparameters | `{'model__regressor__n_estimators': 300, 'model__regressor__learning_rate': 0.05, 'model__regressor__num_leaves': 31}` |
+| Hyperparameters | `{'model__regressor__n_estimators': 300, 'model__regressor__learning_rate': 0.05, 'model__regressor__num_leaves': 63}` |
 | Target | `market_value_in_eur`, trained on `log1p`, reported in EUR |
-| Features | 21 |
+| Features | 43 |
 | Seed | 42 |
 
 ## Data and split
 
-- Rows: 19,827
+- Rows: 61,522
 - Split: temporal — train ≤2021, validation 2022, test ≥2023
 - Source: Kaggle `davidcariboo/player-scores` (CC0). Transfermarkt is
   never scraped; its terms prohibit both the method and this purpose.
@@ -36,26 +36,26 @@ Test seasons, in EUR. These are held-out seasons the model never saw.
 
 | Metric | Validation | Test |
 |---|---|---|
-| MAE | €2,988,615 | €3,710,897 |
-| RMSE | €7,153,067 | €8,208,767 |
-| R² | 0.720 | 0.775 |
-| MAPE | 48.0% | 48.7% |
-| Rows | 1,569 | 2,455 |
+| MAE | €1,668,757 | €1,661,311 |
+| RMSE | €4,282,374 | €4,077,559 |
+| R² | 0.890 | 0.914 |
+| MAPE | 29.5% | 30.1% |
+| Rows | 5,101 | 10,169 |
 
 ## What it relies on
 
 | Feature | Importance |
 |---|---|
-| `numeric__prev_value_age_days` | 1,370 |
-| `numeric__age` | 1,182 |
-| `numeric__prev_log_market_value_in_eur` | 1,035 |
-| `numeric__years_since_debut` | 677 |
-| `numeric__minutes_per_appearance` | 542 |
-| `numeric__minutes_played` | 521 |
-| `numeric__appearances` | 472 |
-| `numeric__cards_per_90` | 367 |
-| `numeric__goals_per_90` | 361 |
-| `numeric__height_in_cm` | 298 |
+| `numeric__age` | 2,097 |
+| `numeric__prev_value_age_days` | 1,697 |
+| `numeric__competition_value_level` | 1,531 |
+| `numeric__prev_log_market_value_in_eur` | 1,398 |
+| `numeric__competition_tier_rank` | 825 |
+| `numeric__club_goal_difference_per_game` | 758 |
+| `numeric__years_since_debut` | 731 |
+| `numeric__club_points_per_game` | 730 |
+| `numeric__minutes_played` | 659 |
+| `numeric__club_league_position` | 620 |
 
 ## Limitations
 
@@ -65,7 +65,7 @@ Test seasons, in EUR. These are held-out seasons the model never saw.
 - **Seasons are August to July.** Leagues on a spring-autumn calendar are split across that boundary and are represented less faithfully.
 - **The model has never seen the season it is asked about.** That is deliberate, and it is why the reported error is roughly 60% worse than a random split would suggest. The reported number is the honest one.
 - **This variant is anchored to the previous valuation.** It will track the market rather than challenge it, and it cannot produce a prediction at all for a player with no valuation history.
-- **Weakest measured segment: value band <1M** — MAPE 59% over 628 rows.
+- **Weakest measured segment: value band <1M** — MAPE 34% over 3,493 rows.
 
 ## Leakage controls
 

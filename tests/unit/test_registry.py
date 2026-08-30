@@ -31,10 +31,15 @@ EXPECTED_FAMILIES = {
     "lasso",
     "elastic_net",
     "random_forest",
+    # Phase 15: extremely randomised trees, and a ridge-blended stack of the
+    # three boosters. Both named here rather than only in the registry, so
+    # deleting a family is a two-file change someone has to mean.
+    "extra_trees",
     "gradient_boosting",
     "xgboost",
     "lightgbm",
     "catboost",
+    "stacked",
 }
 
 

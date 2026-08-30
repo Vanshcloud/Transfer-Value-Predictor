@@ -22,7 +22,12 @@ import numpy as np
 from catboost import CatBoostRegressor
 from lightgbm import LGBMRegressor
 from sklearn.compose import TransformedTargetRegressor
-from sklearn.ensemble import HistGradientBoostingRegressor, RandomForestRegressor
+from sklearn.ensemble import (
+    ExtraTreesRegressor,
+    HistGradientBoostingRegressor,
+    RandomForestRegressor,
+    StackingRegressor,
+)
 from sklearn.linear_model import ElasticNet, Lasso, LinearRegression, Ridge
 from sklearn.pipeline import Pipeline
 from xgboost import XGBRegressor
@@ -105,6 +110,45 @@ def _random_forest() -> RandomForestRegressor:
     return RandomForestRegressor(random_state=RANDOM_SEED, n_jobs=-1)
 
 
+def _extra_trees() -> ExtraTreesRegressor:
+    """Extremely randomised trees.
+
+    Worth a slot beside RandomForest rather than instead of it: it splits on
+    random thresholds rather than searching for the best one, which trades a
+    little fit for a lot of variance reduction. On a panel where the target
+    spans four orders of magnitude and a handful of rows carry enormous values,
+    that trade sometimes wins. Same reproducibility caveat as RandomForest.
+    """
+    return ExtraTreesRegressor(random_state=RANDOM_SEED, n_jobs=-1)
+
+
+def _stacked() -> StackingRegressor:
+    """The three boosters, blended by a ridge meta-learner.
+
+    Stacking earns a place only if the families make *different* mistakes; if
+    they agree, the blend is the same model at three times the cost. They do
+    differ here — CatBoost's ordered boosting handles the high-cardinality
+    citizenship column differently from LightGBM's leaf-wise growth — so it is
+    worth measuring rather than assuming.
+
+    ``cv=3`` and a ridge final estimator: the meta-learner sees out-of-fold
+    predictions only, which is what stops it learning from a base model's own
+    training fit. ``passthrough=False`` keeps it to blending three numbers
+    rather than re-solving the problem.
+    """
+    return StackingRegressor(
+        estimators=[
+            ("lightgbm", _lightgbm()),
+            ("xgboost", _xgboost()),
+            ("catboost", _catboost()),
+        ],
+        final_estimator=Ridge(alpha=1.0, random_state=RANDOM_SEED),
+        cv=3,
+        n_jobs=1,
+        passthrough=False,
+    )
+
+
 def _gradient_boosting() -> HistGradientBoostingRegressor:
     """scikit-learn's histogram gradient boosting.
 
@@ -158,6 +202,11 @@ MODEL_REGISTRY: dict[str, ModelSpec] = {
             {"n_estimators": [200], "min_samples_leaf": [1, 5]},
         ),
         ModelSpec(
+            "extra_trees",
+            _extra_trees,
+            {"n_estimators": [200], "min_samples_leaf": [1, 5]},
+        ),
+        ModelSpec(
             "gradient_boosting",
             _gradient_boosting,
             {"learning_rate": [0.05, 0.1], "max_leaf_nodes": [31, 63]},
@@ -177,7 +226,63 @@ MODEL_REGISTRY: dict[str, ModelSpec] = {
             _catboost,
             {"iterations": [300], "depth": [4, 6], "learning_rate": [0.05, 0.1]},
         ),
+        # No grid. Each candidate refits three boosters over three folds, so a
+        # two-point grid is nine extra booster fits per point for a blend whose
+        # tuning lives in its members. It competes at its members' defaults.
+        ModelSpec("stacked", _stacked),
     )
 }
 """Every model the brief asks for, keyed by name. Insertion order is the order
 they are trained and reported in."""
+
+UNEXPLAINABLE_FAMILIES = frozenset({"stacked"})
+"""Families that fit and predict but cannot say why.
+
+``extract_feature_importance`` reads ``feature_importances_`` or ``coef_`` off
+the fitted estimator. A ``StackingRegressor`` has neither: its members each
+have one, but the blend that combines them does not, and averaging the members'
+importances would describe a model that is not the one making the prediction.
+SHAP has the same problem — TreeExplainer cannot walk a blend, and
+KernelExplainer costs seconds per prediction against milliseconds.
+
+Kept in the registry rather than removed. It is a legitimate model and the
+leaderboard should show what it scores; it is simply not one this API can
+ship, because every prediction response carries an explanation. The choice is
+made in `src.pipelines.tune._select_winner`, where the cost is logged.
+"""
+
+EXPLAINABLE_FAMILIES = frozenset(MODEL_REGISTRY) - UNEXPLAINABLE_FAMILIES
+"""Families whose fitted estimator exposes named importances, and which
+therefore satisfy the API's documented `explanation` field."""
+
+DEPLOYMENT_MEGABYTES: dict[str, int] = {
+    # Measured inside the built API image, `du -sm` on site-packages:
+    #   sklearn  56 MB — already required by every family, so it costs nothing
+    #                    extra and is the baseline.
+    #   lightgbm  9 MB
+    #   xgboost  81 MB + 291 MB of nvidia CUDA libraries its manylinux wheel
+    #            depends on, which a CPU inference path never opens
+    #   catboost 269 MB + 59 MB of plotly, which it requires
+    "linear": 0,
+    "ridge": 0,
+    "lasso": 0,
+    "elastic_net": 0,
+    "random_forest": 0,
+    "extra_trees": 0,
+    "gradient_boosting": 0,
+    "lightgbm": 9,
+    "xgboost": 372,
+    "catboost": 328,
+    "stacked": 372 + 328,
+}
+"""What shipping each family costs the serving image, in megabytes.
+
+The tiebreak for the one-standard-error rule. The obvious proxy — the size of
+the saved artifact — is the wrong one and points the wrong way: CatBoost
+serialises to 0.37 MB against LightGBM's 2.08, which makes it look like the
+cheap choice while dragging 328 MB of package behind it. A 1.7 MB difference in
+a file that is mounted once is not a cost; 300 MB in every image pull is.
+
+Zero means "already required": those families are pure scikit-learn, which the
+service needs anyway to unpickle any pipeline at all.
+"""

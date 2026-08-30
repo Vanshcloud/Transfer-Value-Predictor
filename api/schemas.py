@@ -204,7 +204,21 @@ class SeasonRow(BaseModel):
     goals: int
     assists: int
     minutes_played: int
-    market_value_in_eur: float
+    market_value_in_eur: float | None = Field(
+        default=None,
+        description=(
+            "Recorded market value, or null for a season still being played. "
+            "Null means 'not yet published', never zero."
+        ),
+    )
+    has_label: bool = Field(
+        default=True,
+        description=(
+            "False for the season in progress: its statistics are complete "
+            "enough to predict from, but no valuation has been published to "
+            "compare against."
+        ),
+    )
 
 
 class PlayerSearchResult(BaseModel):

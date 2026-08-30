@@ -16,6 +16,7 @@ from src.feature_engineering.build import (
     FEATURE_TIME_COLUMN,
     LABEL_TIME_COLUMN,
     TARGET_COLUMN,
+    build_current_season_table,
     build_training_table,
     null_rates,
     select_variant,
@@ -28,6 +29,14 @@ from src.validation.report import ValidationReport
 logger = get_logger(__name__)
 
 TRAINING_TABLE = "training_table"
+
+CURRENT_SEASON_TABLE = "current_season"
+"""Feature rows for seasons too recent to have a label.
+
+Written beside the training table and never mixed into it. The service reads it
+so a prediction can be asked about the season being played rather than only
+about the last one Transfermarkt has finished revaluing.
+"""
 
 ENTITY_KEYS = ("player_id", "season")
 """What makes a row unique. Two rows for one player-season are one observation
@@ -51,6 +60,16 @@ def leakage_validator(feature_columns: tuple[str, ...]) -> LeakageValidator:
 
 
 SOURCE_TABLES = ("players", "player_valuations", "appearances")
+"""The three tables the training table cannot be built without."""
+
+CONTEXT_TABLES = ("competitions", "games", "club_games", "game_lineups")
+"""Optional enrichment: competition identity, club results, squad role.
+
+Optional because the committed sample data carries only the three required
+tables, and the suite has to build a valid table from it. A build without these
+produces the same rows with the context and role features null — which the
+fitted imputer handles — rather than failing.
+"""
 
 
 @dataclass(frozen=True)
@@ -62,6 +81,7 @@ class FeatureReport:
     first_season: int
     last_season: int
     rows_with_prior_value: int
+    current_season_rows: int
     null_rates: pd.Series
     leakage: ValidationReport
 
@@ -75,6 +95,8 @@ class FeatureReport:
                 f"  players                  {self.players:>10,}",
                 f"  seasons                  {self.first_season:>10}-{self.last_season}",
                 f"  rows with prior value    {self.rows_with_prior_value:>10,}",
+                f"  current-season rows      {self.current_season_rows:>10,}  (unlabelled, "
+                f"predictable)",
                 "  null feature rates (non-zero only):",
                 nulls or "    none",
                 f"  leakage: {len(self.leakage.errors)} error(s), "
@@ -84,7 +106,7 @@ class FeatureReport:
 
 
 def build_features(
-    store: TableStore, *, season_start_month: int = 8, tolerance_days: int = 120
+    store: TableStore, *, season_start_month: int = 8, tolerance_days: int = 365
 ) -> FeatureReport:
     """Build the training table from ``store`` and write it back to ``store``.
 
@@ -96,10 +118,23 @@ def build_features(
     """
     frames = {name: store.read_table(name) for name in SOURCE_TABLES}
 
+    # Enrichment tables are read when present and skipped when not, so the
+    # same code path serves the full download and the committed sample.
+    context: dict[str, pd.DataFrame] = {}
+    for name in CONTEXT_TABLES:
+        if store.has_table(name):
+            context[name] = store.read_table(name)
+        else:
+            logger.warning("no %s table; its features will be null", name)
+
     table = build_training_table(
         frames["players"],
         frames["player_valuations"],
         frames["appearances"],
+        competitions=context.get("competitions"),
+        games=context.get("games"),
+        club_games=context.get("club_games"),
+        lineups=context.get("game_lineups"),
         season_start_month=season_start_month,
         label_tolerance_days=tolerance_days,
     )
@@ -115,12 +150,30 @@ def build_features(
 
     store.write_table(TRAINING_TABLE, table)
 
+    # Rows for the season(s) after the last labelled one. They cannot be
+    # trained on — they have no target — but every feature they need is already
+    # known, so there is no reason the service cannot price them.
+    current = build_current_season_table(
+        frames["players"],
+        frames["player_valuations"],
+        frames["appearances"],
+        table,
+        competitions=context.get("competitions"),
+        games=context.get("games"),
+        club_games=context.get("club_games"),
+        lineups=context.get("game_lineups"),
+        season_start_month=season_start_month,
+    )
+    if not current.empty:
+        store.write_table(CURRENT_SEASON_TABLE, current)
+
     return FeatureReport(
         rows=len(table),
         players=int(table["player_id"].nunique()),
         first_season=int(table["season"].min()),
         last_season=int(table["season"].max()),
         rows_with_prior_value=len(with_prior),
+        current_season_rows=len(current),
         null_rates=null_rates(table),
         leakage=leakage,
     )

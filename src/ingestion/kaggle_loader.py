@@ -142,8 +142,18 @@ class KaggleSource:
         return paths
 
     def load(self, table: str) -> pd.DataFrame:
-        """Read ``table``, downloading it first if it is missing or stale."""
+        """Read ``table``, downloading it first if it is missing or stale.
+
+        ``low_memory=False`` reads each column in one pass instead of in
+        chunks. Chunked inference types a column per chunk, so
+        ``game_lineups.number`` — shirt numbers — comes back as ``int`` in some
+        chunks and ``str`` in others, and the resulting object column cannot be
+        written to Parquet at all ("Expected bytes, got a 'int' object"). One
+        pass gives one dtype. This is a reading decision, not cleaning: the
+        values are unchanged, and validation still sees what the provider
+        published.
+        """
         path = self.path_for(table)
         if not self.is_fresh(path):
             self.fetch()
-        return pd.read_csv(path)
+        return pd.read_csv(path, low_memory=False)

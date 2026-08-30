@@ -76,8 +76,8 @@ those, `fetch_data.py` stops with a message naming both options rather than
 failing obscurely.
 
 **You do not need an account to run the project.** `data/sample/` is committed,
-so `make test` gives you 538 passing tests and 47 skips with no credentials at
-all — the 47 are the integration tests that need the full panel. `make test`
+so `make test` gives you 645 passing tests and 49 skips with no credentials at
+all — the 49 are the integration tests that need the full panel. `make test`
 deselects them by marker; a bare `pytest` on that same clone *skips* them and
 still reports zero failures, which is the stronger property and the one CI
 checks. Only the three pipeline commands below need the
@@ -95,23 +95,81 @@ python scripts/train_models.py     # nine tuned families, best saved per variant
 python scripts/build_reports.py    # evaluation, SHAP, error analysis, model cards
 ```
 
-The training table as of the 2026-08-05 dataset refresh:
+The training table:
 
-| | |
-|---|---|
-| rows | 36,880 |
-| players | 17,053 |
-| seasons | 2011–2024 |
-| rows with a prior-season value | 19,827 |
-| leakage findings | 0 |
+| | before Phase 15 | now |
+|---|---|---|
+| rows | 36,880 | **85,966** |
+| players | 17,053 | **24,411** |
+| seasons | 2011–2024 | 2011–2024 |
+| rows with a prior-season value | 19,827 | **61,522** |
+| features | 19 | **41** |
+| current-season rows, predictable | 0 | **8,709** |
+| leakage findings | 0 | 0 |
 
 The label is the first valuation recorded **after** the season's evidence is
-complete — an as-of join with a 120-day tolerance, never an equality merge,
-because valuations are an irregular on-change event series. Two model variants
-come out of the one table: *performance-only* (every row; the useful model, for
-scouting) and *with prior value* (19,827 rows; the accurate model, for
-tracking). Shipping only the second would be technically true and practically
-useless.
+complete — an as-of join, never an equality merge, because valuations are an
+irregular on-change event series.
+
+That join used a **120-day** tolerance and discarded 61% of the panel. A season
+ending 1 July gives a window closing 29 October, which is before Transfermarkt's
+winter revaluation batch exists. Measured across the full panel:
+
+| Tolerance | Player-seasons labelled |
+|---|---|
+| 120 days | 39.0% |
+| 180 days | 74.7% |
+| **365 days** | **90.8%** |
+
+Widening cannot leak: `direction="forward"` is unchanged, so every label is
+still strictly after the features. It did expose a leak — with a year-wide
+window, season *s* can be labelled after season *s+1* has begun, making *s+1*'s
+"previous value" not previous. 22 rows in 61,555, and now a seventh leakage
+check ([`src/validation/leakage.py`](src/validation/leakage.py)) that fails the
+build if it recurs.
+
+Two model variants come out of the one table: *performance-only* (every row;
+the useful model, for scouting) and *with prior value* (61,522 rows; the
+accurate model, for tracking). Shipping only the second would be technically
+true and practically useless.
+
+## What the model sees
+
+41 features, from every file the Kaggle dataset ships. The project previously
+downloaded three of its ten, which is why "no league strength" and "five
+performance statistics" were listed as limitations of the data rather than of
+the pipeline.
+
+| Group | Features |
+|---|---|
+| **Match output** | appearances, minutes, goals, assists, yellow/red cards, goal contributions |
+| **Rates** | goals/90, assists/90, cards/90, contributions/90, minutes per appearance |
+| **Squad role** | starts, substitute appearances, start share, captain share, positions played |
+| **Availability** | share of the club's matches played, months active |
+| **Consistency** | full-match share, minutes variability, scoring-match share |
+| **Trajectory** | second-half goal share |
+| **Club context** | points per game, goal difference per game, league position |
+| **Competition** | value level, tier rank, competitions played, continental minutes share, type, confederation |
+| **Biography** | age, age², height, position, sub-position, foot, citizenship |
+| **Career stage** | years since debut, seasons observed |
+| **Prior value** *(second variant only)* | lagged log value, its staleness in days |
+
+Two of these needed care rather than code.
+
+**`competition_value_level`** is the honest answer to "how strong is this
+league", and the honest answer is the market value of the players in it — which
+is the target. Computed from the current season that is textbook target
+leakage. It uses a **strictly expanding window**: the level for a competition in
+season *s* is the mean of seasons *< s* only, via `shift(1)` then
+`expanding()`. Asserted three ways in
+[`tests/unit/test_context.py`](tests/unit/test_context.py), including that
+perturbing the last season cannot change any earlier feature.
+
+**Club strength** comes from `club_games.csv` — actual results — and not from
+`clubs.csv`, whose squad value and size are *current* state. Joining today's
+squad value to a 2013 row is the same error as joining a contract expiry date,
+which this project already bans. `clubs.csv` is the one file of the ten that is
+deliberately not downloaded.
 
 ## Baselines
 
@@ -248,7 +306,7 @@ That is the honest finding, not a defect to tune away.
 
 **Layering.** `src/services/prediction.py` imports no web framework — a test
 asserts it, against parsed imports rather than a grep. That is what lets the
-same prediction path serve HTTP, a batch job or a CLI, and why the 75 tests for
+same prediction path serve HTTP, a batch job or a CLI, and why the 83 tests for
 prediction logic need no running server.
 
 ## Dashboard
@@ -364,8 +422,8 @@ push and pull request:
   imported inside `src/storage/`, and Plotly only inside `Chart.tsx`.
 
 CI runs on a clean checkout, where `data/` and `models/` are empty. Every test
-that needs them **skips** rather than fails — verified on a fresh clone: 538
-pass, the 47 integration tests skip, nothing fails. A suite that is only green on a machine with a trained
+that needs them **skips** rather than fails — verified on a fresh clone: 645
+pass, the 49 integration tests skip, nothing fails. A suite that is only green on a machine with a trained
 model is not a suite anyone can trust.
 
 ## Development
@@ -401,6 +459,47 @@ enforces it: commits carrying a `Co-Authored-By` trailer or an AI-generation
 marker are rejected, as are commits authored by anyone else. The hook is
 version-controlled and wired via `core.hooksPath`, so it survives a reclone.
 
+## What this still cannot do
+
+Stated because a model whose limits are not written down is a model whose
+limits are discovered by whoever trusts it first.
+
+**Coverage begins in 2012, and cannot be extended from this dataset.**
+`games.csv` reaches back to 2006, which looks like five extra seasons. It is
+not: before 2012-07-03 there are 2,470 events across 190 games and 943 players
+— international tournaments, not league football — and `game_lineups.csv` does
+not start until 2013. Minutes cannot be reconstructed from substitution events
+in principle, because a player who plays the full match generates no event.
+Career-length features are left-censored and capped at 10 for that reason.
+
+**The labels are Transfermarkt's community estimates, not prices anyone paid.**
+`transfers.csv` carries real fees and `--target transfer_fee` will train on
+them, but it covers 8.5% of the table against the market value's 83%, and only
+players who were actually sold — so it learns what a sold player costs, which
+is not what a player is worth. The default target is the appraisal, and the
+model reproduces that consensus including wherever it is biased.
+
+**Error grows with value.** The target spans four orders of magnitude and the
+headline MAE is in EUR, so a mid-table figure conceals much larger absolute
+misses at the top of the market. Read the per-band breakdown in
+`reports/error_analysis.html` before trusting a number for an expensive player.
+
+**The prediction intervals are wide, and honestly so.** A gradient booster has
+no calibrated uncertainty; the interval is measured from the model's own
+residual quantiles on held-out seasons. Wide is the finding, not a defect to
+tune away.
+
+**The best model does not ship.** A stacked blend of the three boosters beat
+every explainable family on both variants, by 1.92% and 0.33% of validation
+MAE. It cannot produce a feature importance or a SHAP value, and every
+prediction response documents an explanation, so it is excluded by
+`EXPLAINABLE_REQUIRED` in [`src/pipelines/tune.py`](src/pipelines/tune.py). It
+still runs and still appears in the leaderboard, so the cost of that decision
+is visible rather than assumed.
+
+**Seasons are August to July**, so leagues on a spring–autumn calendar are
+split across that boundary and represented less faithfully.
+
 ## How it was built
 
 Thirteen phases, each leaving the repository runnable, green and committed. The
@@ -415,8 +514,8 @@ Backend test coverage, with the command that prints each number:
 
 | | Coverage | Tests |
 |---|---|---|
-| `make test-cov` — no credentials, no data | **89%** | 538 pass, 47 deselected |
-| `make test-cov-all` — needs the Kaggle download and a trained model | **97%** | 585 pass |
+| `make test-cov` — no credentials, no data | **90%** | 645 pass, 49 deselected |
+| `make test-cov-all` — needs the Kaggle download and a trained model | **97%** | 694 pass |
 
 The gap is the pipeline orchestration in `src/pipelines/`, which is what the
 integration tests exercise. Both targets fail below their floor, so neither

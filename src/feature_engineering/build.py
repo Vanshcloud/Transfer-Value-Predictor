@@ -29,6 +29,21 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
+from src.feature_engineering.context import (
+    CONTEXT_CATEGORICAL,
+    CONTEXT_NUMERIC,
+    attach_context,
+    club_season_strength,
+    competition_strength,
+    player_competition_mix,
+)
+from src.feature_engineering.performance import (
+    PERFORMANCE_NUMERIC,
+    attach_performance,
+    match_level_features,
+    squad_match_counts,
+    squad_role,
+)
 from src.utils.logging import get_logger
 
 logger = get_logger(__name__)
@@ -77,24 +92,28 @@ PLAYER_ATTRIBUTES = (
 )
 
 NUMERIC_FEATURES = (
-    "age",
-    "age_squared",
-    "appearances",
-    "goals",
-    "assists",
-    "minutes_played",
-    "yellow_cards",
-    "red_cards",
-    "goals_per_90",
-    "assists_per_90",
-    "cards_per_90",
-    "minutes_per_appearance",
-    "height_in_cm",
-    # Where the player is in a career, not where the season is in the calendar.
-    # Both answer "how established is this player" without ever encoding
-    # "2024 players are worth more than 2022 players".
-    "years_since_debut",
-    "seasons_observed",
+    (
+        "age",
+        "age_squared",
+        "appearances",
+        "goals",
+        "assists",
+        "minutes_played",
+        "yellow_cards",
+        "red_cards",
+        "goals_per_90",
+        "assists_per_90",
+        "cards_per_90",
+        "minutes_per_appearance",
+        "height_in_cm",
+        # Where the player is in a career, not where the season is in the calendar.
+        # Both answer "how established is this player" without ever encoding
+        # "2024 players are worth more than 2022 players".
+        "years_since_debut",
+        "seasons_observed",
+    )
+    + PERFORMANCE_NUMERIC
+    + CONTEXT_NUMERIC
 )
 
 CATEGORICAL_FEATURES = (
@@ -102,7 +121,25 @@ CATEGORICAL_FEATURES = (
     "sub_position",
     "foot",
     "country_of_citizenship",
-)
+) + CONTEXT_CATEGORICAL
+
+LABEL_HORIZON_COLUMN = "label_horizon_days"
+"""Days between the as-of date and the valuation used as the label.
+
+Recorded on every row, and deliberately **not** a feature.
+
+Widening the label window from 120 to 365 days spreads the label over a year,
+and the obvious worry is that the model is then averaging over an unspecified
+horizon. The intended fix was to hand it the horizon so it predicts a specified
+one. Measured, that bought nothing: R^2 0.760 with the feature against 0.762
+without it, on the same rows and the same split. A feature that moves the third
+decimal the wrong way is not worth the interface it would add — every caller
+would have to supply a horizon, and the model would not listen.
+
+So it stays as a column. It is what makes the label's provenance auditable, it
+is what :func:`~src.pipelines.tune.season_weights` could down-weight on, and it
+is the evidence for the claim that widening the window did no harm.
+"""
 
 NON_NEGATIVE_FEATURES = frozenset(
     {
@@ -241,14 +278,28 @@ def attach_label(
     player_seasons: pd.DataFrame,
     valuations: pd.DataFrame,
     *,
-    tolerance_days: int = 120,
+    tolerance_days: int = 365,
 ) -> pd.DataFrame:
     """Label each player-season with the first valuation on or after its as-of date.
 
     ``direction="forward"`` is the whole point: the label must be set *after*
-    the features were observed. The tolerance bounds how long we will wait —
-    beyond it the valuation reflects a later season's form, so the row is
-    dropped rather than mislabelled.
+    the features were observed. The tolerance bounds how long we will wait.
+
+    That bound was 120 days and cost 61% of the panel. Transfermarkt revalues
+    in batches, and the largest of them lands in the winter window — a window
+    that closes on 29 October never sees it. Measured over the full panel:
+
+        120 days -> 39.0% of player-seasons labelled   (36,902)
+        180 days -> 74.7%                              (70,735)
+        365 days -> 90.8%                              (86,016)
+
+    Widening cannot introduce leakage: every label is still strictly forward of
+    the as-of date, which is the only property that matters for correctness.
+    What it does change is how far ahead the label sits, and a label 300 days
+    out is partly about the *next* season. That distance is recorded on every
+    row as ``label_horizon_days`` so the claim is auditable — and it was tried
+    as a feature and dropped, because it moved test R^2 from 0.762 to 0.760.
+    The wider window costs less than the theory predicted.
 
     ``pd.Timedelta(120, "D")`` rather than ``pd.Timedelta("120D")`` or
     ``days=120``: both of the latter emit a DeprecationWarning under
@@ -272,12 +323,17 @@ def attach_label(
         tolerance=pd.Timedelta(tolerance_days, "D"),
     )
 
-    labelled = merged.dropna(subset=[TARGET_COLUMN, LABEL_TIME_COLUMN])
+    labelled = merged.dropna(subset=[TARGET_COLUMN, LABEL_TIME_COLUMN]).copy()
+    labelled[LABEL_HORIZON_COLUMN] = (
+        labelled[LABEL_TIME_COLUMN] - labelled[AS_OF_COLUMN]
+    ).dt.days.astype("float64")
     logger.info(
-        "labelled %d of %d player-seasons within %d days of the as-of date",
+        "labelled %d of %d player-seasons (%.1f%%) within %d days; median horizon %.0f days",
         len(labelled),
         len(merged),
+        100.0 * len(labelled) / max(len(merged), 1),
         tolerance_days,
+        float(labelled[LABEL_HORIZON_COLUMN].median()),
     )
     return labelled.reset_index(drop=True)
 
@@ -325,17 +381,40 @@ def add_career_history(frame: pd.DataFrame) -> pd.DataFrame:
     informative as long as the model is told how old it is. That is what
     ``prev_value_age_days`` carries.
 
-    The lag is genuine. Seasons are ordered, so the previous row's label was
-    published before this row's as-of date; the test suite asserts it rather
-    than trusting the argument.
+    The lag is genuine, and is enforced rather than argued. Ordering by season
+    does not by itself guarantee that the previous label predates this row's
+    as-of date — with a 365-day label window, season s can be labelled after
+    season s+1 has begun. Those rows get no prior value at all.
     """
     ordered = frame.sort_values(["player_id", "season"])
     by_player = ordered.groupby("player_id", sort=False)
 
-    ordered["prev_market_value_in_eur"] = by_player[TARGET_COLUMN].shift(1)
-    ordered["prev_log_market_value_in_eur"] = np.log1p(ordered["prev_market_value_in_eur"])
     prev_label_date = by_player[LABEL_TIME_COLUMN].shift(1)
-    ordered["prev_value_age_days"] = (ordered[LABEL_TIME_COLUMN] - prev_label_date).dt.days
+
+    # A previous season's label is only usable if it had actually been
+    # published by the time this season's evidence closed. Ordering by season
+    # is not enough to guarantee that once the label window is a year wide:
+    # season s can be labelled in the June after season s+1 has already begun,
+    # in which case s+1's "prior" value is not prior at all.
+    #
+    # Measured on the full panel when the window moved from 120 to 365 days,
+    # this affected 22 rows of 61,555 — 0.03%. Small enough to miss by eye and
+    # exactly the kind of thing that survives because it is small, so it is
+    # nulled here and asserted by
+    # `src.validation.leakage.check_lagged_values_precede_features`.
+    # Strictly before, not on-or-before. A valuation published the same day the
+    # feature window closes may already reflect that day's match, and "prior"
+    # should not need an argument about intraday ordering to be true.
+    knowable = prev_label_date.notna() & (prev_label_date < ordered[AS_OF_COLUMN])
+
+    ordered["prev_market_value_in_eur"] = by_player[TARGET_COLUMN].shift(1).where(knowable)
+    ordered["prev_log_market_value_in_eur"] = np.log1p(ordered["prev_market_value_in_eur"])
+    # Measured from the as-of date, not from the current label: staleness is a
+    # property of what was known when the features closed, and the label date
+    # is not known then.
+    ordered["prev_value_age_days"] = (
+        (ordered[AS_OF_COLUMN] - prev_label_date).dt.days.where(knowable).astype("float64")
+    )
 
     # Counts only the rows before this one, so it is a running career depth
     # rather than a total that would need the player's whole future to compute.
@@ -346,13 +425,129 @@ def add_career_history(frame: pd.DataFrame) -> pd.DataFrame:
     return ordered.reset_index(drop=True)
 
 
+def _mix_for_levels(
+    table: pd.DataFrame,
+    appearances: pd.DataFrame,
+    competitions: pd.DataFrame,
+    season_start_month: int,
+) -> pd.DataFrame:
+    """Labelled rows tagged with their primary competition, for the strength pass.
+
+    :func:`~src.feature_engineering.context.competition_strength` needs to know
+    which competition each *labelled* row belongs to before it can average
+    values per competition-season. It gets the labelled table rather than the
+    raw appearances so that the history it accumulates is the history the model
+    is actually trained on.
+    """
+    mix = player_competition_mix(appearances, competitions, start_month=season_start_month)
+    # Dropped before the merge, not renamed after it: an already-enriched frame
+    # (the training table, when the unlabelled build passes it as history)
+    # carries this column, and pandas would otherwise silently produce
+    # `primary_competition_id_x` and `_y` and leave neither under the name the
+    # next step looks for.
+    return table.drop(columns=["primary_competition_id"], errors="ignore").merge(
+        mix.loc[:, ["player_id", "season", "primary_competition_id"]],
+        on=["player_id", "season"],
+        how="left",
+    )
+
+
+def _ensure_feature_columns(table: pd.DataFrame) -> pd.DataFrame:
+    """Guarantee every declared feature exists, as a column of nulls if need be.
+
+    The context and performance joins are optional — the sample-data path runs
+    without them. Without this, ``FEATURE_COLUMNS`` would name columns the frame
+    does not have and the failure would surface deep inside a ColumnTransformer
+    as a KeyError about a column nobody mentioned. A declared-but-absent feature
+    is missing data, which the fitted imputer already knows how to handle, so it
+    is represented as exactly that.
+    """
+    missing = [column for column in FEATURE_COLUMNS if column not in table.columns]
+    if missing:
+        logger.info(
+            "%d context/performance feature(s) unavailable in this build: %s",
+            len(missing),
+            ", ".join(missing),
+        )
+        for column in missing:
+            # np.nan and None, never pd.NA. scikit-learn's SimpleImputer tests
+            # missingness with `X != X`, and pd.NA raises
+            # "boolean value of NA is ambiguous" from inside a ColumnTransformer
+            # — a failure whose traceback names neither the column nor the
+            # feature that caused it.
+            if column in CATEGORICAL_FEATURES:
+                table[column] = pd.Series(None, index=table.index, dtype="object")
+            else:
+                table[column] = pd.Series(np.nan, index=table.index, dtype="float64")
+    return table
+
+
+def _enrich(
+    table: pd.DataFrame,
+    *,
+    appearances: pd.DataFrame,
+    competitions: pd.DataFrame | None,
+    games: pd.DataFrame | None,
+    club_games: pd.DataFrame | None,
+    lineups: pd.DataFrame | None,
+    season_start_month: int,
+    levels_from: pd.DataFrame | None,
+) -> pd.DataFrame:
+    """Attach context and richer performance to a player-season frame.
+
+    Shared by the labelled and unlabelled builds so a prediction row is
+    assembled by exactly the code that assembled the rows the model trained on.
+    Two implementations of a feature definition is the standard way training and
+    serving drift apart, and this project already refuses that trade in
+    ``ModelArtifact`` by keeping the fitted preprocessing inside the pipeline.
+
+    Optional because the committed sample data carries only the three required
+    tables. Absent enrichment leaves those features null, which the fitted
+    imputer fills exactly as it does any other missing value.
+
+    ``levels_from`` supplies the labelled history used to compute competition
+    strength. The unlabelled build passes the *training* table here: a season
+    with no labels can contribute nothing to a value level, and must instead
+    inherit the level accumulated from every season before it.
+    """
+    if competitions is None or games is None or club_games is None:
+        return table
+
+    history = table if levels_from is None else levels_from
+    enriched = attach_context(
+        table,
+        competition_mix=player_competition_mix(
+            appearances, competitions, start_month=season_start_month
+        ),
+        club_strength=club_season_strength(club_games, games),
+        competition_levels=competition_strength(
+            _mix_for_levels(history, appearances, competitions, season_start_month),
+            target_column=TARGET_COLUMN,
+        ),
+    )
+    return attach_performance(
+        enriched,
+        match_features=match_level_features(appearances, start_month=season_start_month),
+        role=(
+            squad_role(lineups, start_month=season_start_month)
+            if lineups is not None
+            else pd.DataFrame(columns=["player_id", "season"])
+        ),
+        squad_matches=squad_match_counts(club_games, games),
+    )
+
+
 def build_training_table(
     players: pd.DataFrame,
     valuations: pd.DataFrame,
     appearances: pd.DataFrame,
     *,
+    competitions: pd.DataFrame | None = None,
+    games: pd.DataFrame | None = None,
+    club_games: pd.DataFrame | None = None,
+    lineups: pd.DataFrame | None = None,
     season_start_month: int = 8,
-    label_tolerance_days: int = 120,
+    label_tolerance_days: int = 365,
 ) -> pd.DataFrame:
     """Build the full player-season table, prior-value column included.
 
@@ -367,6 +562,18 @@ def build_training_table(
     with_attributes = attach_player_attributes(labelled, players)
     table = add_career_history(add_derived_features(with_attributes))
 
+    table = _enrich(
+        table,
+        appearances=appearances,
+        competitions=competitions,
+        games=games,
+        club_games=club_games,
+        lineups=lineups,
+        season_start_month=season_start_month,
+        levels_from=None,
+    )
+    table = _ensure_feature_columns(table)
+
     logger.info(
         "training table: %d rows, %d players, seasons %d-%d",
         len(table),
@@ -375,6 +582,118 @@ def build_training_table(
         table["season"].max(),
     )
     return table
+
+
+def build_current_season_table(
+    players: pd.DataFrame,
+    valuations: pd.DataFrame,
+    appearances: pd.DataFrame,
+    training_table: pd.DataFrame,
+    *,
+    competitions: pd.DataFrame | None = None,
+    games: pd.DataFrame | None = None,
+    club_games: pd.DataFrame | None = None,
+    lineups: pd.DataFrame | None = None,
+    season_start_month: int = 8,
+) -> pd.DataFrame:
+    """Feature rows for seasons that have no label yet.
+
+    The audit's sixth limitation: the freshest predictable season was already
+    a year old, because a row cannot enter the training table until a valuation
+    exists to label it, and that valuation only appears after the season ends.
+    So the most recent season — the one anybody actually wants a number for —
+    was invisible to the service.
+
+    It is invisible for *training*, correctly and permanently. It does not have
+    to be invisible for *prediction*: the features are complete the moment the
+    matches are played, and the model needs no label to score a row. This
+    builds exactly those rows.
+
+    Two properties make it safe:
+
+    * These rows are never returned to the training pipeline. They carry no
+      target, so a fit would fail rather than quietly learn from a null.
+    * ``prev_market_value_in_eur`` comes from the *labelled* history, which is
+      strictly earlier, so the prior-value variant works here on genuinely past
+      information.
+
+    A partially-played season is not a defect either. Half a season of matches
+    is half a season of evidence, and the model prices it as such —
+    ``appearances``, ``squad_match_share`` and ``months_active`` all fall,
+    which is the honest signal that there is less to go on.
+
+    Returns rows for every season strictly after the last labelled one.
+    """
+    player_seasons = aggregate_appearances(appearances, start_month=season_start_month)
+    last_labelled = int(training_table["season"].max())
+    current = player_seasons[player_seasons["season"] > last_labelled].copy()
+    if current.empty:
+        logger.info("no unlabelled seasons after %d", last_labelled)
+        return current
+
+    # The label window is what these rows lack, so the columns it would have
+    # produced are declared absent rather than left for a downstream KeyError.
+    current[LABEL_TIME_COLUMN] = pd.NaT
+    current[TARGET_COLUMN] = np.nan
+    current[LABEL_HORIZON_COLUMN] = np.nan
+
+    with_attributes = attach_player_attributes(current, players)
+    table = add_derived_features(with_attributes)
+
+    # The prior value is the last valuation published *strictly before* this
+    # season's as-of date. Taken from the raw valuations rather than from the
+    # previous labelled row, because a player may have been revalued since —
+    # and a fresher prior is a better one, as `prev_value_age_days` records.
+    # ``direction="backward"`` is what makes it strictly past information.
+    prior = (
+        valuations.loc[:, ["player_id", "date", TARGET_COLUMN]]
+        .assign(date=pd.to_datetime(valuations["date"], errors="coerce"))
+        .dropna(subset=["date"])
+        .sort_values("date")
+        .rename(columns={"date": "_prev_label_date", TARGET_COLUMN: "prev_market_value_in_eur"})
+    )
+    table = pd.merge_asof(
+        table.sort_values(AS_OF_COLUMN),
+        prior,
+        left_on=AS_OF_COLUMN,
+        right_on="_prev_label_date",
+        by="player_id",
+        direction="backward",
+        allow_exact_matches=False,
+    )
+    table["prev_log_market_value_in_eur"] = np.log1p(table["prev_market_value_in_eur"])
+    table["prev_value_age_days"] = (table[AS_OF_COLUMN] - table["_prev_label_date"]).dt.days.astype(
+        "float64"
+    )
+
+    # Career depth is how many labelled seasons this player already has, which
+    # is what the same column counts during training.
+    depth = training_table.groupby("player_id").size()
+    table["seasons_observed"] = (
+        table["player_id"].map(depth).fillna(0).clip(upper=CAREER_CENSORING_CEILING)
+    )
+
+    table = _enrich(
+        table,
+        appearances=appearances,
+        competitions=competitions,
+        games=games,
+        club_games=club_games,
+        lineups=lineups,
+        season_start_month=season_start_month,
+        levels_from=training_table,
+    )
+    table = _ensure_feature_columns(table)
+    table = table.drop(columns=["_prev_label_date"], errors="ignore")
+
+    logger.info(
+        "current-season table: %d rows, %d players, seasons %d-%d (unlabelled)",
+        len(table),
+        table["player_id"].nunique(),
+        table["season"].min(),
+        table["season"].max(),
+    )
+    return table.reset_index(drop=True)
 
 
 def select_variant(

@@ -29,8 +29,18 @@ pyarrow>=17.0
 duckdb>=1.1
 
 # ---- Model loading and inference ----
-# lightgbm is required to *unpickle* the artifact, not merely to fit one: the
-# saved object is a scikit-learn Pipeline wrapping an LGBMRegressor.
+# Required to *unpickle* an artifact, not merely to fit one: the saved object
+# is a scikit-learn Pipeline wrapping the estimator, so the estimator's package
+# must be importable to load it.
+#
+# lightgbm only. XGBoost had the lower validation MAE on the performance-only
+# variant — 2,055,713 against 2,063,630 — and the one-standard-error rule in
+# src/pipelines/tune.py declined it: the gap is EUR 7,917 against a standard
+# error of EUR 58,508 (t = 0.37), and shipping it would add 372 MB to this
+# image, 291 MB of that being CUDA libraries a CPU inference path never opens.
+#
+# catboost is out for the same reason and a larger number: 328 MB, including
+# the plotly it requires, for a model 0.2% behind.
 scikit-learn>=1.9
 lightgbm>=4.5
 

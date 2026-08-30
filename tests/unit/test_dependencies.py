@@ -160,7 +160,7 @@ def test_every_model_family_declares_what_loading_it_needs() -> None:
     artifacts, so it runs on a clean checkout — which is where a new family is
     most likely to be added without one.
     """
-    from src.models.registry import MODEL_REGISTRY
+    from src.models.registry import MODEL_REGISTRY, UNEXPLAINABLE_FAMILIES
     from tests.integration.test_serving_dependencies import PACKAGE_FOR_FAMILY
 
     unknown = sorted(set(MODEL_REGISTRY) - set(PACKAGE_FOR_FAMILY))
@@ -168,6 +168,12 @@ def test_every_model_family_declares_what_loading_it_needs() -> None:
 
     serve = _entries(SERVE)
     for family, package in PACKAGE_FOR_FAMILY.items():
+        if family in UNEXPLAINABLE_FAMILIES:
+            # Never shipped: it cannot produce the explanation every prediction
+            # response documents, so no image needs to be able to load it. It
+            # stays in the zoo only so the leaderboard shows what the
+            # explainability constraint costs.
+            continue
         if package in serve:
             continue
         # Not installed for serving is fine — it just means an artifact from

@@ -141,6 +141,29 @@ reconstructing them, and so "change goals from 10 to 18" is a change from
 something true. Feeding that map straight back to `/predict` reproduces the
 stored prediction exactly, and a test asserts it.
 
+### The season in progress
+
+A player's season list now includes the season **being played**, which has no
+published valuation yet. Those rows carry `has_label: false` and
+`market_value_in_eur: null` — null meaning "not yet published", never zero.
+
+They are fully predictable. Every feature is complete the moment the matches
+are played; only the label waits for Transfermarkt. `POST /api/v1/predict` with
+just a `player_id` uses the player's most recent season, so it now answers for
+the current one by default rather than for the last one that happened to be
+labelled — which used to be roughly a year stale.
+
+Three endpoints deliberately exclude these rows, because each of them reads a
+recorded value that does not exist yet:
+
+- `/players/{id}/history` — every point carries `actual_eur` to compare against.
+- `/players/{id}/similar` — a neighbour is shown with its market value.
+- `/features/distribution` — percentiles are computed over recorded values.
+
+A partially played season is not refused. Half a season of matches is half a
+season of evidence: `appearances`, `squad_match_share` and `months_active` all
+fall, and the prediction reflects that there is less to go on.
+
 `GET /api/v1/players/{player_id}/similar` measures distance on the
 **preprocessed** matrix — the same scaled, encoded features the model sees — so
 "similar" means similar to the model rather than similar on a hand-picked pair

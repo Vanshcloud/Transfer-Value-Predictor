@@ -41,11 +41,18 @@ PACKAGE_FOR_FAMILY = {
     "xgboost": "xgboost",
     "catboost": "catboost",
     "random_forest": "scikit-learn",
+    "extra_trees": "scikit-learn",
     "gradient_boosting": "scikit-learn",
     "linear": "scikit-learn",
     "ridge": "scikit-learn",
     "lasso": "scikit-learn",
     "elastic_net": "scikit-learn",
+    # The blend needs every member importable, so it needs the two trainers the
+    # serving image deliberately leaves out. It is also never shipped — a blend
+    # exposes no feature importances, and every prediction response carries an
+    # explanation — so the value here is a name no requirements file provides,
+    # and the test below asserts it never reaches models/.
+    "stacked": "lightgbm+xgboost+catboost",
 }
 
 
@@ -71,6 +78,31 @@ def shipped() -> list[Path]:
     if not found:
         pytest.skip("no trained artifacts; run scripts/train_models.py")
     return found
+
+
+def test_no_unexplainable_family_is_ever_shipped(shipped: list[Path]) -> None:
+    """The API documents an `explanation` on every prediction.
+
+    A StackingRegressor scores better and can explain nothing. It stays in the
+    zoo so the leaderboard shows what the constraint costs — measured at 1.92%
+    of validation MAE — but it must not become the artifact the service loads.
+    """
+    from src.models.registry import UNEXPLAINABLE_FAMILIES
+
+    for path in shipped:
+        family = json.loads(path.read_text())["model_name"]
+        assert family not in UNEXPLAINABLE_FAMILIES, (
+            f"{path.name} is a {family} artifact, which cannot produce the "
+            f"explanation every prediction response documents"
+        )
+
+
+def test_every_shipped_artifact_reports_named_importances(shipped: list[Path]) -> None:
+    """The model cards and the /model page are built from these."""
+    for path in shipped:
+        assert json.loads(path.read_text())[
+            "feature_importance"
+        ], f"{path.name} carries no feature importances"
 
 
 def test_the_serve_set_can_load_every_shipped_artifact(shipped: list[Path]) -> None:

@@ -564,3 +564,77 @@ class TestFeatureDistribution:
         import json
 
         assert json.loads(json.dumps(service.feature_distribution()))["features"]
+
+
+class TestCurrentSeasonPanel:
+    """The season being played, served alongside the labelled ones.
+
+    Its rows have every feature and no target. The risk is not that they fail
+    to predict — that part is easy — but that a null target leaks into
+    something that averages or compares values, where it would read as zero.
+    """
+
+    @pytest.fixture
+    def with_current(self, artifact: ModelArtifact, players: pd.DataFrame) -> PredictionService:
+        current = players[players["season"] == 2024].copy()
+        current["season"] = 2025
+        current[TARGET_COLUMN] = np.nan
+        return PredictionService(
+            {"performance_only": artifact},
+            players,
+            {pid: f"Player {pid}" for pid in players["player_id"].unique()},
+            current_season=current,
+        )
+
+    def test_a_prediction_uses_the_freshest_season(self, with_current: PredictionService) -> None:
+        """The point of the whole exercise: the default answer is about the
+        season being played, not the last one that happened to be labelled."""
+        assert with_current.predict_for_player(1).season == 2025
+
+    def test_the_prediction_is_a_real_number(self, with_current: PredictionService) -> None:
+        assert with_current.predict_for_player(1).prediction_eur > 0
+
+    def test_the_current_season_appears_with_a_null_value_not_a_zero(
+        self, with_current: PredictionService
+    ) -> None:
+        seasons = {row["season"]: row for row in with_current.player(1)["seasons"]}
+        assert seasons[2025]["market_value_in_eur"] is None
+        assert seasons[2025]["has_label"] is False
+        assert seasons[2024]["has_label"] is True
+
+    def test_history_excludes_the_unlabelled_season(self, with_current: PredictionService) -> None:
+        """Every point carries `actual_eur`. A season with no actual has no
+        point to make, and a zero would read as a collapse in value."""
+        seasons = [point["season"] for point in with_current.prediction_history(1)]
+        assert 2025 not in seasons
+        assert 2024 in seasons
+
+    def test_neighbours_are_never_unlabelled_rows(self, with_current: PredictionService) -> None:
+        """A neighbour is displayed with its market value."""
+        for neighbour in with_current.similar_players(1):
+            assert neighbour["market_value_in_eur"] is not None
+
+    def test_the_distribution_is_computed_over_recorded_values_only(
+        self, with_current: PredictionService, artifact: ModelArtifact, players: pd.DataFrame
+    ) -> None:
+        """The current-season rows here are a copy of 2024 with the value
+        removed. Including them would shift every percentile toward the 2024
+        distribution; excluding them leaves the panel exactly as it was."""
+        labelled_only = PredictionService({"performance_only": artifact}, players, None)
+        assert with_current.feature_distribution() == labelled_only.feature_distribution()
+
+    def test_the_unlabelled_rows_are_not_silently_dropped_from_prediction(
+        self, with_current: PredictionService, artifact: ModelArtifact, players: pd.DataFrame
+    ) -> None:
+        """Excluded from the value summaries, included where they belong."""
+        labelled_only = PredictionService({"performance_only": artifact}, players, None)
+        assert with_current.predict_for_player(1).season == 2025
+        assert labelled_only.predict_for_player(1).season == 2024
+
+    def test_a_service_without_a_current_table_behaves_exactly_as_before(
+        self, artifact: ModelArtifact, players: pd.DataFrame
+    ) -> None:
+        """The table is optional: a deployment built before it existed serves."""
+        service = PredictionService({"performance_only": artifact}, players, None)
+        assert service.predict_for_player(1).season == 2024
+        assert service.prediction_history(1)

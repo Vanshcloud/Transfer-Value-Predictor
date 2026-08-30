@@ -49,6 +49,15 @@ QUANTILE_GRID = tuple(round(0.05 * step, 2) for step in range(21))
 client can interpolate a value's percentile without another request — which is
 what a radar chart needs to place an axis honestly."""
 
+LABELLED_COLUMN = "has_label"
+"""Whether a player-season row carries a real valuation.
+
+False for the season being played, which has features but no label yet. Every
+method that compares a prediction against an actual, or that summarises the
+panel's values, filters on this — a null target is not a value of zero and must
+never be averaged as one.
+"""
+
 MAX_CATEGORY_LENGTH = 200
 """Longest accepted categorical value. Every real category in this dataset is
 a position, a foot or a country name; nothing legitimate approaches this. The
@@ -136,9 +145,33 @@ class PredictionService:
         artifacts: Mapping[str, ModelArtifact],
         players: pd.DataFrame | None = None,
         names: Mapping[int, str] | None = None,
+        current_season: pd.DataFrame | None = None,
     ) -> None:
         self._artifacts = dict(artifacts)
-        self._players = players if players is not None else pd.DataFrame()
+        labelled = players if players is not None else pd.DataFrame()
+
+        # Rows for the season being played are appended to the labelled panel
+        # with LABELLED_COLUMN False, rather than kept in a second store that
+        # every method would have to remember to consult. The freshest season a
+        # player has is then simply his last row, which is what the prediction
+        # path already asks for — a caller gets the current season without
+        # naming it, and the ones that must not mix the two (`similar_players`,
+        # `feature_distribution`, `prediction_history`) filter explicitly and
+        # say why.
+        if current_season is not None and not current_season.empty and not labelled.empty:
+            labelled = labelled.assign(**{LABELLED_COLUMN: True})
+            fresh = current_season.assign(**{LABELLED_COLUMN: False})
+            shared = [c for c in labelled.columns if c in fresh.columns]
+            labelled = pd.concat([labelled[shared], fresh[shared]], ignore_index=True)
+            logger.info(
+                "player panel: %d labelled rows + %d current-season rows",
+                int((~labelled[LABELLED_COLUMN].isna() & labelled[LABELLED_COLUMN]).sum()),
+                len(fresh),
+            )
+        elif not labelled.empty:
+            labelled = labelled.assign(**{LABELLED_COLUMN: True})
+
+        self._players = labelled
         self._names = dict(names or {})
         self._explainable = {
             name: supports_shap(artifact) for name, artifact in self._artifacts.items()
@@ -161,6 +194,7 @@ class PredictionService:
         model_directory: Path,
         players: pd.DataFrame | None = None,
         names: Mapping[int, str] | None = None,
+        current_season: pd.DataFrame | None = None,
     ) -> PredictionService:
         """Load every artifact in a directory, newest per variant."""
         artifacts: dict[str, ModelArtifact] = {}
@@ -177,7 +211,7 @@ class PredictionService:
 
         if not artifacts:
             logger.warning("no usable model artifacts in %s", model_directory)
-        return cls(artifacts, players, names)
+        return cls(artifacts, players, names, current_season)
 
     # -- introspection ---------------------------------------------------
 
@@ -281,7 +315,12 @@ class PredictionService:
                     "goals": int(row["goals"]),
                     "assists": int(row["assists"]),
                     "minutes_played": int(row["minutes_played"]),
-                    "market_value_in_eur": float(row[TARGET_COLUMN]),
+                    # None rather than a number for the season being played:
+                    # it has no recorded value yet, and 0.0 would be a claim.
+                    "market_value_in_eur": (
+                        float(row[TARGET_COLUMN]) if pd.notna(row[TARGET_COLUMN]) else None
+                    ),
+                    "has_label": bool(row.get(LABELLED_COLUMN, True)),
                 }
                 for _, row in rows.iterrows()
             ],
@@ -343,7 +382,11 @@ class PredictionService:
                     "name": name,
                     "position": _plain(row.get("position")) if row is not None else None,
                     "latest_season": int(row["season"]) if row is not None else None,
-                    "market_value_in_eur": (float(row[TARGET_COLUMN]) if row is not None else None),
+                    "market_value_in_eur": (
+                        float(row[TARGET_COLUMN])
+                        if row is not None and pd.notna(row[TARGET_COLUMN])
+                        else None
+                    ),
                     "predictable": player_id in modelled,
                 }
             )
@@ -439,16 +482,26 @@ class PredictionService:
             raise PlayerNotFoundError(f"no player with id {player_id}")
         return rows.sort_values("season")
 
+    def _labelled(self) -> pd.DataFrame:
+        """The rows that have a real valuation, for anything that reads one."""
+        if self._players.empty or LABELLED_COLUMN not in self._players.columns:
+            return self._players
+        frame: pd.DataFrame = self._players[self._players[LABELLED_COLUMN].fillna(True)]
+        return frame
+
     def _rows_for_variant(self, artifact: ModelArtifact) -> pd.DataFrame:
         """Rows usable by this variant.
 
         The prior-value model cannot predict for a player's first season, so
         those rows are excluded rather than imputed into a confident guess.
         """
-        missing = [c for c in artifact.feature_columns if c not in self._players.columns]
+        frame = self._labelled()
+        missing = [c for c in artifact.feature_columns if c not in frame.columns]
         if missing:
             return pd.DataFrame()
-        return self._players.dropna(subset=list(artifact.feature_columns))
+        # Labelled only: a neighbour is shown with its market value, and a
+        # current-season row has none to show.
+        return frame.dropna(subset=list(artifact.feature_columns))
 
     def feature_distribution(self, variant: str | None = None) -> dict[str, Any]:
         """Quantiles per numeric feature, across the whole panel.
@@ -462,14 +515,15 @@ class PredictionService:
         if artifact.variant in self._distribution:
             cached: dict[str, Any] = self._distribution[artifact.variant]
             return cached
-        if self._players.empty:
+        panel = self._labelled()
+        if panel.empty:
             return {}
 
         features: dict[str, Any] = {}
         for column in artifact.feature_columns:
-            if column not in self._players.columns:
+            if column not in panel.columns:
                 continue
-            series = pd.to_numeric(self._players[column], errors="coerce").dropna()
+            series = pd.to_numeric(panel[column], errors="coerce").dropna()
             if series.empty:
                 continue
             features[column] = {
@@ -499,6 +553,11 @@ class PredictionService:
         artifact = self.artifact(variant)
         rows = self._player_rows(player_id)
 
+        # Labelled rows only: every point carries `actual_eur`, and the season
+        # being played has no actual to carry. It is served by predict(),
+        # which does not claim to compare against anything.
+        if LABELLED_COLUMN in rows.columns:
+            rows = rows[rows[LABELLED_COLUMN].fillna(True)]
         usable = rows.dropna(subset=list(artifact.feature_columns))
         if usable.empty:
             return []

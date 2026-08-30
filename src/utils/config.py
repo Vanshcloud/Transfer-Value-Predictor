@@ -89,9 +89,22 @@ class DataConfig(_Strict):
     """Season construction and label-join parameters."""
 
     season_start_month: int = Field(default=8, ge=1, le=12)
-    label_tolerance_days: int = Field(default=120, gt=0)
+    label_tolerance_days: int = Field(default=365, gt=0)
+    default_horizon_days: int = Field(default=120, gt=0)
     min_age: int = Field(default=15, ge=0)
     max_age: int = Field(default=45, ge=0)
+
+    @field_validator("default_horizon_days")
+    @classmethod
+    def _horizon_within_tolerance(cls, value: int, info: Any) -> int:
+        """A default horizon outside the labelled range would ask the model a
+        question no training row answers."""
+        tolerance = info.data.get("label_tolerance_days")
+        if tolerance is not None and value > tolerance:
+            raise ValueError(
+                f"default_horizon_days ({value}) exceeds label_tolerance_days ({tolerance})"
+            )
+        return value
 
     @field_validator("max_age")
     @classmethod

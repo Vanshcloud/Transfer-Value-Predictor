@@ -28,14 +28,21 @@ Four failure modes, each observed or specifically anticipated in this dataset:
    observation twice. Any split that is not grouped then puts one copy in train
    and the other in test, and the model is scored on rows it has already seen.
 
-6. **A date column holding a future date.** The current-state check works on
+6. **A lagged feature that is not actually lagged.** ``prev_market_value_in_eur``
+   is a deliberate copy of the target from an earlier season, and the name is
+   what the target check accepts as proof of that. A name is a promise; the
+   dates are the audit. Widening the label window to a year made it possible
+   for the previous season's label to be published after the current season's
+   features closed.
+
+7. **A date column holding a future date.** The current-state check works on
    column *names*, so it catches ``contract_expiration_date`` and misses the
    same column joined in under another name, or a transfer date arriving with
    Phase 12's enrichment. This one works on *values*: any date in the feature
    matrix that falls after the label date describes something that had not
    happened yet.
 
-:class:`LeakageValidator` bundles all six behind one configured object, so a
+:class:`LeakageValidator` bundles all seven behind one configured object, so a
 pipeline stage states its column contract once and every later stage re-runs
 the identical checks rather than a hand-copied subset of them.
 """
@@ -318,6 +325,50 @@ def check_no_future_dates(
     return findings
 
 
+def check_lagged_values_precede_features(
+    frame: pd.DataFrame,
+    *,
+    lag_age_column: str = "prev_value_age_days",
+    table: str = "training_table",
+) -> list[Finding]:
+    """A lagged feature must describe something already published.
+
+    The ``prev_`` prefix is what
+    :func:`check_target_absent_from_features` accepts as proof that a copy of
+    the target is deliberately lagged. That check reads the *name*. This one
+    reads the *dates*, because a name is a promise and this is the audit.
+
+    Phase 15 widened the label window from 120 days to a year, and a wider
+    window means season *s* can be labelled after season *s+1* has already
+    started — at which point *s+1*'s "previous" value is not previous. It
+    affected 22 rows in 61,555, which is precisely the size of defect that
+    survives review: too small to show in a metric, large enough to be wrong.
+
+    A non-positive staleness is the signature: the prior value was published on
+    or after the moment the features closed.
+    """
+    if lag_age_column not in frame.columns:
+        return []
+
+    ages = pd.to_numeric(frame[lag_age_column], errors="coerce")
+    violating = ages.notna() & (ages <= 0)
+    if not violating.any():
+        return []
+    return [
+        Finding(
+            check="leakage_lagged_value_not_lagged",
+            severity=Severity.ERROR,
+            table=table,
+            message=(
+                f"{lag_age_column} is not positive: the lagged value was published on or "
+                "after the moment the features were observed, so it is present information"
+            ),
+            count=int(violating.sum()),
+            examples=tuple(frame.loc[violating].index[:3]),
+        )
+    ]
+
+
 @dataclass(frozen=True)
 class LeakageValidator:
     """Every leakage check this project knows about, behind one configured object.
@@ -391,6 +442,8 @@ class LeakageValidator:
                     table=self.table,
                 )
             )
+        report.extend(check_lagged_values_precede_features(frame, table=self.table))
+
         if self.label_time_column:
             report.extend(
                 check_no_future_dates(

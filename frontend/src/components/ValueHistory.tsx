@@ -7,7 +7,14 @@ import { Card, Empty } from "./ui";
 
 /** Recorded value per season, with goals on a second axis for context. */
 export default function ValueHistory({ seasons }: { seasons: SeasonRow[] }) {
-  if (seasons.length === 0) {
+  // The season in progress has no recorded value yet. Plotting it as 0 would
+  // draw a cliff at the right-hand edge of every chart and read as a collapse
+  // in value; the honest chart simply stops where the record stops.
+  const recorded = seasons.filter(
+    (s): s is SeasonRow & { market_value_in_eur: number } =>
+      s.has_label !== false && s.market_value_in_eur !== null,
+  );
+  if (recorded.length === 0) {
     return (
       <Card title="History">
         <Empty>No seasons on record.</Empty>
@@ -30,11 +37,11 @@ export default function ValueHistory({ seasons }: { seasons: SeasonRow[] }) {
             type: "scatter",
             mode: "lines+markers",
             name: "market value",
-            x: seasons.map((s) => s.season),
-            y: seasons.map((s) => s.market_value_in_eur),
+            x: recorded.map((s) => s.season),
+            y: recorded.map((s) => s.market_value_in_eur),
             line: { color: "#0284c7", width: 2 },
             marker: { size: 8 },
-            customdata: seasons.map((s) => [s.goals, s.appearances, s.minutes_played]),
+            customdata: recorded.map((s) => [s.goals, s.appearances, s.minutes_played]),
             hovertemplate:
               "<b>%{x}</b><br>%{y:,.0f} EUR<br>" +
               "%{customdata[0]} goals in %{customdata[1]} apps<br>" +
@@ -51,7 +58,7 @@ export default function ValueHistory({ seasons }: { seasons: SeasonRow[] }) {
         <div>
           <dt className="text-xs text-slate-500 uppercase dark:text-slate-400">Peak</dt>
           <dd className="tabular-nums">
-            {eur(Math.max(...seasons.map((s) => s.market_value_in_eur)))}
+            {eur(Math.max(...recorded.map((s) => s.market_value_in_eur)))}
           </dd>
         </div>
         <div>

@@ -13,7 +13,7 @@ from typing import Annotated
 import pandas as pd
 from fastapi import Depends, Request
 
-from src.pipelines.features import TRAINING_TABLE
+from src.pipelines.features import CURRENT_SEASON_TABLE, TRAINING_TABLE
 from src.services.prediction import PredictionService
 from src.storage.duckdb_store import DuckDBParquetStore
 from src.utils.config import Settings
@@ -31,6 +31,7 @@ def build_service(settings: Settings) -> PredictionService:
     deployment.
     """
     players: pd.DataFrame | None = None
+    current: pd.DataFrame | None = None
     names: dict[int, str] = {}
     try:
         store = DuckDBParquetStore(settings.paths.processed_dir)
@@ -39,6 +40,16 @@ def build_service(settings: Settings) -> PredictionService:
             logger.info("loaded %d player-season rows", len(players))
         else:
             logger.warning("no %s table; player lookup will be unavailable", TRAINING_TABLE)
+
+        # The season being played: features complete, label not yet published.
+        # Optional — a deployment built before this table existed still serves.
+        if store.has_table(CURRENT_SEASON_TABLE):
+            current = store.read_table(CURRENT_SEASON_TABLE)
+            logger.info("loaded %d current-season rows", len(current))
+        else:
+            logger.info(
+                "no %s table; predictions stop at the last labelled season", CURRENT_SEASON_TABLE
+            )
 
         # Names live in the raw players table, not the training table — the
         # feature build drops them deliberately, since a name is not a feature.
@@ -53,7 +64,9 @@ def build_service(settings: Settings) -> PredictionService:
     except OSError as exc:  # pragma: no cover - depends on the deployment
         logger.warning("could not read player data: %s", exc)
 
-    return PredictionService.from_directory(settings.paths.model_dir, players, names)
+    return PredictionService.from_directory(
+        settings.paths.model_dir, players, names, current_season=current
+    )
 
 
 def get_service(request: Request) -> PredictionService:

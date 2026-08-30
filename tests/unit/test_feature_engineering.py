@@ -19,6 +19,7 @@ from src.feature_engineering.build import (
     CATEGORICAL_FEATURES,
     FEATURE_COLUMNS,
     FEATURE_TIME_COLUMN,
+    LABEL_HORIZON_COLUMN,
     LABEL_TIME_COLUMN,
     MINUTES_FLOOR,
     NUMERIC_FEATURES,
@@ -238,9 +239,39 @@ class TestAttachLabel:
     def test_a_valuation_beyond_the_tolerance_is_dropped_not_stretched(
         self, one_player_season: pd.DataFrame
     ) -> None:
-        # 2022-07-01 + 120 days = 2022-10-29.
-        assert attach_label(one_player_season, valuations(["2022-10-30"], [1])).empty
-        assert len(attach_label(one_player_season, valuations(["2022-10-29"], [1]))) == 1
+        # 2022-07-01 + 365 days = 2023-07-01. The bound still bounds; it is
+        # just a year out rather than four months.
+        assert attach_label(one_player_season, valuations(["2023-07-02"], [1])).empty
+        assert len(attach_label(one_player_season, valuations(["2023-07-01"], [1]))) == 1
+
+    def test_the_tolerance_is_configurable_and_still_enforced(
+        self, one_player_season: pd.DataFrame
+    ) -> None:
+        """Widening the default must not mean the parameter stopped working."""
+        late = valuations(["2022-10-30"], [1])
+        assert attach_label(one_player_season, late, tolerance_days=120).empty
+        assert len(attach_label(one_player_season, late, tolerance_days=365)) == 1
+
+    def test_the_wider_window_reaches_the_winter_revaluation_batch(
+        self, one_player_season: pd.DataFrame
+    ) -> None:
+        """The reason the default moved. A season ending 1 July is revalued in
+        the following winter for a large share of players, and a 120-day window
+        closes on 29 October — before that batch exists. Missing it is what
+        discarded 61% of the panel."""
+        december = valuations(["2022-12-20"], [7_000_000])
+        assert attach_label(one_player_season, december, tolerance_days=120).empty
+        labelled = attach_label(one_player_season, december, tolerance_days=365)
+        assert labelled[TARGET_COLUMN].iloc[0] == 7_000_000
+
+    def test_the_label_horizon_is_recorded_on_every_row(
+        self, one_player_season: pd.DataFrame
+    ) -> None:
+        """Not a feature — it earned nothing — but the column is what makes the
+        label's distance from the season auditable."""
+        result = attach_label(one_player_season, valuations(["2022-10-29"], [1]))
+        assert result[LABEL_HORIZON_COLUMN].iloc[0] == 120.0
+        assert (result[LABEL_HORIZON_COLUMN] >= 0).all()
 
     def test_a_valuation_exactly_on_the_as_of_date_counts(
         self, one_player_season: pd.DataFrame
@@ -374,13 +405,30 @@ class TestDerivedFeatures:
 # --------------------------------------------------------------------------
 
 
-def career(seasons: list[int], values: list[int], label_dates: list[str]) -> pd.DataFrame:
+def career(
+    seasons: list[int],
+    values: list[int],
+    label_dates: list[str],
+    as_of_dates: list[str] | None = None,
+) -> pd.DataFrame:
+    """A player's labelled seasons.
+
+    ``as_of_date`` defaults to 1 July following each season, which is the real
+    boundary the builder computes. It is required rather than optional because
+    a prior value is only usable if it was published before this season's
+    features closed, and that comparison needs the boundary.
+    """
     return pd.DataFrame(
         {
             "player_id": 1,
             "season": seasons,
             TARGET_COLUMN: values,
             LABEL_TIME_COLUMN: pd.to_datetime(label_dates),
+            AS_OF_COLUMN: pd.to_datetime(
+                as_of_dates
+                if as_of_dates is not None
+                else [f"{season + 1}-07-01" for season in seasons]
+            ),
         }
     )
 
@@ -395,7 +443,10 @@ class TestCareerHistory:
             career([2019, 2020], [1_000_000, 4_000_000], ["2020-07-15", "2021-07-15"])
         ).sort_values("season")
         assert result["prev_market_value_in_eur"].iloc[1] == 1_000_000
-        assert result["prev_value_age_days"].iloc[1] == 365
+        # Staleness is now measured from the as-of date (2021-07-01), not from
+        # the current label: what mattered is how old the prior value was when
+        # this season's evidence closed.
+        assert result["prev_value_age_days"].iloc[1] == 351
 
     def test_seasons_observed_counts_only_earlier_rows(self) -> None:
         result = add_career_history(
@@ -417,6 +468,7 @@ class TestCareerHistory:
                 "season": [2019, 2020, 2020],
                 TARGET_COLUMN: [1, 2, 3],
                 LABEL_TIME_COLUMN: pd.to_datetime(["2020-07-15", "2021-07-15", "2021-07-15"]),
+                AS_OF_COLUMN: pd.to_datetime(["2020-07-01", "2021-07-01", "2021-07-01"]),
             }
         )
         result = add_career_history(frame).sort_values(["player_id", "season"])
@@ -429,7 +481,8 @@ class TestCareerHistory:
             career([2016, 2020], [1_000_000, 4_000_000], ["2017-07-15", "2021-07-15"])
         ).sort_values("season")
         assert result["prev_market_value_in_eur"].iloc[1] == 1_000_000
-        assert result["prev_value_age_days"].iloc[1] == pytest.approx(1461, abs=2)
+        # 2017-07-15 to the 2020 season's as-of date, 2021-07-01.
+        assert result["prev_value_age_days"].iloc[1] == pytest.approx(1447, abs=2)
 
     def test_the_prior_label_always_predates_the_current_one(self) -> None:
         result = add_career_history(
@@ -445,10 +498,54 @@ class TestCareerHistory:
                 "season": [2020, 2021],
                 TARGET_COLUMN: [1_000_000, 9_000_000],
                 LABEL_TIME_COLUMN: pd.to_datetime(["2021-07-15", "2022-07-15"]),
+                AS_OF_COLUMN: pd.to_datetime(["2021-07-01", "2022-07-01"]),
             }
         )
         result = add_career_history(frame)
         assert result["prev_market_value_in_eur"].isna().all()
+
+    def test_a_prior_label_published_after_this_season_is_refused(self) -> None:
+        """The defect a 365-day label window created.
+
+        Ordering by season does not guarantee the previous label predates this
+        row's as-of date: season s can be labelled the June after season s+1
+        has already begun. Its value is then present information, and the row
+        must get no prior at all rather than a lagged-looking one. On the full
+        panel this was 22 rows in 61,555 — too small to move a metric, which is
+        exactly why it needs a test.
+        """
+        result = add_career_history(
+            career(
+                [2019, 2020],
+                [1_000_000, 4_000_000],
+                # 2019 is labelled very late — on 2021-07-10, which is after
+                # the 2020 season's features closed on 2021-07-01.
+                label_dates=["2021-07-10", "2021-07-15"],
+                as_of_dates=["2020-07-01", "2021-07-01"],
+            )
+        ).sort_values("season")
+        assert pd.isna(result["prev_market_value_in_eur"].iloc[1])
+        assert pd.isna(result["prev_value_age_days"].iloc[1])
+
+    def test_a_prior_label_on_the_as_of_date_itself_is_refused(self) -> None:
+        """Strictly before, not on-or-before: a valuation published the day the
+        feature window closes may already reflect that day's match."""
+        result = add_career_history(
+            career(
+                [2019, 2020],
+                [1_000_000, 4_000_000],
+                label_dates=["2021-07-01", "2021-07-15"],
+                as_of_dates=["2020-07-01", "2021-07-01"],
+            )
+        ).sort_values("season")
+        assert pd.isna(result["prev_market_value_in_eur"].iloc[1])
+
+    def test_every_surviving_prior_is_strictly_older_than_its_row(self) -> None:
+        result = add_career_history(
+            career([2018, 2019, 2020], [1, 2, 3], ["2019-07-15", "2020-07-15", "2021-07-15"])
+        )
+        ages = result["prev_value_age_days"].dropna()
+        assert (ages > 0).all()
 
     def test_input_order_does_not_change_the_result(self) -> None:
         rows = career([2018, 2019, 2020], [1, 2, 3], ["2019-07-15", "2020-07-15", "2021-07-15"])
@@ -668,3 +765,42 @@ class TestFeaturePipeline:
             stage.build_features(sample_store)  # type: ignore[arg-type]
 
         assert not sample_store.has_table(stage.TRAINING_TABLE)  # type: ignore[attr-defined]
+
+
+class TestTheFullFeatureSetOnSampleData:
+    """The whole pipeline, on real shapes, with every optional table present.
+
+    Before Phase 15 added context slices to data/sample/, 22 of the 41 features
+    were entirely null on this path — so CI type-checked the context and
+    performance code and never executed a line of it.
+    """
+
+    def test_every_declared_feature_is_populated(
+        self, sample_players, sample_valuations, sample_appearances, sample_context
+    ) -> None:
+        table = build_training_table(
+            sample_players, sample_valuations, sample_appearances, **sample_context
+        )
+        empty = [column for column in FEATURE_COLUMNS if table[column].isna().all()]
+        assert not empty, f"features with no values at all: {empty}"
+
+    def test_the_context_tables_are_optional(
+        self, sample_players, sample_valuations, sample_appearances
+    ) -> None:
+        """A three-file build still produces a valid table — the same rows with
+        the context features null, which the fitted imputer handles."""
+        table = build_training_table(sample_players, sample_valuations, sample_appearances)
+        assert not table.empty
+        assert all(column in table.columns for column in FEATURE_COLUMNS)
+
+    def test_both_paths_agree_on_the_rows(
+        self, sample_players, sample_valuations, sample_appearances, sample_context
+    ) -> None:
+        """Enrichment adds columns, never rows. A join that duplicated a
+        player-season would silently double-count him in training."""
+        thin = build_training_table(sample_players, sample_valuations, sample_appearances)
+        rich = build_training_table(
+            sample_players, sample_valuations, sample_appearances, **sample_context
+        )
+        assert len(thin) == len(rich)
+        assert not rich.duplicated(subset=["player_id", "season"]).any()

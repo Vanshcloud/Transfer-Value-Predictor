@@ -21,7 +21,10 @@ def test_committed_config_is_valid() -> None:
     settings = load_settings(use_dotenv=False, env={})
     assert settings.kaggle.dataset == "davidcariboo/player-scores"
     assert settings.data.season_start_month == 8
-    assert settings.data.label_tolerance_days == 120
+    # 365, not 120: a 120-day window closes on 29 October and misses
+    # Transfermarkt's winter revaluation batch, which cost 61% of the panel.
+    assert settings.data.label_tolerance_days == 365
+    assert settings.data.default_horizon_days <= settings.data.label_tolerance_days
 
 
 def test_relative_paths_resolve_against_project_root() -> None:

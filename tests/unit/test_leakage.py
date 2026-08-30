@@ -16,6 +16,7 @@ from src.validation.leakage import (
     CURRENT_STATE_COLUMNS,
     LeakageValidator,
     check_feature_time_precedes_label,
+    check_lagged_values_precede_features,
     check_no_current_state_columns,
     check_no_duplicate_entities,
     check_no_future_dates,
@@ -379,3 +380,56 @@ def test_the_validator_is_reusable_across_stages(
     """The point of the object: one declared contract, re-run verbatim later."""
     assert validator.validate(clean_table).ok
     assert validator.validate(clean_table.iloc[:2]).ok
+
+
+class TestLaggedValuesPrecedeFeatures:
+    """A lagged feature must describe something already published.
+
+    ``check_target_absent_from_features`` accepts the ``prev_`` prefix as proof
+    that a copy of the target is deliberately lagged. It reads the name. This
+    reads the dates, because the name is a promise and this is the audit.
+    """
+
+    def test_a_positive_staleness_is_accepted(self) -> None:
+        frame = pd.DataFrame({"prev_value_age_days": [1.0, 240.0, 4000.0]})
+        assert check_lagged_values_precede_features(frame) == []
+
+    def test_a_missing_prior_is_not_a_violation(self) -> None:
+        """Most first seasons have no prior value at all."""
+        frame = pd.DataFrame({"prev_value_age_days": [np.nan, 300.0]})
+        assert check_lagged_values_precede_features(frame) == []
+
+    @pytest.mark.parametrize("age", [0.0, -1.0, -400.0])
+    def test_a_non_positive_staleness_is_an_error(self, age: float) -> None:
+        """Zero included: a value published the moment the features closed is
+        not prior to them."""
+        frame = pd.DataFrame({"prev_value_age_days": [200.0, age]})
+        findings = check_lagged_values_precede_features(frame)
+        assert len(findings) == 1
+        assert findings[0].severity is Severity.ERROR
+        assert findings[0].count == 1
+
+    def test_it_counts_every_offender_not_just_the_first(self) -> None:
+        frame = pd.DataFrame({"prev_value_age_days": [-1.0, -2.0, 5.0, 0.0]})
+        assert check_lagged_values_precede_features(frame)[0].count == 3
+
+    def test_an_absent_column_skips_rather_than_fails(self) -> None:
+        """The performance-only variant carries no lagged value at all."""
+        assert check_lagged_values_precede_features(pd.DataFrame({"age": [24.0]})) == []
+
+    def test_the_validator_runs_it(self) -> None:
+        """It has to be wired in, not merely defined — a check nothing calls is
+        a comment."""
+        validator = LeakageValidator(
+            feature_columns=("prev_log_market_value_in_eur",),
+            target_column="market_value_in_eur",
+        )
+        frame = pd.DataFrame(
+            {
+                "prev_log_market_value_in_eur": [15.0, 16.0],
+                "market_value_in_eur": [3e6, 4e6],
+                "prev_value_age_days": [300.0, -5.0],
+            }
+        )
+        report = validator.validate(frame)
+        assert any(f.check == "leakage_lagged_value_not_lagged" for f in report.errors)
