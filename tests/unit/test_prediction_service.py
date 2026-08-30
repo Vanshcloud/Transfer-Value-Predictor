@@ -234,6 +234,27 @@ class TestFeatureValueValidation:
             service.predict_from_features(features).prediction_eur
         )
 
+    def test_the_backstop_turns_a_pipeline_refusal_into_a_bad_request(
+        self, service: PredictionService, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """_validate_values catches every malformed value seen so far, but the
+        fitted pipeline is the only thing that knows its own full expectations.
+        A value it rejects is a bad request, not a broken server — and without
+        the backstop the caller gets the bare 500 this whole class exists to
+        remove. Forced here, because by construction nothing else reaches it.
+        """
+        import src.services.prediction as module
+
+        def refuse(*_: object, **__: object) -> object:
+            raise ValueError("could not convert string to float: something")
+
+        monkeypatch.setattr(module, "predict", refuse)
+
+        with pytest.raises(InvalidFeaturesError) as caught:
+            service.predict_from_features({"age": 25.0})
+        assert caught.value.code == "validation_error"
+        assert "could not be evaluated" in caught.value.message
+
 
 class TestConfidence:
     def test_it_is_an_interval_not_a_made_up_probability(self, service: PredictionService) -> None:
