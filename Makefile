@@ -1,7 +1,7 @@
 # Target names deliberately match the sibling predictive-maintenance project,
 # so muscle memory carries between the two repositories.
 
-.PHONY: help setup install install-dev hooks serve test test-cov lint format format-check typecheck quality docker-build docker-up clean
+.PHONY: help setup install install-dev hooks serve test test-cov test-cov-all lint format format-check typecheck quality docker-build docker-up clean
 
 PYTHON := python3.13
 VENV   := .venv
@@ -30,8 +30,11 @@ install-dev: ## Install runtime + dev dependencies
 test: ## Run unit tests (integration excluded)
 	$(BIN)/pytest -m "not integration"
 
-test-cov: ## Run tests with a coverage report
-	$(BIN)/pytest -m "not integration" --cov=src --cov-report=term-missing
+test-cov: ## Run tests with a coverage report (credential-free suite)
+	$(BIN)/pytest -m "not integration" --cov=src --cov-report=term-missing --cov-fail-under=88
+
+test-cov-all: ## Coverage including integration tests (needs data + models)
+	$(BIN)/pytest --cov=src --cov-report=term-missing --cov-fail-under=96
 
 serve: ## Run the API locally with reload
 	$(BIN)/uvicorn api.main:app --reload

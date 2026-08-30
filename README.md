@@ -344,7 +344,17 @@ measured evidence** ([`plans/02-fbref-spike.md`](plans/02-fbref-spike.md)), and
 the release audit is recorded with its findings in
 [`plans/03-final-verification.md`](plans/03-final-verification.md).
 
-Backend test coverage is **97%** (`make test-cov`), across 520 tests.
+Backend test coverage, with the command that prints each number:
+
+| | Coverage | Tests |
+|---|---|---|
+| `make test-cov` — no credentials, no data | **89%** | 507 pass, 45 deselected |
+| `make test-cov-all` — needs the Kaggle download and a trained model | **97%** | 552 pass |
+
+The gap is the pipeline orchestration in `src/pipelines/`, which is what the
+integration tests exercise. Both targets fail below their floor, so neither
+number can drift without CI going red. The frontend is covered separately by
+`cd frontend && npm test` (see [Dashboard](#dashboard)).
 
 ## Licence
 
