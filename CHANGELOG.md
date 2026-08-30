@@ -4,7 +4,85 @@ Notable changes to this project. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [1.0.0] — 2026-08-29
+## [1.1.0] — 2026-08-30
+
+A full external release audit, and the remediation of everything it found. No
+new capability; the change is that far more of what this repository claims is
+now checked by something other than a person reading it.
+
+### Fixed
+
+- **`POST /api/v1/predict` returned a bare `500` on a malformed feature value.**
+  Feature *names* were validated and feature *values* were not, so a wrong type
+  reached the fitted pipeline and scikit-learn raised from inside a
+  transformer. The response was `text/plain` "Internal Server Error" — for
+  input a caller typed — while `api/errors.py` and `docs/API_CONTRACT.md` both
+  claimed every non-2xx used one envelope. Values are now checked at the
+  boundary (non-scalars, non-numbers, booleans, non-finite numbers, negatives
+  for features that cannot be negative, absurdly long categories), every
+  offending value is reported at once with its feature named, and handlers for
+  Starlette's `404`/`405` and for any unhandled exception make the envelope
+  claim literally true.
+- **Host-specific detail survived in the git history.** `plans/00-discovery.md`
+  said local paths, an account name and a machine inventory "has been removed";
+  they sat in 16 of 17 commits, and the removing commit rendered every line
+  again in its own diff. History rewritten with `git filter-repo`, verified
+  gone, and a CI grep over `git log -p --all` prevents recurrence.
+- **The documented coverage figure was not the one the documented command
+  printed.** README said 97% and cited `make test-cov`, which prints 89%; 97%
+  needs the data-dependent suite. Both are now stated beside the command that
+  produces each, both are enforced with `--cov-fail-under`, and CI runs the
+  first on every push.
+- **CI's clean-checkout guard proved nothing.** `test ! -d
+  data/processed/players.parquet` tested for a *directory* against a file, so
+  the step guarding this project's signature property passed unconditionally.
+- **The README's endpoint table listed nine of eleven routes** — the same two
+  Phase 13 had just added to the API contract.
+- `eur(999_999)` rendered `€1000k` rather than `€1.00M`; the thresholds were
+  unit boundaries rather than the point where the smaller unit stops fitting.
+- `useAsync` refetched forever, silently, if its fetcher was not wrapped in
+  `useCallback`. All three call sites were correct, so nothing was broken, but
+  the next page added would have self-DoSed the API. It now says so, once, in
+  development.
+- `PredictionService`'s docstring claimed a broken artifact fails at startup;
+  it is logged and skipped, which is the better behaviour.
+
+### Added
+
+- **A frontend test suite.** 77 tests over 2,804 lines that previously had no
+  test runner installed: the error mapping in `lib/api`, the race guard in
+  `useAsync`, money formatting, the states each component renders, and that a
+  per-feature euro figure never appears beside a SHAP contribution.
+- **A text alternative for every chart.** Plotly emits positioned shapes; the
+  plot is now `aria-hidden` with a visually-hidden table of the same series
+  derived from the same prop, so the two cannot diverge.
+- **Locked dependencies.** `requirements-lock.txt` pins all 55 packages
+  including transitives; `requirements.txt` stays the reasoned declaration.
+  `tests/unit/test_dependencies.py` fails when they disagree.
+- **A serving-only dependency set.** `requirements-serve-lock.txt` drops
+  xgboost and catboost — 291 MB of unused CUDA libraries, 269 MB of catboost,
+  59 MB of plotly. The API image went from **2.62 GB to 1.32 GB** with an
+  identical prediction on the same input.
+  `tests/integration/test_serving_dependencies.py` fails if a tuning run ever
+  ships an artifact the serving image cannot unpickle.
+- Tests that check the README's stated numbers against pytest's own collector,
+  that check the endpoint tables in the README and the contract against the
+  live OpenAPI document, and that check the release tag against the declared
+  version — the drift that started all of this.
+- CI steps for the frontend suite, coverage floors, every commit's author, and
+  host-specific detail in the history.
+- Dependabot with the ML stack grouped and pandas 3 held back deliberately;
+  issue templates for the three reports CONTRIBUTING asks for; a HEALTHCHECK
+  on the dashboard image.
+
+### Removed
+
+- `notebooks/` and `data/external/`, which held nothing but `.gitkeep`, and
+  `Settings.external_dir`, which nothing read.
+- `scripts/` from the API image: it needs packages that image no longer
+  installs, so it was shipping commands that raise `ImportError`.
+
+## [1.0.0] — 2026-08-30
 
 First public release. Predicts the market value of professional footballers and
 explains every prediction.
@@ -63,4 +141,5 @@ explains every prediction.
 - CI had no `permissions` block and no guard on the Transfermarkt rule.
 - `/compare`'s two search inputs had no accessible label.
 
+[1.1.0]: https://github.com/Vanshcloud/Transfer-Value-Predictor/releases/tag/v1.1.0
 [1.0.0]: https://github.com/Vanshcloud/Transfer-Value-Predictor/releases/tag/v1.0.0
