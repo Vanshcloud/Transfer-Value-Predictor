@@ -8,14 +8,19 @@ so it is asserted here.
 
 from __future__ import annotations
 
+import numpy as np
+import pandas as pd
 import pytest
 
 from src.evaluation.metrics import Metrics
+from src.feature_engineering.build import TARGET_COLUMN
+from src.models.artifact import extract_feature_importance
 from src.models.registry import (
     DEPLOYMENT_MEGABYTES,
     EXPLAINABLE_FAMILIES,
     MODEL_REGISTRY,
     UNEXPLAINABLE_FAMILIES,
+    build_pipeline,
 )
 from src.models.tuning import TuningResult
 from src.pipelines.tune import FamilyResult, _select_winner
@@ -177,3 +182,61 @@ class TestDeploymentCost:
     def test_lightgbm_is_the_cheap_booster(self) -> None:
         assert DEPLOYMENT_MEGABYTES["lightgbm"] < DEPLOYMENT_MEGABYTES["xgboost"]
         assert DEPLOYMENT_MEGABYTES["lightgbm"] < DEPLOYMENT_MEGABYTES["catboost"]
+
+
+@pytest.fixture(scope="module")
+def frame() -> pd.DataFrame:
+    """Enough rows for every family to fit without degenerating."""
+    rng = np.random.default_rng(0)
+    n = 200
+    return pd.DataFrame(
+        {
+            "age": rng.uniform(18, 34, n),
+            "goals": rng.integers(0, 25, n).astype(float),
+            "minutes_played": rng.integers(200, 3000, n).astype(float),
+            "position": rng.choice(["Attack", "Defender"], n),
+            TARGET_COLUMN: rng.uniform(1e5, 5e7, n),
+        }
+    )
+
+
+class TestTheClassificationMatchesReality:
+    """Fit every family and check what it actually exposes.
+
+    UNEXPLAINABLE_FAMILIES is hand-maintained, and a hand-maintained list is
+    worth exactly as much as the test behind it. Without this,
+    HistGradientBoosting shipped as the `with_prior_value` winner with an empty
+    importance table — SHAP worked on it, so per-prediction explanations looked
+    fine, and only the model card and the /model page were silently blank. The
+    error cost a full retrain to find. It now costs a second.
+    """
+
+    @pytest.mark.parametrize("name", sorted(MODEL_REGISTRY))
+    def test_the_family_is_classified_by_what_it_exposes(
+        self, name: str, frame: pd.DataFrame
+    ) -> None:
+        numeric = ["age", "goals", "minutes_played"]
+        categorical = ["position"]
+        pipeline = build_pipeline(MODEL_REGISTRY[name], numeric, categorical)
+        pipeline.fit(frame[numeric + categorical], frame[TARGET_COLUMN])
+
+        produces_importances = bool(extract_feature_importance(pipeline))
+        classified_explainable = name in EXPLAINABLE_FAMILIES
+
+        assert produces_importances == classified_explainable, (
+            f"{name} {'produces' if produces_importances else 'produces no'} named "
+            f"importances but is classified as "
+            f"{'explainable' if classified_explainable else 'unexplainable'}. "
+            f"Move it between EXPLAINABLE_FAMILIES and UNEXPLAINABLE_FAMILIES."
+        )
+
+    def test_hist_gradient_boosting_is_the_documented_trap(self, frame: pd.DataFrame) -> None:
+        """SHAP works on it; feature_importances_ does not exist. A family can
+        look explained per prediction and report nothing in aggregate."""
+        numeric = ["age", "goals", "minutes_played"]
+        pipeline = build_pipeline(MODEL_REGISTRY["gradient_boosting"], numeric, ["position"])
+        pipeline.fit(frame[[*numeric, "position"]], frame[TARGET_COLUMN])
+        estimator = pipeline.named_steps["model"].regressor_
+        assert not hasattr(estimator, "feature_importances_")
+        assert not hasattr(estimator, "coef_")
+        assert "gradient_boosting" in UNEXPLAINABLE_FAMILIES

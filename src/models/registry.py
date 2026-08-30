@@ -235,20 +235,31 @@ MODEL_REGISTRY: dict[str, ModelSpec] = {
 """Every model the brief asks for, keyed by name. Insertion order is the order
 they are trained and reported in."""
 
-UNEXPLAINABLE_FAMILIES = frozenset({"stacked"})
-"""Families that fit and predict but cannot say why.
+UNEXPLAINABLE_FAMILIES = frozenset({"stacked", "gradient_boosting"})
+"""Families that fit and predict but cannot report what they leaned on.
 
 ``extract_feature_importance`` reads ``feature_importances_`` or ``coef_`` off
-the fitted estimator. A ``StackingRegressor`` has neither: its members each
-have one, but the blend that combines them does not, and averaging the members'
-importances would describe a model that is not the one making the prediction.
-SHAP has the same problem — TreeExplainer cannot walk a blend, and
-KernelExplainer costs seconds per prediction against milliseconds.
+the fitted estimator, and both of these expose neither.
 
-Kept in the registry rather than removed. It is a legitimate model and the
-leaderboard should show what it scores; it is simply not one this API can
-ship, because every prediction response carries an explanation. The choice is
-made in `src.pipelines.tune._select_winner`, where the cost is logged.
+``stacked`` — a ``StackingRegressor``. Its members each have importances; the
+blend that combines them does not, and averaging the members' would describe a
+model that is not the one predicting. SHAP has the same problem: TreeExplainer
+cannot walk a blend and KernelExplainer costs seconds per prediction.
+
+``gradient_boosting`` — scikit-learn's ``HistGradientBoostingRegressor``. This
+one is a trap, because SHAP *does* work on it: `supports_shap` returns True and
+per-prediction explanations come out fine. What it has never had is
+``feature_importances_`` — the histogram implementation does not accumulate
+them — so the model card's importance table and the dashboard's `/model` page
+come back empty while every prediction still looks explained. It shipped once
+in exactly that state before this entry existed.
+
+Both stay in the registry. They are legitimate models and the leaderboard
+should show what they score; they are simply not ones this API can ship. The
+choice is made in `src.pipelines.tune._select_winner`, where the cost is
+logged, and `tests/unit/test_model_selection.py` fits every family and checks
+this set against what the estimators actually expose — a hand-maintained list
+is worth exactly as much as the test behind it.
 """
 
 EXPLAINABLE_FAMILIES = frozenset(MODEL_REGISTRY) - UNEXPLAINABLE_FAMILIES
