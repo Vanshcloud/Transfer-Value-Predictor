@@ -65,10 +65,22 @@ jobs:
         run: pytest -m "not integration" -q --cov=src --cov-report=term --cov-fail-under=88
 
       - name: Confirm the suite is green without any data present
+        # `test ! -d` was the original check and it proved nothing:
+        # players.parquet is a *file*, so -d was false whether or not the data
+        # was there. The step whose entire job is "no data was present" passed
+        # unconditionally. -e covers both, and the loop names the offender
+        # instead of failing with a bare exit code.
         run: |
-          test ! -d data/processed/players.parquet
-          test -z "$(ls -A models/*.joblib 2>/dev/null || true)"
-          echo "clean checkout confirmed: no data, no models, suite passed"
+          set -e
+          for path in data/processed data/raw models; do
+            count=$(find "$path" -type f -not -name '.gitkeep' | wc -l | tr -d ' ')
+            if [ "$count" -ne 0 ]; then
+              echo "expected $path to be empty on a clean checkout; found $count file(s):"
+              find "$path" -type f -not -name '.gitkeep'
+              exit 1
+            fi
+          done
+          echo "clean checkout confirmed: data/ and models/ empty, suite passed"
 
   frontend:
     name: Dashboard — lint, types, build

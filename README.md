@@ -204,19 +204,37 @@ is written down first, in [`docs/API_CONTRACT.md`](docs/API_CONTRACT.md), and
 the service conforms to it — where the two disagree, the document is the defect
 report.
 
-| Method | Path |
-|---|---|
-| `GET` | `/health` (unversioned, for orchestrators) |
-| `POST` | `/api/v1/predict` |
-| `GET` | `/api/v1/players?q=` · `/api/v1/players/{player_id}` |
-| `GET` | `/api/v1/players/{player_id}/similar` |
-| `GET` | `/api/v1/models` · `/api/v1/models/{variant}` |
-| `GET` | `/api/v1/models/{variant}/metrics` · `/feature-importance` |
+All eleven, in full — a table that lists nine of eleven is worse than no table,
+because a reader trusts it:
+
+| Method | Path | What it answers |
+|---|---|---|
+| `GET` | `/health` | Alive, and can it predict? Unversioned, for orchestrators. |
+| `POST` | `/api/v1/predict` | What is this player worth, and why? |
+| `GET` | `/api/v1/players` | Which players match this name? |
+| `GET` | `/api/v1/players/{player_id}` | Every season on file, plus a what-if seed. |
+| `GET` | `/api/v1/players/{player_id}/similar` | Whose season most resembles this one? |
+| `GET` | `/api/v1/players/{player_id}/history` | Predicted against actual, season by season. |
+| `GET` | `/api/v1/features/distribution` | Where does a value sit in the population? |
+| `GET` | `/api/v1/models` | Which variants are loaded? |
+| `GET` | `/api/v1/models/{variant}` | Family, params, features, training data. |
+| `GET` | `/api/v1/models/{variant}/metrics` | Held-out metrics, in EUR. |
+| `GET` | `/api/v1/models/{variant}/feature-importance` | What the model leans on, and global SHAP. |
+
+`tests/unit/test_api_contract_sync.py` diffs this table, `docs/API_CONTRACT.md`
+and the live OpenAPI document against each other in every direction. The audit
+that prompted it found two endpoints served for a week that the contract had
+never heard of, then found the same two missing from this table after the
+contract was fixed — a document nothing checks is checked once, on the day it
+is written.
 
 `POST /api/v1/predict` takes **either** a `player_id` **or** an explicit
 `features` map — never both, never neither. Unknown feature names are rejected
 rather than dropped, because silently ignoring a misspelt `minutes_playd`
-returns a confident answer to a question nobody asked.
+returns a confident answer to a question nobody asked. Feature *values* are
+checked too: a non-number, a non-finite number, a negative goal count or an
+object where a scalar belongs comes back as a `422` naming the offending
+feature, not as a `500`.
 
 **On `confidence`.** A gradient booster has no calibrated uncertainty, and this
 API will not invent one. The `confidence` field is an *empirical prediction
