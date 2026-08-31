@@ -8,9 +8,9 @@ contributions that produced it, compare him to the seasons nearest him in the
 model's own feature space — then change the inputs and watch the number move.
 
 Metrics are reported on **held-out seasons the model has never seen**: test MAE
-**€4.44M** (R² 0.441) for the scouting model, **€3.71M** (R² 0.775) with a prior
-valuation. A random split would read about 35% better and answer a question
-nobody deploying this will ever ask.
+**€2.21M** (R² 0.813) for the scouting model, **€1.66M** (R² 0.914) with a prior
+valuation. A random split would read better and answer a question nobody
+deploying this will ever ask.
 
 **Try it without signing up for anything:** `make setup && make test` runs the
 suite against the committed sample data — no Kaggle account, no download, no
@@ -76,7 +76,7 @@ those, `fetch_data.py` stops with a message naming both options rather than
 failing obscurely.
 
 **You do not need an account to run the project.** `data/sample/` is committed,
-so `make test` gives you 645 passing tests and 49 skips with no credentials at
+so `make test` gives you 657 passing tests and 49 skips with no credentials at
 all — the 49 are the integration tests that need the full panel. `make test`
 deselects them by marker; a bare `pytest` on that same clone *skips* them and
 still reports zero failures, which is the stronger property and the one CI
@@ -180,9 +180,9 @@ meet in use.
 
 | Split | performance-only | + prior value |
 |---|---|---|
-| Random (flattering) | R² 0.499 / MAE €2.84M | R² 0.822 / MAE €2.35M |
-| Group by player | R² 0.550 / MAE €2.60M | R² 0.786 / MAE €2.33M |
-| **Temporal** | **R² 0.414 / MAE €4.52M** | **R² 0.766 / MAE €3.74M** |
+| Random (flattering) | R² 0.529 / MAE €2.24M | R² 0.784 / MAE €1.49M |
+| Group by player | R² 0.604 / MAE €2.13M | R² 0.812 / MAE €1.69M |
+| **Temporal** | **R² 0.762 / MAE €2.39M** | **R² 0.892 / MAE €1.75M** |
 
 The gap between the random and temporal rows is the point. Reporting the random
 number would roughly halve the stated error and answer a question nobody
@@ -194,27 +194,52 @@ what creates the chance of a row or a player straddling the boundary.
 
 ## The model zoo
 
-Nine families (Linear, Ridge, Lasso, ElasticNet, RandomForest, GradientBoosting,
-XGBoost, LightGBM, CatBoost), each searched on expanding-window folds inside the
-training seasons, selected by validation MAE in EUR, then scored once on the
-test seasons. LightGBM wins both variants.
+Eleven families (Linear, Ridge, Lasso, ElasticNet, RandomForest, ExtraTrees,
+HistGradientBoosting, XGBoost, LightGBM, CatBoost, and a ridge-blended stack of
+the three boosters), each searched on expanding-window folds inside the training
+seasons, then scored once on the test seasons. LightGBM ships for both variants.
 
-| Variant | Winner | Test MAE | Test R² | vs. Phase 6 baseline |
+| Variant | Winner | Test MAE | Test R² | vs. baseline |
 |---|---|---|---|---|
-| performance-only | LightGBM | €4.44M | 0.441 | 0.414 |
-| with prior value | LightGBM | €3.71M | 0.775 | 0.766 |
+| performance-only | LightGBM | €2.21M ± 0.04M | 0.813 | 0.762 |
+| with prior value | LightGBM | €1.66M ± 0.04M | 0.914 | 0.892 |
 
 ![The model page: held-out metrics, provenance, and every family ranked by validation MAE](docs/img/model.png)
 
-*`/model` shows the winner's held-out metrics, its full provenance, and the nine
+*`/model` shows the winner's held-out metrics, its full provenance, and the
 families it beat — with the spread between them stated rather than hidden.*
 
-**The zoo barely beats the baseline** — R² moves 0.414 → 0.441 and 0.766 →
-0.775. Nine families and a hyperparameter search bought about 0.03 and 0.01.
-That is worth stating plainly rather than burying: the signal in this data is
-in the features, not in the estimator, and an untuned gradient booster gets
-most of the way there. Establishing the baseline first (Phase 6) is what makes
-that measurable instead of assumed.
+**"Wins" is doing less work than it looks.** The top four families on the
+performance-only variant were separated by EUR 44,000 of validation MAE, and the
+standard error of that MAE is EUR 60,000. They are the same model as far as this
+data can tell.
+
+So selection is not `min()`. Two rules decide what ships:
+
+**It must be explainable.** Every prediction response documents an
+`explanation`, the dashboard draws a contribution chart from it, and both model
+cards are built from named importances. The stacked blend had the lowest
+validation MAE on both variants and exposes no importances at all — its members
+have them, the blend does not. HistGradientBoosting is subtler and shipped once
+before this rule existed: SHAP works on it, so every prediction looked
+explained, while `feature_importances_` has never existed on it and the model
+card came out blank. Both are excluded, both still run, and the leaderboard
+shows what excluding them costs: 1.92% and 0.33% of validation MAE.
+
+**Then the one-standard-error rule** (Breiman, Friedman, Olshen & Stone, 1984):
+among families within one standard error of the best, take the cheapest.
+XGBoost beat LightGBM by EUR 7,917 — a seventh of one standard error, paired
+t = 0.37 — and shipping it would have added 372 MB to the serving image, 291 MB
+of that being CUDA libraries a CPU inference path never opens. The tiebreak is
+deployment footprint rather than artifact size, because artifact size points the
+wrong way: CatBoost serialises to a fifth of LightGBM's file and costs 328 MB of
+package.
+
+**The zoo still barely beats the baseline** — R² 0.762 → 0.813 and 0.892 →
+0.914. Eleven families and a hyperparameter search bought about 0.05 and 0.02,
+which is worth stating plainly rather than burying: the signal in this data is
+in the features, not in the estimator. Phase 15 moved R² from 0.441 to 0.813 by
+adding features, not by adding models.
 
 Each run writes a versioned artifact to `models/` — the fitted preprocessing
 and estimator as one object, plus metrics, named feature importance, the full
@@ -422,7 +447,7 @@ push and pull request:
   imported inside `src/storage/`, and Plotly only inside `Chart.tsx`.
 
 CI runs on a clean checkout, where `data/` and `models/` are empty. Every test
-that needs them **skips** rather than fails — verified on a fresh clone: 645
+that needs them **skips** rather than fails — verified on a fresh clone: 657
 pass, the 49 integration tests skip, nothing fails. A suite that is only green on a machine with a trained
 model is not a suite anyone can trust.
 
@@ -514,8 +539,8 @@ Backend test coverage, with the command that prints each number:
 
 | | Coverage | Tests |
 |---|---|---|
-| `make test-cov` — no credentials, no data | **90%** | 645 pass, 49 deselected |
-| `make test-cov-all` — needs the Kaggle download and a trained model | **97%** | 694 pass |
+| `make test-cov` — no credentials, no data | **90%** | 657 pass, 49 deselected |
+| `make test-cov-all` — needs the Kaggle download and a trained model | **97%** | 706 pass |
 
 The gap is the pipeline orchestration in `src/pipelines/`, which is what the
 integration tests exercise. Both targets fail below their floor, so neither

@@ -1,6 +1,6 @@
 # Model card — with_prior_value
 
-Generated 2026-08-30T22:19:56.027994+00:00 from `with_prior_value__lightgbm`.
+Generated 2026-08-30T23:43:32.905750+00:00 from `with_prior_value__lightgbm`.
 This file is written from the artifact, so it cannot describe a model that
 is no longer the one on disk.
 

@@ -4,6 +4,50 @@ Notable changes to this project. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.0] — 2026-08-31
+
+Six of the seven "unavoidable dataset limitations" from the v1.1.0 audit turned
+out to be limitations of the pipeline. `configs/config.yaml` downloaded three of
+the ten files this Kaggle dataset ships; the other seven carried competition
+identity, club results, starting line-ups and transfer fees.
+
+### Changed
+
+- **Label window 120 days → 365.** The old window closed on 29 October and
+  missed Transfermarkt's winter revaluation batch, discarding 61% of the panel.
+  Measured: 39.0% of player-seasons labelled at 120 days, 74.7% at 180, 90.8% at
+  365. Still a strictly forward join, so it cannot leak.
+  **36,880 rows → 85,966; 17,053 players → 24,411.**
+- **19 features → 41.** Squad role and captaincy from `game_lineups.csv`,
+  availability against the club's own fixture count, consistency and trajectory
+  from the match rows, club results from `club_games.csv`, and competition
+  identity and strength.
+- **Test MAE €4.44M → €2.21M (R² 0.441 → 0.813)** for the scouting model, and
+  **€3.71M → €1.66M (R² 0.775 → 0.914)** with a prior valuation.
+- **Selection is no longer `min()`.** Two rules: the shipped model must produce
+  named feature importances, and among families within one standard error of the
+  best, the cheapest to deploy wins.
+
+### Added
+
+- `competition_value_level`, a league-strength feature computed on a strictly
+  expanding window so a season never contributes to its own value.
+- **Current-season predictions.** 8,709 rows for the season being played, built
+  through the same enrichment code as the training table.
+- **A seventh leakage check.** A year-wide label window lets season *s* be
+  labelled after *s+1* begins, making *s+1*'s "previous value" not previous —
+  22 rows in 61,555.
+- Extra Trees and a stacked ensemble (11 families), `Metrics.mae_standard_error`,
+  recency-based season weighting, and an optional `transfer_fee` target.
+- Sample-data slices of the four context tables, so CI runs the new code rather
+  than only type-checking it.
+
+### Not fixed
+
+- **Coverage still begins in 2012.** Before 2012-07-03 this dataset holds 2,470
+  events across 190 games — international tournaments — and no line-up data
+  before 2013. It needs a different source, not better use of this one.
+
 ## [1.1.0] — 2026-08-30
 
 A full external release audit, and the remediation of everything it found. No
@@ -141,5 +185,6 @@ explains every prediction.
 - CI had no `permissions` block and no guard on the Transfermarkt rule.
 - `/compare`'s two search inputs had no accessible label.
 
+[1.2.0]: https://github.com/Vanshcloud/Transfer-Value-Predictor/releases/tag/v1.2.0
 [1.1.0]: https://github.com/Vanshcloud/Transfer-Value-Predictor/releases/tag/v1.1.0
 [1.0.0]: https://github.com/Vanshcloud/Transfer-Value-Predictor/releases/tag/v1.0.0

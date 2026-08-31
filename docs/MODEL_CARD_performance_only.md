@@ -1,6 +1,6 @@
 # Model card — performance_only
 
-Generated 2026-08-30T22:12:30.452706+00:00 from `performance_only__xgboost`.
+Generated 2026-08-30T23:31:52.501716+00:00 from `performance_only__lightgbm`.
 This file is written from the artifact, so it cannot describe a model that
 is no longer the one on disk.
 
@@ -16,9 +16,9 @@ Estimate a player's market value from on-pitch performance and biography alone, 
 
 ## Model
 
-| Family | `xgboost` |
+| Family | `lightgbm` |
 |---|---|
-| Hyperparameters | `{'model__regressor__n_estimators': 300, 'model__regressor__learning_rate': 0.1, 'model__regressor__max_depth': 6}` |
+| Hyperparameters | `{'model__regressor__n_estimators': 300, 'model__regressor__learning_rate': 0.1, 'model__regressor__num_leaves': 63}` |
 | Target | `market_value_in_eur`, trained on `log1p`, reported in EUR |
 | Features | 41 |
 | Seed | 42 |
@@ -36,26 +36,26 @@ Test seasons, in EUR. These are held-out seasons the model never saw.
 
 | Metric | Validation | Test |
 |---|---|---|
-| MAE | €2,055,713 | €2,241,882 |
-| RMSE | €5,169,479 | €5,441,080 |
-| R² | 0.806 | 0.811 |
-| MAPE | 51.3% | 59.3% |
+| MAE | €2,063,630 | €2,205,618 |
+| RMSE | €5,271,584 | €5,419,571 |
+| R² | 0.798 | 0.813 |
+| MAPE | 51.8% | 58.0% |
 | Rows | 6,573 | 13,486 |
 
 ## What it relies on
 
 | Feature | Importance |
 |---|---|
-| `numeric__appearances` | 0.1104 |
-| `numeric__goal_contributions` | 0.1047 |
-| `numeric__competition_value_level` | 0.09959 |
-| `numeric__competitions_played` | 0.08972 |
-| `numeric__continental_minutes_share` | 0.04911 |
-| `numeric__club_goal_difference_per_game` | 0.03673 |
-| `numeric__minutes_played` | 0.02731 |
-| `numeric__club_points_per_game` | 0.02105 |
-| `categorical__country_of_citizenship_Ukraine` | 0.01909 |
-| `categorical__country_of_citizenship_Turkey` | 0.01882 |
+| `numeric__competition_value_level` | 1,446 |
+| `numeric__age` | 1,298 |
+| `numeric__years_since_debut` | 1,118 |
+| `numeric__club_goal_difference_per_game` | 1,056 |
+| `numeric__club_league_position` | 1,048 |
+| `numeric__club_points_per_game` | 938 |
+| `numeric__competition_tier_rank` | 796 |
+| `numeric__squad_match_share` | 783 |
+| `numeric__height_in_cm` | 686 |
+| `numeric__minutes_played` | 618 |
 
 ## Limitations
 
@@ -64,7 +64,7 @@ Test seasons, in EUR. These are held-out seasons the model never saw.
 - **Coverage begins in 2012.** Appearance data starts 2012-07-03, so career-length features are left-censored and capped; a player whose career began earlier looks younger in career terms than they are.
 - **Seasons are August to July.** Leagues on a spring-autumn calendar are split across that boundary and are represented less faithfully.
 - **The model has never seen the season it is asked about.** That is deliberate, and it is why the reported error is roughly 60% worse than a random split would suggest. The reported number is the honest one.
-- **Weakest measured segment: value band <1M** — MAPE 79% over 5,463 rows.
+- **Weakest measured segment: value band <1M** — MAPE 77% over 5,463 rows.
 
 ## Leakage controls
 
