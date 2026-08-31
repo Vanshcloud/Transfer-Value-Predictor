@@ -32,7 +32,12 @@ from src.explainability.shap_explainer import (
     explain_prediction,
     supports_shap,
 )
-from src.feature_engineering.build import NON_NEGATIVE_FEATURES, TARGET_COLUMN
+from src.feature_engineering.build import (
+    NON_NEGATIVE_FEATURES,
+    PLAUSIBLE_RANGES,
+    PRIOR_VALUE_FEATURES,
+    TARGET_COLUMN,
+)
 from src.models.artifact import ModelArtifact, load, predict
 from src.models.calibration import interval_for
 from src.utils.logging import get_logger
@@ -414,7 +419,19 @@ class PredictionService:
         """
         artifact = self.artifact(variant)
         rows = self._player_rows(player_id)
-        season = int(rows.iloc[-1]["season"])
+
+        # The player's latest *labelled* season, not simply his latest row.
+        # Since the current-season table arrived, the last row for an active
+        # player is the season being played, which carries no valuation — and
+        # the neighbour pool is labelled-only, so anchoring on it produced an
+        # empty pool and a silent empty list. That was 8,709 players, 32.8% of
+        # the panel, and precisely the ones anybody searches for: everyone
+        # currently playing. A comparison needs a market value to display on
+        # both sides, so the anchor is the most recent season that has one.
+        labelled = rows[rows[LABELLED_COLUMN].fillna(True)] if LABELLED_COLUMN in rows else rows
+        if labelled.empty:
+            return []
+        season = int(labelled.iloc[-1]["season"])
 
         index, pool = self._neighbour_index(artifact, season)
         if index is None or len(pool) <= 1:
@@ -492,16 +509,49 @@ class PredictionService:
     def _rows_for_variant(self, artifact: ModelArtifact) -> pd.DataFrame:
         """Rows usable by this variant.
 
-        The prior-value model cannot predict for a player's first season, so
-        those rows are excluded rather than imputed into a confident guess.
+        "Usable" means the model can score the row and the row can be *shown* —
+        not that every feature is present. The fitted pipeline carries an
+        imputer, so a null feature is a value the model already knows how to
+        handle; it was imputed during training and it is imputed here.
+
+        Requiring every feature to be non-null is what this used to do, and it
+        was quietly throwing away most of the panel. Measured on the 54-feature
+        table: 56,148 of 85,966 labelled rows dropped (65.3%), including every
+        player's first season, leaving **14,402 of 24,411 players with no
+        usable row at all** — an empty career chart and no comparables, for
+        59% of the people the dashboard can search. The pre-audit 41-feature
+        list dropped 56.5% and 11,840 players, so this was never a new bug,
+        only a worsening one: `second_half_goal_share` alone is null on 51.3%
+        of rows and a player who never scored twice in a season has no
+        second-half goal share to have.
+
+        What genuinely gates a row is the *target* — a neighbour is displayed
+        with its market value and a history point with its actual — and, for
+        the prior-value variant, the prior value that defines the variant. Both
+        are checked; nothing else is.
         """
         frame = self._labelled()
         missing = [c for c in artifact.feature_columns if c not in frame.columns]
         if missing:
             return pd.DataFrame()
-        # Labelled only: a neighbour is shown with its market value, and a
-        # current-season row has none to show.
-        return frame.dropna(subset=list(artifact.feature_columns))
+        return frame.dropna(subset=self._display_gate(artifact, frame))
+
+    @staticmethod
+    def _display_gate(artifact: ModelArtifact, frame: pd.DataFrame) -> list[str]:
+        """Columns that must be present for a row to be scored *and* displayed.
+
+        The target, plus the lagged value the prior-value variant is defined by
+        — `select_variant` filters the training frame on exactly that column, so
+        serving a row without it would ask the model a question it was never
+        fitted for. Everything else is the imputer's job.
+        """
+        gate = [artifact.target_column]
+        gate += [
+            column
+            for column in PRIOR_VALUE_FEATURES
+            if column in artifact.feature_columns and column in frame.columns
+        ]
+        return [column for column in gate if column in frame.columns]
 
     def feature_distribution(self, variant: str | None = None) -> dict[str, Any]:
         """Quantiles per numeric feature, across the whole panel.
@@ -558,7 +608,11 @@ class PredictionService:
         # which does not claim to compare against anything.
         if LABELLED_COLUMN in rows.columns:
             rows = rows[rows[LABELLED_COLUMN].fillna(True)]
-        usable = rows.dropna(subset=list(artifact.feature_columns))
+        # The display gate, not every feature — see `_rows_for_variant`. A
+        # player's first season has no lagged performance and the model imputes
+        # it, so dropping the row here removed the start of 24,411 careers from
+        # the very chart that exists to show a career.
+        usable = rows.dropna(subset=self._display_gate(artifact, rows))
         if usable.empty:
             return []
 
@@ -642,7 +696,8 @@ class PredictionService:
         Raises:
             InvalidFeaturesError: on an unknown key, or a value the model
                 cannot be asked about — a wrong type, a non-finite number, a
-                negative count, or an implausibly long category.
+                negative count, a value outside the range the feature can
+                physically take, or an implausibly long category.
         """
         artifact = self.artifact(variant)
         expected = set(artifact.feature_columns)
@@ -730,6 +785,11 @@ class PredictionService:
                     problems.append(f"{name}: expected a finite number, got {value!r}")
                 elif name in NON_NEGATIVE_FEATURES and number < 0:
                     problems.append(f"{name}: cannot be negative, got {number:g}")
+                elif name in PLAUSIBLE_RANGES and not (
+                    PLAUSIBLE_RANGES[name][0] <= number <= PLAUSIBLE_RANGES[name][1]
+                ):
+                    low, high = PLAUSIBLE_RANGES[name]
+                    problems.append(f"{name}: expected {low:g}-{high:g}, got {number:g}")
             elif isinstance(value, str) and len(value) > MAX_CATEGORY_LENGTH:
                 problems.append(f"{name}: category longer than {MAX_CATEGORY_LENGTH} characters")
 

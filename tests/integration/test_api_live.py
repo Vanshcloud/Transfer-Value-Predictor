@@ -127,3 +127,70 @@ def test_the_openapi_document_describes_the_live_app(client: TestClient) -> None
     spec = client.get("/api/v1/openapi.json").json()
     assert spec["info"]["title"] == "Transfer Value Predictor"
     assert "/api/v1/predict" in spec["paths"]
+
+
+class TestNothingImportantIsSilentlyEmpty:
+    """The gap that let two high-severity bugs survive four audits.
+
+    Both `similar_players` and `prediction_history` returned `[]` — a `200`, a
+    valid shape, a dashboard panel reading "No comparable seasons found". Every
+    test asserted the *shape* of the response and none asserted that anything
+    was in it, so the suite stayed green while a third of the panel got nothing:
+
+      * comparables were dead for all 8,709 players whose most recent row is
+        the unlabelled current season (32.8%), because the anchor season had no
+        labelled pool;
+      * 14,402 of 24,411 players (59%) had an empty career chart, because the
+        service required all 54 features to be non-null in a pipeline that
+        imputes.
+
+    Shape assertions cannot catch that. These run against the real artifacts
+    and the real panel and assert the thing a user would actually notice.
+    """
+
+    def _some_player_with_a_current_season(self, client: TestClient) -> int:
+        """A player whose latest row is the season being played — the exact
+        population both bugs silently excluded."""
+        service = client.app.state.service
+        current = service._players[~service._players["has_label"].fillna(True)]
+        if current.empty:
+            pytest.skip("no current-season rows in this build")
+        return int(current.iloc[0]["player_id"])
+
+    def test_an_active_player_gets_comparables(self, client: TestClient) -> None:
+        player_id = self._some_player_with_a_current_season(client)
+        results = client.get(f"/api/v1/players/{player_id}/similar").json()["results"]
+        assert results, f"player {player_id} got no comparables at all"
+        assert all(row["market_value_in_eur"] > 0 for row in results)
+
+    def test_an_active_player_gets_a_career_history(self, client: TestClient) -> None:
+        player_id = self._some_player_with_a_current_season(client)
+        points = client.get(f"/api/v1/players/{player_id}/history").json()["points"]
+        assert points, f"player {player_id} got an empty career history"
+
+    def test_history_covers_every_labelled_season_on_record(self, client: TestClient) -> None:
+        """Not "some points" — every labelled season. The old bug dropped each
+        player's first season, which is the one a career chart most needs."""
+        service = client.app.state.service
+        panel = service._players
+        labelled = panel[panel["has_label"].fillna(True)]
+        counts = labelled.groupby("player_id").size()
+        player_id = int(counts[counts >= 5].index[0])
+
+        points = client.get(f"/api/v1/players/{player_id}/history").json()["points"]
+        expected = sorted(int(s) for s in labelled[labelled["player_id"] == player_id]["season"])
+        assert [point["season"] for point in points] == expected
+
+    def test_the_panel_is_overwhelmingly_servable(self, client: TestClient) -> None:
+        """A population check, not a spot check. A regression that empties one
+        endpoint for a third of players passes every single-player test."""
+        service = client.app.state.service
+        artifact = service.artifact("performance_only")
+        usable = service._rows_for_variant(artifact)
+        panel = service._players
+        labelled_players = panel[panel["has_label"].fillna(True)]["player_id"].nunique()
+
+        covered = usable["player_id"].nunique()
+        assert (
+            covered == labelled_players
+        ), f"only {covered:,} of {labelled_players:,} labelled players are servable"

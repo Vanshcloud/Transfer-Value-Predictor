@@ -265,8 +265,19 @@ class TestConfidence:
             "upper_eur",
             "basis",
             "reference_rows",
+            "measured_coverage",
         }
         assert "confidence_score" not in confidence
+
+    def test_the_nominal_level_is_reported_beside_the_level_it_achieved(
+        self, service: PredictionService
+    ) -> None:
+        """A response carrying only the nominal level quotes its own intention
+        as a result. This fixture's calibration was never checked against a
+        later season, so the measured figure is null rather than invented."""
+        confidence = service.predict_for_player(1).confidence
+        assert confidence["level"] == pytest.approx(0.8)
+        assert confidence["measured_coverage"] is None
 
     def test_the_interval_brackets_the_prediction(self, service: PredictionService) -> None:
         result = service.predict_for_player(1)
@@ -638,3 +649,100 @@ class TestCurrentSeasonPanel:
         service = PredictionService({"performance_only": artifact}, players, None)
         assert service.predict_for_player(1).season == 2024
         assert service.prediction_history(1)
+
+
+class TestTheDisplayGateRatherThanEveryFeature:
+    """Two bugs the final audit found, both silent, both about which rows the
+    service is willing to show.
+
+    Neither produced an error. Both produced an empty list, which reads to a
+    caller exactly like "there is nothing to show" rather than "this endpoint
+    is broken".
+    """
+
+    def test_a_row_with_a_null_feature_is_still_shown(
+        self, artifact: ModelArtifact, players: pd.DataFrame
+    ) -> None:
+        """The pipeline imputes. Requiring every feature to be non-null threw
+        away 65.3% of the real panel — every player's first season among them —
+        and left 14,402 of 24,411 players with an empty career chart.
+        """
+        holed = players.copy()
+        holed.loc[holed.index[:5], "goals_per_90"] = np.nan
+        service = PredictionService({"performance_only": artifact}, holed, NAMES)
+
+        history = service.prediction_history(int(holed.iloc[0]["player_id"]))
+        seasons_on_record = holed[holed["player_id"] == holed.iloc[0]["player_id"]]
+        assert len(history) == len(seasons_on_record)
+
+    def test_a_row_with_no_target_is_not_shown(
+        self, artifact: ModelArtifact, players: pd.DataFrame
+    ) -> None:
+        """The gate is the target, not the features: a history point carries an
+        actual and a neighbour is displayed with its market value."""
+        current = players[players["season"] == 2024].copy()
+        current["season"] = 2025
+        current[TARGET_COLUMN] = np.nan
+        service = PredictionService(
+            {"performance_only": artifact}, players, NAMES, current_season=current
+        )
+        assert all(point["season"] != 2025 for point in service.prediction_history(1))
+
+    def test_comparables_anchor_on_the_latest_labelled_season(
+        self, artifact: ModelArtifact, players: pd.DataFrame
+    ) -> None:
+        """Anchoring on the latest *row* broke this for every active player.
+
+        The neighbour pool is labelled-only, so a player whose most recent row
+        is the season being played got an empty pool and an empty list — 8,709
+        players, 32.8% of the panel, and exactly the ones anyone searches for.
+        """
+        current = players[players["season"] == 2024].copy()
+        current["season"] = 2025
+        current[TARGET_COLUMN] = np.nan
+        service = PredictionService(
+            {"performance_only": artifact}, players, NAMES, current_season=current
+        )
+        neighbours = service.similar_players(1)
+        assert neighbours, "an active player must still get comparables"
+        assert all(row["season"] == 2024 for row in neighbours)
+
+    def test_a_player_with_no_labelled_season_gets_nothing_rather_than_a_guess(
+        self, artifact: ModelArtifact, players: pd.DataFrame
+    ) -> None:
+        """The honest end of the same rule. A debutant in the season being
+        played has no valued season to compare, and an empty list is the right
+        answer — not a neighbour from a season he did not play in."""
+        current = players[players["season"] == 2024].head(1).copy()
+        current["season"] = 2025
+        current["player_id"] = 9999
+        current[TARGET_COLUMN] = np.nan
+        service = PredictionService(
+            {"performance_only": artifact}, players, NAMES, current_season=current
+        )
+        assert service.similar_players(9999) == []
+
+
+class TestImplausibleValuesAreRejected:
+    """`data.min_age: 15` and `data.max_age: 45` sat in `configs/config.yaml`,
+    parsed and cross-validated, and read by nothing. The API answered for a
+    1,000,000,000,000-year-old with a confident number and a 200 — the exact
+    failure mode `NON_NEGATIVE_FEATURES` exists to prevent, one field over.
+    """
+
+    def test_an_impossible_age_is_a_bad_request(self, service: PredictionService) -> None:
+        with pytest.raises(InvalidFeaturesError) as caught:
+            service.predict_from_features({"age": 1e12})
+        assert "age" in caught.value.message
+
+    def test_a_too_young_age_is_a_bad_request(self, service: PredictionService) -> None:
+        with pytest.raises(InvalidFeaturesError):
+            service.predict_from_features({"age": 3.0})
+
+    def test_an_age_inside_the_range_still_predicts(self, service: PredictionService) -> None:
+        assert service.predict_from_features({"age": 24.0}).prediction_eur > 0
+
+    def test_the_bounds_are_inclusive(self, service: PredictionService) -> None:
+        """15 and 45 are ages a player can be, not ones he cannot."""
+        assert service.predict_from_features({"age": 15.0}).prediction_eur > 0
+        assert service.predict_from_features({"age": 45.0}).prediction_eur > 0
