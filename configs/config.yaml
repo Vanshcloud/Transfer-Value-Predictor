@@ -61,6 +61,11 @@ data:
   # Horizon used when a caller does not name one: the median training lag,
   # so the default prediction answers the question the model saw most often.
   default_horizon_days: 120
+  # The age interval outside which a value is a caller bug rather than a
+  # player. Enforced by the prediction service via
+  # `src.feature_engineering.build.PLAUSIBLE_RANGES`; it sat here unread until
+  # the final audit, which is why the API used to answer for a
+  # 1,000,000,000,000-year-old with a 200.
   min_age: 15
   max_age: 45
 

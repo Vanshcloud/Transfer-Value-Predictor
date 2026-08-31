@@ -40,6 +40,21 @@ AGE_BANDS: tuple[tuple[str, float, float], ...] = (
     ("33+", 33, float("inf")),
 )
 
+CAREER_STAGE_BANDS: tuple[tuple[str, float, float], ...] = (
+    ("first season", 0, 1),
+    ("2-3 seasons", 1, 3),
+    ("4-6 seasons", 3, 6),
+    ("7+ seasons", 6, float("inf")),
+)
+"""How much of a career the model has already watched, from ``seasons_observed``.
+
+Distinct from age, and the audit's error analysis is the reason it is here: a
+first-season 28-year-old arriving from an uncovered league and a first-season
+19-year-old are both rows the model has almost no history for, and age alone
+puts them in different buckets while the thing they have in common — no prior
+row to lag — is what actually drives the error.
+"""
+
 
 @dataclass(frozen=True)
 class SegmentError:
@@ -130,6 +145,12 @@ def build_residuals(
         where=actual != 0,
     )
 
+    career_stage = (
+        _band(frame["seasons_observed"], CAREER_STAGE_BANDS)
+        if "seasons_observed" in frame.columns
+        else pd.Series(pd.NA, index=frame.index, dtype="object")
+    )
+
     return frame.assign(
         predicted=predictions,
         residual=residual,
@@ -137,6 +158,7 @@ def build_residuals(
         percentage_error=percentage_error,
         value_band=_band(frame[target_column], VALUE_BANDS),
         age_band=age_band,
+        career_stage=career_stage,
     )
 
 
@@ -144,7 +166,17 @@ def segment_errors(
     residuals: pd.DataFrame,
     *,
     target_column: str,
-    by: tuple[str, ...] = ("value_band", "age_band", "position", "season"),
+    by: tuple[str, ...] = (
+        "value_band",
+        "age_band",
+        "position",
+        "season",
+        # Added by the final audit. "Which leagues is this model bad at" and
+        # "is it bad at players it has no history for" were both unanswerable
+        # from the report, and both turned out to have answers worth acting on.
+        "primary_competition_id",
+        "career_stage",
+    ),
     min_rows: int = 30,
 ) -> list[SegmentError]:
     """Error metrics per slice.

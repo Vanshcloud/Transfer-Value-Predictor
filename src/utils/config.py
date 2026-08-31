@@ -93,6 +93,12 @@ class DataConfig(_Strict):
     default_horizon_days: int = Field(default=120, gt=0)
     min_age: int = Field(default=15, ge=0)
     max_age: int = Field(default=45, ge=0)
+    """The plausible age interval. Mirrored by
+    :data:`~src.feature_engineering.build.PLAUSIBLE_RANGES`, which is what the
+    prediction service actually enforces — the service is constructed without a
+    config in tests, in the CLI and in a notebook, and a guard that exists only
+    when a config was loaded is absent exactly when someone is experimenting.
+    `tests/unit/test_config.py` asserts the two do not drift apart."""
 
     @field_validator("default_horizon_days")
     @classmethod

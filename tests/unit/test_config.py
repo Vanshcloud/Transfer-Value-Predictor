@@ -115,3 +115,18 @@ def test_settings_sections_are_all_present() -> None:
     """A new section added to the YAML must also be declared on Settings."""
     tree = yaml.safe_load(DEFAULT_CONFIG_PATH.read_text())
     assert set(tree) == set(Settings.model_fields)
+
+
+def test_the_age_bounds_in_config_match_the_ones_the_service_enforces() -> None:
+    """`data.min_age` and `data.max_age` were declared, cross-validated, and
+    read by nothing at all until the final audit — so the API answered for a
+    1,000,000,000,000-year-old with a 200 while the config said 15 to 45.
+
+    They are enforced now, from `PLAUSIBLE_RANGES`, because the service is
+    built without a config in tests, in the CLI and in a notebook. Two copies
+    of one bound need something comparing them, which is this.
+    """
+    from src.feature_engineering.build import PLAUSIBLE_RANGES
+
+    data = load_settings().data
+    assert PLAUSIBLE_RANGES["age"] == (float(data.min_age), float(data.max_age))
