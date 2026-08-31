@@ -19,7 +19,7 @@ line count below is from the working tree; regenerate with
 │   ├── visualization/      plots for the HTML reports
 │   └── utils/              config, logging, HTTP, paths
 ├── api/                    FastAPI app — routes, schemas, errors, DI
-├── frontend/               Next.js dashboard (TypeScript, Tailwind, Recharts)
+├── frontend/               Next.js dashboard (TypeScript, Tailwind, Plotly)
 ├── scripts/                the CLI entry points, one per pipeline stage
 │   └── hooks/              git hooks, version-controlled
 ├── tests/

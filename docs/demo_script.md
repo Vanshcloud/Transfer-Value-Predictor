@@ -92,7 +92,7 @@ curl -s localhost:8000/health | jq
 ```json
 { "status": "ok", "ready": true,
   "models_loaded": ["performance_only", "with_prior_value"],
-  "version": "1.2.0" }
+  "version": "1.3.0" }
 ```
 
 ```bash

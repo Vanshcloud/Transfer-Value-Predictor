@@ -152,8 +152,9 @@ Every one of these was implemented, measured, and thrown away.
   horizon held fixed: null for the scouting model, **significantly worse**
   (−€68,996, p = 0.0005) with prior value, on 6.5% fewer rows.
 - **Pre-2012 rows.** 40,339 of them *can* be reconstructed from valuations and
-  biography. 34 of 54 features are structurally missing; adding all of them
-  moved MAE by 0.19%, **p = 0.73**.
+  biography. Only 7 of the 54 declared features exist on such a row; adding all
+  of them moved MAE by 0.19%, **p = 0.73**. (The experiment ran against the
+  41-feature list of the time, on which 34 of 41 were missing.)
 - **Club home attendance.** −€297,445, p = 1e−65. Season 2020 was played behind
   closed doors: mean attendance 14,769 → 2,752, correlation with value
   +0.65 → +0.24. The column measures a pandemic for one year in fourteen.
