@@ -27,7 +27,7 @@ from sklearn.pipeline import Pipeline
 from src.evaluation.metrics import Metrics, evaluate
 from src.feature_engineering.build import CATEGORICAL_FEATURES, TARGET_COLUMN, select_variant
 from src.models.artifact import ModelArtifact, extract_feature_importance, save
-from src.models.calibration import calibrate
+from src.models.calibration import calibrate, measured_coverage
 from src.models.registry import (
     DEPLOYMENT_MEGABYTES,
     EXPLAINABLE_FAMILIES,
@@ -160,10 +160,19 @@ Measured cost of the constraint, on the run that introduced it:
     performance_only   stacked 2,024,017  vs  lightgbm 2,063,630   1.92%
     with_prior_value   stacked 1,663,283  vs  lightgbm 1,668,757   0.33%
 
-Under 2% of validation MAE, against every prediction losing its explanation
-and the serving image regaining the 700 MB of xgboost and catboost that
-`requirements-serve.txt` exists to leave out. Stated here so that anyone who
-wants the last 2% knows exactly what it costs and can set this to False.
+and on the current table, after the career-momentum block and the
+regularisation added to the LightGBM grid:
+
+    performance_only   stacked 1,917,730  vs  lightgbm 1,938,817   1.09%
+    with_prior_value   stacked 1,651,350  vs  lightgbm 1,646,048  -0.32%
+
+Pooled over five held-out seasons at three seeds the gap is EUR 10,152 at
+p = 0.32 — indistinguishable from zero on this data, against a validation
+standard error of roughly EUR 55,000. On the prior-value variant the top three
+families sit inside EUR 5,600 of one another, a tenth of that standard error;
+the ordering between them is noise, and the one-standard-error rule is what
+stops it being read as a result. Stated here so anyone who wants the last 1%
+knows exactly what it costs.
 """
 
 
@@ -312,6 +321,20 @@ def _fit_winner(
     test_predictions = pipeline.predict(test[features])
     test_metrics = evaluate(test[TARGET_COLUMN], test_predictions)
 
+    # The interval's quantiles come from the validation season and its coverage
+    # is then measured on the test seasons. Both were previously taken from the
+    # test seasons, which made the reported coverage equal the nominal level by
+    # construction. See src/models/calibration for the comparison against
+    # conformal and quantile-regression alternatives.
+    validation = frame.loc[split.validation]
+    calibration = calibrate(
+        validation[TARGET_COLUMN].to_numpy(dtype=float),
+        pipeline.predict(validation[features]),
+    )
+    calibration["coverage"] = measured_coverage(
+        calibration, test[TARGET_COLUMN].to_numpy(dtype=float), test_predictions
+    )
+
     return ModelArtifact(
         variant=variant,
         model_name=winner.name,
@@ -330,10 +353,7 @@ def _fit_winner(
             "test_start_season": config.test_start_season,
         },
         seed=RANDOM_SEED,
-        # Measured on the test seasons, which is the only honest place to
-        # measure it: an interval fitted on training residuals would describe
-        # how well the model remembers, not how well it predicts.
-        calibration=calibrate(test[TARGET_COLUMN].to_numpy(dtype=float), test_predictions),
+        calibration=calibration,
         leaderboard=[
             {
                 "model": result.name,

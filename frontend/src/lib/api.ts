@@ -26,11 +26,19 @@ export interface Contribution {
 }
 
 export interface Confidence {
+  /** Nominal coverage the interval targets. What it asks for, not what it got. */
   level: number;
   lower_eur: number;
   upper_eur: number;
   basis: string;
   reference_rows: number;
+  /**
+   * Coverage the interval actually achieved on seasons after the one its
+   * quantiles came from. Lower than `level`, and the number to show a user.
+   * Null when the model's calibration was never checked against a later
+   * season — null means unmeasured, not zero.
+   */
+  measured_coverage?: number | null;
 }
 
 export interface PredictResponse {

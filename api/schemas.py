@@ -144,15 +144,31 @@ class ConfidenceSchema(BaseModel):
     A gradient booster has no calibrated uncertainty, so this reports the
     model's own measured residual quantiles on held-out seasons for the value
     band the prediction falls into.
+
+    Two coverage numbers, deliberately. ``level`` is what the interval asks
+    for; ``measured_coverage`` is what it got on seasons neither the model nor
+    the interval had seen. They differ, and a response that carried only the
+    first would be quoting its own intention as a result.
     """
 
     level: float = Field(
-        description="Coverage. 0.8 means 80% of held-out predictions in this band fell inside."
+        description=(
+            "Nominal coverage the interval targets. 0.8 asks for 80%; "
+            "`measured_coverage` reports what it achieved."
+        )
     )
     lower_eur: float
     upper_eur: float
     basis: str = Field(description="What the interval was measured from.")
     reference_rows: int = Field(description="Rows it was measured over. Fewer rows, less trust.")
+    measured_coverage: float | None = Field(
+        default=None,
+        description=(
+            "Fraction of test-season rows the interval actually contained, measured on "
+            "seasons after the one its quantiles came from. Below `level` because "
+            "consecutive seasons are not exchangeable. Null if never measured."
+        ),
+    )
 
 
 class ModelSummary(BaseModel):

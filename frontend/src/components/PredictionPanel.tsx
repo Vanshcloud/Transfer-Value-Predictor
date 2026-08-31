@@ -74,6 +74,20 @@ export default function PredictionPanel({
             {confidence.basis}. It is wide because predicting market value a season
             ahead is genuinely hard, not because something is broken.
           </p>
+          {typeof confidence.measured_coverage === "number" && (
+            /* The nominal level is what the interval asks for; this is what it
+               got on later seasons it had never seen. Showing only the first
+               would quote an intention as a result. */
+            <p className="mt-2 text-xs leading-relaxed text-slate-500 dark:text-slate-400">
+              On the test seasons it actually contained{" "}
+              <span className="font-medium text-slate-700 dark:text-slate-200">
+                {percent(confidence.measured_coverage, 0)}
+              </span>{" "}
+              of true values, against the {percent(confidence.level, 0)} it targets.
+              Seasons are not interchangeable, so an interval calibrated on one
+              covers a little less on the next.
+            </p>
+          )}
         </div>
       )}
     </Card>

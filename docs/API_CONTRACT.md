@@ -82,7 +82,8 @@ Supplying both `player_id` and `features`, or neither, is a `422`.
     "lower_eur": 6100000.0,
     "upper_eur": 24900000.0,
     "basis": "empirical residual quantiles for the 5M-20M band on held-out seasons",
-    "reference_rows": 812
+    "reference_rows": 812,
+    "measured_coverage": 0.77
   },
   "explanation": {
     "base_value_eur": 2074881.0,
@@ -105,11 +106,27 @@ boosting regressor has no calibrated uncertainty, and a number like
 `"confidence": 0.87` printed next to a prediction would be fabricated.
 
 What `confidence` reports is an **empirical prediction interval**: the model's
-own residual quantiles, measured on held-out seasons, for the value band the
-prediction falls into. `level: 0.8` means 80% of held-out predictions in that
-band landed within the quoted bounds. `reference_rows` is how many rows that
-was measured over — read it, because a band with 40 reference rows deserves
-less trust than one with 800.
+own residual quantiles, measured on the validation season, for the value band
+the prediction falls into. `reference_rows` is how many rows that was measured
+over — read it, because a band with 40 reference rows deserves less trust than
+one with 800.
+
+**Read `measured_coverage`, not `level`.** `level` is what the interval asks
+for; `measured_coverage` is what it achieved on the test seasons, which come
+*after* the season its quantiles were taken from and which neither the model
+nor the interval had seen. They are not the same number and the second is
+smaller — around 0.77 against a nominal 0.80 for the performance-only model.
+
+The gap is not a bug to close. Split conformal guarantees coverage under
+exchangeability, and consecutive football seasons are not exchangeable: the
+market inflates and the panel's composition moves. Widening the bounds until
+the measured figure read 0.80 would mean fitting them to the test seasons,
+which is how this field came to overstate itself in the first place — until
+the final audit the quantiles were measured on the very rows their coverage
+was then quoted on, where 80% is arithmetic rather than evidence.
+
+`measured_coverage` is `null` on a model whose calibration was never checked
+against a later season. Null means unmeasured, never 0.
 
 The interval is wide. That is the honest finding, not a defect to tune away:
 market value spans four orders of magnitude and the temporal split is hard.

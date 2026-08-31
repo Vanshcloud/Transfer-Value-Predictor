@@ -17,6 +17,36 @@ multiplicative, which is the shape error in this data actually has.
 
 Bands key on the **predicted** value, not the actual one. At serve time the
 actual is exactly what nobody knows.
+
+**Which rows the quantiles come from matters more than the method.** They are
+measured on the *validation* season and then checked against the *test*
+seasons, which the model and the interval have both never seen. Until the final
+audit they were measured on the test seasons themselves, and an interval fitted
+to the rows it is then scored on covers exactly its nominal level by
+construction — 0.800 at a nominal 0.80, a number that is arithmetic rather than
+evidence.
+
+Measured properly, this method is still the best of the ones tried. Calibrating
+on 2022 and evaluating on 2023 onward, at a nominal 80% (Winkler interval
+score, lower better):
+
+    method                                    coverage   log-width   Winkler
+    band-wise quantiles (this module)            0.768       1.531   10.58M
+    conformalised quantile regression (CQR)      0.776       1.710   10.98M
+    split conformal, symmetric                   0.754       1.531   11.64M
+    LightGBM quantile regression, unconformalised 0.626      1.294   12.53M
+
+(performance-only; with-prior-value orders the same and reaches 0.798.)
+Pooling several held-out seasons' residuals instead of one does not help —
+0.761 to 0.768 across three variations — so the shortfall is not a sample-size
+problem.
+
+It is a temporal one. Split conformal guarantees coverage under
+exchangeability, and consecutive football seasons are not exchangeable: the
+market inflates, the panel's composition shifts. The shortfall from 0.80 to
+0.77 is the size of that shift, and it is reported rather than closed, because
+widening the interval until the number reads 0.80 would be fitting the test
+set through the back door.
 """
 
 from __future__ import annotations
@@ -84,6 +114,47 @@ def calibrate(
     return {"level": level, "bands": bands}
 
 
+def measured_coverage(
+    calibration: dict[str, Any], actual: np.ndarray, predicted: np.ndarray
+) -> dict[str, Any]:
+    """Fraction of held-out rows the interval actually contained.
+
+    The number that makes the calibration checkable. It is computed on rows the
+    quantiles were *not* measured on — otherwise it returns the nominal level
+    whatever the model does, which is what it used to do.
+
+    Returns an empty mapping when there is nothing to measure, so a caller can
+    store the result unconditionally without inventing a coverage of zero.
+    """
+    if not calibration.get("bands"):
+        return {}
+
+    actual = np.asarray(actual, dtype=float)
+    predicted = np.asarray(predicted, dtype=float)
+    if not len(actual):
+        return {}
+
+    bounds = [interval_for(calibration, float(value)) for value in predicted]
+    usable = np.array([bool(bound) for bound in bounds])
+    if not usable.any():
+        return {}
+
+    lower = np.array([bound.get("lower_eur", np.nan) for bound in bounds])
+    upper = np.array([bound.get("upper_eur", np.nan) for bound in bounds])
+    inside = (actual >= lower) & (actual <= upper) & usable
+
+    return {
+        "level": float(calibration.get("level", DEFAULT_LEVEL)),
+        "empirical": float(inside.sum() / usable.sum()),
+        "n": int(usable.sum()),
+        "median_width_eur": float(np.median((upper - lower)[usable])),
+        "basis": (
+            "measured on the test seasons, against quantiles taken from the "
+            "validation season; neither the model nor the interval has seen these rows"
+        ),
+    }
+
+
 def interval_for(calibration: dict[str, Any], prediction_eur: float) -> dict[str, Any]:
     """The interval around one prediction, and an honest note about its basis.
 
@@ -111,10 +182,16 @@ def interval_for(calibration: dict[str, Any], prediction_eur: float) -> dict[str
         )
     )
 
+    coverage = calibration.get("coverage") or {}
     return {
         "level": float(calibration.get("level", DEFAULT_LEVEL)),
         "lower_eur": float(np.expm1(logged + entry["lower_log"])),
         "upper_eur": float(np.expm1(logged + entry["upper_log"])),
         "basis": basis,
         "reference_rows": int(entry["n"]),
+        # The level this interval actually achieved on seasons after the one it
+        # was measured on, or None if it was never checked. Served next to the
+        # nominal level rather than instead of it: a caller who sees only 0.8
+        # will believe 0.8, and the honest figure is lower.
+        "measured_coverage": (float(coverage["empirical"]) if "empirical" in coverage else None),
     }

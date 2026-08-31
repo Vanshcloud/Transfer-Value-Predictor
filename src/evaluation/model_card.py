@@ -134,6 +134,7 @@ def build_model_card(
         f"| MAPE | {artifact.validation.mape:.1%} | {artifact.test.mape:.1%} |",
         f"| Rows | {artifact.validation.n:,} | {artifact.test.n:,} |",
         "",
+        *_interval_section(artifact),
         "## What it relies on",
         "",
         "| Feature | Importance |",
@@ -152,6 +153,37 @@ def build_model_card(
         "  `current_club_*` family) never enter the feature matrix.",
         "- The prior valuation, where used, is explicitly lagged and named so.",
         "- Splits are re-checked for row and player overlap after every split.",
+        "- Club form is joined as of the row's own date, so a match played after",
+        "  the label was set cannot reach the features through an aggregate.",
         "",
     ]
     return "\n".join(lines)
+
+
+def _interval_section(artifact: ModelArtifact) -> list[str]:
+    """The prediction interval's nominal level next to the level it achieved.
+
+    Both, or neither. A nominal 80% printed on its own is the claim; the
+    measured figure is the evidence, and it is lower — the quantiles come from
+    the validation season and are checked a season or more later, across a
+    market that moves. Printing only the nominal number is how an interval
+    comes to be trusted more than it has earned.
+    """
+    coverage = artifact.calibration.get("coverage") or {}
+    if not coverage:
+        return []
+    return [
+        "## Prediction intervals",
+        "",
+        f"| Nominal level | {coverage['level']:.0%} |",
+        "|---|---|",
+        f"| Measured coverage | {coverage['empirical']:.1%} |",
+        f"| Median width | €{coverage['median_width_eur']:,.0f} |",
+        f"| Measured on | {coverage['n']:,} test rows |",
+        "",
+        "Quantiles are taken from the validation season and the coverage above",
+        "is measured on the test seasons, which neither the model nor the",
+        "interval has seen. Measured coverage below the nominal level is the",
+        "cost of predicting forward across seasons that are not exchangeable.",
+        "",
+    ]
