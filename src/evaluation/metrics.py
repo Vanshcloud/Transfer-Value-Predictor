@@ -1,6 +1,6 @@
 """Regression metrics, reported in EUR.
 
-The model trains on ``log1p`` of the target because the raw skew is 8.70. Every
+The model trains on ``log1p`` of the target because the raw skew is 6.16. Every
 number here is computed *after* the inverse transform, in euros, because "0.31
 RMSE in log space" is not a quantity anyone can act on and it silently flatters
 the model: log space compresses exactly the expensive mistakes at the top of

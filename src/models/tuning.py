@@ -9,6 +9,11 @@ disguise.
 Selection is by MAE in EUR, not RMSE and not R^2. The question is "how far off
 is a typical valuation"; RMSE would let a handful of EUR 100M outliers choose
 the model. See docs/EXPERIMENT_TRACKING.md section 4.
+
+Every fold is fitted with the same recency weighting the final model gets. That
+sounds obvious and was not true until the final engineering pass: the search
+fitted unweighted and only the winner was refitted weighted, which meant the
+grid was ranked under an objective the project does not deploy.
 """
 
 from __future__ import annotations
@@ -22,6 +27,7 @@ import pandas as pd
 
 from src.evaluation.metrics import evaluate
 from src.models.registry import ModelSpec, build_pipeline
+from src.models.weighting import fit_params
 from src.utils.logging import get_logger
 
 logger = get_logger(__name__)
@@ -106,7 +112,16 @@ def _score_candidate(
     categorical_features: Sequence[str],
     target_column: str,
 ) -> float:
-    """Mean MAE across the folds for one hyperparameter combination."""
+    """Mean MAE across the folds for one hyperparameter combination.
+
+    Fitted with the **same recency weights the final model is fitted with**.
+    Until the final engineering pass it was not: the search fitted unweighted
+    and the winner was then refitted weighted, so the grid was scored under an
+    objective nobody deploys. A hyperparameter chosen for an unweighted fit is
+    not necessarily the one an weighted fit wants — `min_child_samples` in
+    particular trades directly against how sharply the recent seasons are
+    up-weighted — and the difference cost nothing to remove.
+    """
     features = list(feature_columns)
     errors = []
 
@@ -115,7 +130,7 @@ def _score_candidate(
         pipeline.set_params(**params)
 
         train, validation = frame.loc[fold.train], frame.loc[fold.validation]
-        pipeline.fit(train[features], train[target_column])
+        pipeline.fit(train[features], train[target_column], **fit_params(train["season"]))
         predictions = pipeline.predict(validation[features])
         errors.append(evaluate(validation[target_column], predictions).mae)
 

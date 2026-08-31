@@ -216,10 +216,32 @@ MODEL_REGISTRY: dict[str, ModelSpec] = {
             _xgboost,
             {"n_estimators": [300], "learning_rate": [0.05, 0.1], "max_depth": [4, 6]},
         ),
+        # The regularisation pair is not decoration. The final audit found that
+        # LightGBM at its defaults was the single largest remaining loss on the
+        # shipped model: pooled over five held-out seasons at three seeds,
+        # min_child_samples 20 -> 120 with reg_lambda 20 is worth EUR 19,846 of
+        # MAE for performance_only (t = -2.63, p = 0.0087) and EUR 22,214 for
+        # with_prior_value (t = -3.20, p = 0.0014).
+        #
+        # It also cost knowledge distillation its case. A LightGBM student
+        # taught by the stacked blend beat the unregularised default by
+        # EUR 22,333 (p = 0.0006), which looked like a reason to add a teacher
+        # to every training run. Against a *regularised* LightGBM the same
+        # student is worth EUR 2,487 (p = 0.72) and EUR -3,522 (p = 0.58) — the
+        # ensemble was substituting for regularisation the search had never
+        # been allowed to try. Two values per parameter rather than three: the
+        # points between them are indistinguishable from each other
+        # (p = 0.51, 0.53, 0.65), so a finer grid buys search time, not accuracy.
         ModelSpec(
             "lightgbm",
             _lightgbm,
-            {"n_estimators": [300], "learning_rate": [0.05, 0.1], "num_leaves": [31, 63]},
+            {
+                "n_estimators": [300],
+                "learning_rate": [0.05, 0.1],
+                "num_leaves": [31, 63],
+                "min_child_samples": [20, 120],
+                "reg_lambda": [0.0, 20.0],
+            },
         ),
         ModelSpec(
             "catboost",

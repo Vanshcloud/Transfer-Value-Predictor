@@ -2,10 +2,16 @@
 
 The spike measured all three on this data and the result corrected a prior
 assumption. The expected danger — the same player appearing in both train and
-test — turned out to be worth almost nothing (R^2 0.465 random vs 0.455
+test — turned out to be worth almost nothing (R^2 0.805 random vs 0.795
 grouped), because the as-of join already yields one row per player-season. The
-danger that *does* matter is temporal: R^2 0.412 and a EUR MAE roughly 60%
-worse.
+danger that *does* matter is temporal: R^2 0.770 and a EUR MAE 45% worse than
+the grouped split's.
+
+Those three figures come from ``scripts/train_baseline.py`` on the current
+table and are restated whenever it changes. They were 0.465 / 0.455 / 0.412 and
+"roughly 60% worse" when this docstring was first written, against a table a
+third the size; the ordering has never changed, which is the part the argument
+rests on.
 
 So the temporal split is the reported number and the other two exist to be
 compared against it. A random split on a time series answers "how well does

@@ -6,7 +6,7 @@ earning its place, and the only way to know that is to measure it now.
 
 Every model is wrapped in :class:`~sklearn.compose.TransformedTargetRegressor`
 so it fits on ``log1p(value)`` and predicts in EUR. The target's raw skew is
-8.70 and falls to 0.43 under log1p; fitting on the raw value lets a handful of
+6.16 and falls to 0.37 under log1p; fitting on the raw value lets a handful of
 200M outliers dominate the loss. Doing it through the wrapper rather than by
 hand means no caller can forget the inverse transform, which is the usual way
 this goes wrong.
