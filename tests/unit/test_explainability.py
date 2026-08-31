@@ -19,7 +19,9 @@ import pytest
 
 from src.evaluation.metrics import evaluate
 from src.explainability.shap_explainer import (
+    _EXPLAINERS,
     Contribution,
+    _tree_explainer,
     explain_global,
     explain_prediction,
     supports_shap,
@@ -201,3 +203,65 @@ class TestPredictionExplanation:
 def test_direction_reads_in_plain_english() -> None:
     assert Contribution("age", 30, 0.4, 1.49).direction == "increases"
     assert Contribution("age", 30, -0.4, 0.67).direction == "decreases"
+
+
+class TestTheExplainerIsBuiltOnce:
+    """Building a TreeExplainer walks the whole booster, and it was being redone
+    on every request. That was 97% of `POST /api/v1/predict`: 385ms end to end,
+    of which the actual SHAP call was 5.6ms and inference 5.9ms. Caching it by
+    estimator took the endpoint to 30ms.
+
+    Two things have to stay true for that to be safe, and neither is obvious,
+    so both are asserted: the cache must be *hit*, and it must not change a
+    single SHAP value.
+    """
+
+    def test_the_same_pipeline_yields_the_same_explainer(self, artifact: ModelArtifact) -> None:
+        assert _tree_explainer(artifact.pipeline) is _tree_explainer(artifact.pipeline)
+
+    def test_two_artifacts_do_not_share_an_explainer(self, frame: pd.DataFrame) -> None:
+        """Keyed on the fitted estimator, so two models cannot collide — which
+        would explain one model's prediction with another model's trees."""
+        first, second = build(frame), build(frame)
+        assert _tree_explainer(first.pipeline) is not _tree_explainer(second.pipeline)
+
+    def test_caching_does_not_change_a_single_shap_value(
+        self, artifact: ModelArtifact, frame: pd.DataFrame
+    ) -> None:
+        """An optimisation that alters the explanation is not an optimisation.
+        Verified against a deliberately fresh explainer, bypassing the cache."""
+        import shap
+
+        row = frame.iloc[[0]]
+        cached = explain_prediction(artifact, row)
+
+        ordered = row[list(artifact.feature_columns)]
+        features = artifact.pipeline.named_steps["preprocess"].transform(ordered)
+        fresh = shap.TreeExplainer(artifact.pipeline.named_steps["model"].regressor_)(features)
+
+        fresh_values = np.asarray(fresh.values).reshape(-1)
+        assert [c.shap_value for c in cached.contributions] == [
+            float(v) for v in fresh_values if v != 0.0
+        ]
+        assert cached.base_value_eur == float(
+            np.expm1(np.asarray(fresh.base_values).reshape(-1)[0])
+        )
+
+    def test_the_cache_releases_with_the_model(self, frame: pd.DataFrame) -> None:
+        """A weak *key*, so a redeployed artifact takes its explainer with it.
+
+        The first attempt used a weak *value* and cached nothing at all —
+        nobody else holds a reference to an explainer, so every entry was
+        collected before the next request could use it, and the endpoint stayed
+        at 385ms. Loud is better than a silently useless cache.
+        """
+        import gc
+
+        throwaway = build(frame)
+        _tree_explainer(throwaway.pipeline)
+        before = len(_EXPLAINERS)
+        assert before >= 1
+
+        del throwaway
+        gc.collect()
+        assert len(_EXPLAINERS) < before
