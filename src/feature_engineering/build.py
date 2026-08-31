@@ -41,7 +41,6 @@ from src.feature_engineering.performance import (
     PERFORMANCE_NUMERIC,
     attach_performance,
     match_level_features,
-    squad_match_counts,
     squad_role,
 )
 from src.utils.logging import get_logger
@@ -91,6 +90,56 @@ PLAYER_ATTRIBUTES = (
     "country_of_citizenship",
 )
 
+CAREER_MOMENTUM_NUMERIC = (
+    "prev_minutes_played",
+    "prev_appearances",
+    "prev_goal_contributions",
+    "prev_start_share",
+    "prev_competition_value_level",
+    "prev_club_points_per_game",
+    "prev_squad_match_share",
+    "prev_season_gap",
+    "delta_minutes_played",
+    "delta_goal_contributions",
+    "delta_competition_value_level",
+    "career_minutes_mean",
+    "career_best_competition_level",
+)
+"""What the player did *before* this season, and how this season differs.
+
+The performance-only variant had no backward-looking performance at all: it
+knew how established a player was (``years_since_debut``, ``seasons_observed``)
+but not what he had actually done. A 24-year-old with 2,800 minutes is a
+different proposition depending on whether last season was 2,900 minutes or
+300, and the model could not see the difference.
+
+These are lagged *features*, not a lagged label, which is what makes them legal
+in the variant that deliberately excludes the prior valuation. They come from
+the player's own previous row in this table; ``as_of_date`` is monotone within
+a player, so the previous row's evidence closed strictly earlier — the check in
+``add_career_history`` for the prior *value* is not needed here, because no
+label is involved.
+
+Measured over five held-out seasons (2018-2022) at three seeds, pooled and
+paired:
+
+    performance_only   EUR 1,976,268 -> 1,850,058   -6.4%   t = 11.30
+    with_prior_value   EUR 1,524,483 -> 1,510,028   -0.9%   t =  1.94, p = 0.052
+
+Improved in 5/5 seasons for the first and 4/5 for the second. They ship for
+both variants on one feature list rather than two: the prior-value variant is
+not harmed (the point estimate improves, it simply cannot be distinguished from
+noise there, because ``prev_log_market_value_in_eur`` already encodes most of
+what a trajectory says), and a second feature list is a second thing to keep in
+step for a gain nobody can measure.
+
+The block is thirteen columns rather than the five that survive a
+leave-one-out. Leave-one-out cannot see a feature whose information is
+duplicated by its neighbours, and measured directly the full block beats the
+five-column subset by EUR 27,990 of pooled MAE (t = 4.53). Correlated features
+are cheap for a gradient booster and the smaller set is not the smaller error.
+"""
+
 NUMERIC_FEATURES = (
     (
         "age",
@@ -114,6 +163,7 @@ NUMERIC_FEATURES = (
     )
     + PERFORMANCE_NUMERIC
     + CONTEXT_NUMERIC
+    + CAREER_MOMENTUM_NUMERIC
 )
 
 CATEGORICAL_FEATURES = (
@@ -174,16 +224,42 @@ absent: the first is a log of a value that can legitimately sit below 1, and
 the second is a signed staleness in days.
 """
 
+PLAUSIBLE_RANGES: dict[str, tuple[float, float]] = {
+    "age": (15.0, 45.0),
+    "height_in_cm": (140.0, 220.0),
+}
+"""Closed intervals outside which a value is a caller bug rather than a player.
+
+The companion to :data:`NON_NEGATIVE_FEATURES` and here for the same reason: it
+is a property of what the feature *means*, so it has to hold for a batch job or
+a CLI and not only for an HTTP request.
+
+These two bounds were not invented for this table, they were already written
+down and then not enforced. ``configs/config.yaml`` declared ``data.min_age: 15``
+and ``data.max_age: 45``, `src/utils/config.py` parsed them and even validated
+that the maximum exceeded the minimum — and nothing anywhere read them, so the
+API would answer for a 1,000,000,000,000-year-old with a confident number and a
+200. `src/validation/checks.py` applies the same 140-220 cm range to the raw
+players table. Both are restated here rather than imported from the config
+because the service is constructed without one in tests, in the CLI and in a
+notebook, and a guard that only exists when a config was loaded is a guard that
+is absent exactly when someone is experimenting.
+
+Verified against the built table before being enforced: 0 of 85,966 training
+rows and 0 of 8,709 current-season rows fall outside either interval, so this
+rejects malformed input and nothing else.
+"""
+
 PRIOR_VALUE_FEATURES = ("prev_log_market_value_in_eur", "prev_value_age_days")
 """The lagged label in log space, and how stale it was when the current label
 was set.
 
 Log, not EUR, because the *target* is modelled as log1p: relating log(value_t)
 to a raw-EUR value_(t-1) is a misspecified linear model. Raw, the column has
-skew 4.53 and its largest value sits 17 standard deviations out, so a linear
+skew 5.53 and its largest value sits many standard deviations out, so a linear
 coefficient on that row produces a large prediction in log space that expm1
-turns into billions — measured R^2 of -1.8 million for Ridge. Under log1p the
-skew is 0.10. Tree models are invariant to monotone transforms and never saw
+turns into billions — measured R^2 of -1.8 million for Ridge on the table of
+the day. Under log1p the skew is 0.31. Tree models are invariant to monotone transforms and never saw
 the problem, which is precisely why it would have shipped.
 The raw EUR column stays in the table for readability and for variant
 selection; it is simply not what the model is handed.
@@ -425,6 +501,82 @@ def add_career_history(frame: pd.DataFrame) -> pd.DataFrame:
     return ordered.reset_index(drop=True)
 
 
+MOMENTUM_SOURCES = (
+    "minutes_played",
+    "appearances",
+    "goal_contributions",
+    "start_share",
+    "competition_value_level",
+    "club_points_per_game",
+    "squad_match_share",
+)
+"""Columns lagged one season to form :data:`CAREER_MOMENTUM_NUMERIC`."""
+
+
+def add_career_momentum(
+    frame: pd.DataFrame, *, history: pd.DataFrame | None = None
+) -> pd.DataFrame:
+    """Attach what the player did in his previous season, and the change since.
+
+    Runs *after* enrichment, unlike :func:`add_career_history`, because most of
+    what it lags — the competition level, the club's form, the share of matches
+    started — does not exist until the context and performance joins have run.
+
+    ``history`` supplies earlier rows the frame does not contain. The labelled
+    build has every season in one frame and needs none; the current-season build
+    holds a single unlabelled season and passes the training table, so its
+    "previous season" is a real earlier row rather than a null.
+
+    No knowability guard is needed here, and that is worth stating because
+    :func:`add_career_history` has one. That guard exists because a *label* can
+    be published after the next season has started. These are features, not
+    labels: they were observed by the previous row's ``as_of_date``, which is
+    strictly earlier than this row's (``as_of_date`` is monotone within a
+    player, asserted in ``tests/unit/test_feature_engineering.py``).
+    """
+    present = [column for column in MOMENTUM_SOURCES if column in frame.columns]
+    if not present:
+        for column in CAREER_MOMENTUM_NUMERIC:
+            frame[column] = np.nan
+        return frame
+
+    frame = frame.copy()
+    frame["_momentum_row"] = np.arange(len(frame))
+    if history is None:
+        stacked = frame
+    else:
+        columns = ["player_id", "season", *present]
+        earlier = history.loc[:, [c for c in columns if c in history.columns]].copy()
+        earlier["_momentum_row"] = -1
+        stacked = pd.concat([earlier, frame], ignore_index=True)
+
+    ordered = stacked.sort_values(["player_id", "season"])
+    by_player = ordered.groupby("player_id", sort=False)
+
+    for column in present:
+        ordered["prev_" + column] = by_player[column].shift(1)
+    ordered["prev_season_gap"] = ordered["season"] - by_player["season"].shift(1)
+    for column in ("minutes_played", "goal_contributions", "competition_value_level"):
+        if column in present:
+            ordered["delta_" + column] = ordered[column] - ordered["prev_" + column]
+    if "minutes_played" in present:
+        ordered["career_minutes_mean"] = by_player["minutes_played"].transform(
+            lambda values: values.shift(1).expanding().mean()
+        )
+    if "competition_value_level" in present:
+        ordered["career_best_competition_level"] = by_player["competition_value_level"].transform(
+            lambda values: values.shift(1).expanding().max()
+        )
+
+    produced = [column for column in CAREER_MOMENTUM_NUMERIC if column in ordered.columns]
+    mine = ordered[ordered["_momentum_row"] >= 0].sort_values("_momentum_row")
+    for column in CAREER_MOMENTUM_NUMERIC:
+        frame[column] = (
+            mine[column].to_numpy() if column in produced else np.full(len(frame), np.nan)
+        )
+    return frame.drop(columns=["_momentum_row"])
+
+
 def _mix_for_levels(
     table: pd.DataFrame,
     appearances: pd.DataFrame,
@@ -533,7 +685,6 @@ def _enrich(
             if lineups is not None
             else pd.DataFrame(columns=["player_id", "season"])
         ),
-        squad_matches=squad_match_counts(club_games, games),
     )
 
 
@@ -572,6 +723,7 @@ def build_training_table(
         season_start_month=season_start_month,
         levels_from=None,
     )
+    table = add_career_momentum(table)
     table = _ensure_feature_columns(table)
 
     logger.info(
@@ -683,6 +835,7 @@ def build_current_season_table(
         season_start_month=season_start_month,
         levels_from=training_table,
     )
+    table = add_career_momentum(table, history=training_table)
     table = _ensure_feature_columns(table)
     table = table.drop(columns=["_prev_label_date"], errors="ignore")
 
@@ -724,15 +877,18 @@ def null_rates(table: pd.DataFrame, columns: tuple[str, ...] = FEATURE_COLUMNS) 
 __all__ = [
     "AS_OF_COLUMN",
     "CAREER_CENSORING_CEILING",
+    "CAREER_MOMENTUM_NUMERIC",
     "CATEGORICAL_FEATURES",
     "FEATURE_COLUMNS",
     "FEATURE_TIME_COLUMN",
     "LABEL_TIME_COLUMN",
     "NUMERIC_FEATURES",
+    "PLAUSIBLE_RANGES",
     "PRIOR_VALUE_FEATURES",
     "TARGET_COLUMN",
-    "add_derived_features",
     "add_career_history",
+    "add_career_momentum",
+    "add_derived_features",
     "aggregate_appearances",
     "assign_season",
     "attach_label",

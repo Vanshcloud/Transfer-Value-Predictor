@@ -192,7 +192,15 @@ def test_detect_leakage_passes_a_clean_table(clean_table: pd.DataFrame) -> None:
     assert report.ok, report.render()
 
 
-def test_detect_leakage_catches_all_four_modes(clean_table: pd.DataFrame) -> None:
+def test_detect_leakage_catches_every_mode_the_frame_can_express(
+    clean_table: pd.DataFrame,
+) -> None:
+    """`leakage_future_date` fires alongside `leakage_feature_time` here, and
+    that is the point rather than a duplicate. The first reads the declared
+    feature *timestamp*; the second reads every date *value* in the frame, which
+    is what catches a leak baked into a numeric aggregate whose join date is the
+    only trace it leaves. The two overlap on a frame this small — a real one has
+    date columns that are not the declared feature time."""
     leaky = clean_table.copy()
     leaky["season_end"] = leaky["label_date"] + pd.Timedelta(30, "D")
     leaky["contract_expiration_date"] = "2027-06-30"
@@ -210,6 +218,7 @@ def test_detect_leakage_catches_all_four_modes(clean_table: pd.DataFrame) -> Non
     checks = {f.check for f in report.errors}
     assert checks == {
         "leakage_feature_time",
+        "leakage_future_date",
         "leakage_current_state",
         "leakage_target_in_features",
         "leakage_split_overlap",

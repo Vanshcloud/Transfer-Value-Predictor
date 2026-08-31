@@ -9,7 +9,6 @@ from src.feature_engineering.performance import (
     PERFORMANCE_NUMERIC,
     attach_performance,
     match_level_features,
-    squad_match_counts,
     squad_role,
 )
 
@@ -122,13 +121,13 @@ class TestAvailability:
                 }
             ]
         )
-        club_games = pd.DataFrame([{"game_id": i, "club_id": 7} for i in range(38)])
-        games = pd.DataFrame([{"game_id": i, "season": 2020} for i in range(38)])
+        # club_matches arrives from attach_context, already cut at the row's
+        # as-of date, so the numerator and denominator close at one moment.
+        table["club_matches"] = 38
         out = attach_performance(
             table,
             match_features=pd.DataFrame(columns=["player_id", "season"]),
             role=pd.DataFrame(columns=["player_id", "season"]),
-            squad_matches=squad_match_counts(club_games, games),
         )
         assert out["squad_match_share"].iloc[0] == pytest.approx(0.5)
 
@@ -148,13 +147,11 @@ class TestAvailability:
                 }
             ]
         )
-        club_games = pd.DataFrame([{"game_id": i, "club_id": 7} for i in range(30)])
-        games = pd.DataFrame([{"game_id": i, "season": 2020} for i in range(30)])
+        table["club_matches"] = 30
         out = attach_performance(
             table,
             match_features=pd.DataFrame(columns=["player_id", "season"]),
             role=pd.DataFrame(columns=["player_id", "season"]),
-            squad_matches=squad_match_counts(club_games, games),
         )
         assert out["squad_match_share"].iloc[0] == 1.0
 
@@ -176,7 +173,6 @@ class TestAvailability:
             table,
             match_features=pd.DataFrame(columns=["player_id", "season"]),
             role=pd.DataFrame(columns=["player_id", "season"]),
-            squad_matches=pd.DataFrame(columns=["club_id", "season", "club_season_matches"]),
         )
         assert out["goal_contributions"].iloc[0] == 20
         assert out["contributions_per_90"].iloc[0] == pytest.approx(20 * 90 / 2700)

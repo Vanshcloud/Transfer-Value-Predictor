@@ -285,6 +285,12 @@ def check_no_future_dates(
     column names. This one works on values, so it still fires when a contract
     expiry or a transfer date arrives under a name nobody thought to ban —
     which is the realistic way such a column gets in.
+
+    Run over the *whole* frame by :class:`LeakageValidator`, not the feature
+    subset. That is what lets it audit a numeric feature indirectly: an as-of
+    join that leaves its source date behind as a column becomes checkable by
+    value, and a join whose direction silently regresses fails here rather than
+    in a metric six weeks later.
     """
     if label_time_column not in frame.columns:
         return [
@@ -445,11 +451,21 @@ class LeakageValidator:
         report.extend(check_lagged_values_precede_features(frame, table=self.table))
 
         if self.label_time_column:
+            # The whole frame, not just the feature columns. A feature can be a
+            # numeric aggregate whose *inputs* postdate the label — a club's
+            # points per game averaged over a season that runs a fortnight past
+            # the row's as-of date — and no check on the feature's own name or
+            # dtype can see that. What can see it is the provenance timestamp
+            # the join leaves behind (`club_record_date`), which is a date value
+            # in the frame and is not a feature. Checking only the features
+            # skipped exactly the column that would have caught it: measured on
+            # the full panel, the whole-season club aggregate folded post-label
+            # matches into 1,049 rows for a year before anyone looked.
             report.extend(
                 check_no_future_dates(
                     frame,
                     label_time_column=self.label_time_column,
-                    columns=present,
+                    columns=None,
                     table=self.table,
                 )
             )

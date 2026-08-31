@@ -16,6 +16,7 @@ import pytest
 from src.feature_engineering.build import (
     AS_OF_COLUMN,
     CAREER_CENSORING_CEILING,
+    CAREER_MOMENTUM_NUMERIC,
     CATEGORICAL_FEATURES,
     FEATURE_COLUMNS,
     FEATURE_TIME_COLUMN,
@@ -26,6 +27,7 @@ from src.feature_engineering.build import (
     PRIOR_VALUE_FEATURES,
     TARGET_COLUMN,
     add_career_history,
+    add_career_momentum,
     add_derived_features,
     aggregate_appearances,
     assign_season,
@@ -804,3 +806,85 @@ class TestTheFullFeatureSetOnSampleData:
         )
         assert len(thin) == len(rich)
         assert not rich.duplicated(subset=["player_id", "season"]).any()
+
+
+class TestCareerMomentum:
+    """The lagged-feature block, and the premise it rests on.
+
+    `add_career_momentum` has no knowability guard, unlike `add_career_history`.
+    That is safe only because a player's as-of dates are monotone in season, so
+    the previous row's evidence necessarily closed earlier. The first test here
+    is that premise; the rest are the lag itself.
+    """
+
+    def frame(self, seasons: list[int], minutes: list[int]) -> pd.DataFrame:
+        return pd.DataFrame(
+            {
+                "player_id": [1] * len(seasons),
+                "season": seasons,
+                "minutes_played": minutes,
+                "appearances": [m // 90 for m in minutes],
+                "goal_contributions": [i for i, _ in enumerate(minutes)],
+                "start_share": [0.5] * len(seasons),
+                "competition_value_level": [14.0 + i for i, _ in enumerate(minutes)],
+                "club_points_per_game": [1.5] * len(seasons),
+                "squad_match_share": [0.6] * len(seasons),
+            }
+        )
+
+    def test_as_of_dates_are_monotone_within_a_player(
+        self, sample_players, sample_valuations, sample_appearances, sample_context
+    ) -> None:
+        """The whole block is legal because of this. If a player's as-of dates
+        ever ran backwards, `prev_*` would describe a season that had not
+        finished when the current one's evidence closed."""
+        table = build_training_table(
+            sample_players, sample_valuations, sample_appearances, **sample_context
+        )
+        ordered = table.sort_values(["player_id", "season"])
+        assert (
+            ordered.groupby("player_id")["as_of_date"]
+            .apply(lambda dates: dates.is_monotonic_increasing)
+            .all()
+        )
+
+    def test_the_previous_season_is_the_previous_row(self) -> None:
+        out = add_career_momentum(self.frame([2019, 2020, 2021], [900, 1800, 2700]))
+        assert out["prev_minutes_played"].tolist()[1:] == [900.0, 1800.0]
+        assert out["delta_minutes_played"].tolist()[1:] == [900.0, 900.0]
+
+    def test_a_first_season_has_no_history_rather_than_a_zero(self) -> None:
+        """Null and zero are different claims. A debutant did not play zero
+        minutes last season; there was no last season."""
+        out = add_career_momentum(self.frame([2019, 2020], [900, 1800]))
+        assert pd.isna(out["prev_minutes_played"].iloc[0])
+        assert pd.isna(out["career_minutes_mean"].iloc[0])
+
+    def test_the_career_mean_excludes_the_current_season(self) -> None:
+        """`expanding()` after `shift(1)`. Including the current season would
+        make the feature a function of its own row."""
+        out = add_career_momentum(self.frame([2019, 2020, 2021], [900, 1800, 2700]))
+        assert out["career_minutes_mean"].tolist()[1:] == [900.0, 1350.0]
+
+    def test_a_gap_in_seasons_is_recorded_not_hidden(self) -> None:
+        """An injury year leaves a hole, and a two-year-old figure deserves
+        less weight than last season's."""
+        out = add_career_momentum(self.frame([2019, 2022], [900, 1800]))
+        assert out["prev_season_gap"].iloc[1] == 3
+
+    def test_history_supplies_the_previous_season_for_an_unlabelled_row(self) -> None:
+        """What the current-season build relies on: a frame holding one
+        unlabelled season still gets a real prior from the training table."""
+        history = self.frame([2023], [2000])
+        current = self.frame([2024], [1000])
+        out = add_career_momentum(current, history=history)
+        assert out["prev_minutes_played"].iloc[0] == 2000.0
+        assert out["delta_minutes_played"].iloc[0] == -1000.0
+
+    def test_a_frame_without_the_source_columns_gets_nulls_not_an_error(self) -> None:
+        """The sample-data path has no enrichment, so the columns it would lag
+        do not exist. Declared-but-absent is missing data, which the fitted
+        imputer already knows how to handle."""
+        out = add_career_momentum(pd.DataFrame({"player_id": [1], "season": [2020]}))
+        assert all(column in out.columns for column in CAREER_MOMENTUM_NUMERIC)
+        assert out[list(CAREER_MOMENTUM_NUMERIC)].isna().all().all()

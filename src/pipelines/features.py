@@ -139,11 +139,20 @@ def build_features(
         label_tolerance_days=tolerance_days,
     )
 
-    # Check the harder of the two variants: it carries every column the
-    # performance-only variant does, plus the lagged target most likely to be
-    # mis-specified.
-    with_prior, feature_columns = select_variant(table, include_prior_value=True)
-    leakage = leakage_validator(feature_columns).validate(with_prior)
+    # Every row, not only the prior-value variant's.
+    #
+    # This used to validate `select_variant(include_prior_value=True)` on the
+    # grounds that it "carries every column the performance-only variant does,
+    # plus the lagged target most likely to be mis-specified". True of the
+    # columns and false of the rows: that frame is 61,522 of 85,966, so the
+    # 24,444 rows with no prior value — 28.4%, and every player's first season
+    # among them — were never checked for duplicate entities, feature/label
+    # ordering or future-dated values. They pass today. Nothing was making them.
+    with_prior, prior_columns = select_variant(table, include_prior_value=True)
+    _, all_columns = select_variant(table, include_prior_value=False)
+
+    leakage = leakage_validator(all_columns).validate(table)
+    leakage.extend(leakage_validator(prior_columns).validate(with_prior).findings)
     for finding in leakage.warnings:
         logger.warning("%s", finding.render())
     leakage.raise_for_errors()
@@ -165,6 +174,16 @@ def build_features(
         season_start_month=season_start_month,
     )
     if not current.empty:
+        # The serving table gets the same contract as the training table.
+        # It had none: these rows are what `/api/v1/predict` answers from, and
+        # nothing checked that a feature on them predates the moment they claim
+        # to describe. They have no label, so the label-ordering checks skip
+        # themselves; the duplicate, current-state and lagged-value checks all
+        # still apply and are the ones that would catch a bad join here.
+        current_leakage = leakage_validator(all_columns).validate(current)
+        for finding in current_leakage.warnings:
+            logger.warning("current_season: %s", finding.render())
+        current_leakage.raise_for_errors()
         store.write_table(CURRENT_SEASON_TABLE, current)
 
     return FeatureReport(

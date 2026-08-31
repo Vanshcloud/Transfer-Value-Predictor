@@ -16,6 +16,7 @@ import pytest
 from src.feature_engineering.context import (
     CONTEXT_CATEGORICAL,
     CONTEXT_NUMERIC,
+    attach_context,
     club_season_strength,
     competition_strength,
     player_competition_mix,
@@ -225,19 +226,87 @@ class TestClubStrength:
         )
         games = pd.DataFrame(
             [
-                {"game_id": i, "season": 2020, "competition_type": "domestic_league"}
+                {
+                    "game_id": i,
+                    "date": f"2020-09-0{i}",
+                    "season": 2020,
+                    "competition_type": "domestic_league",
+                }
                 for i in (1, 2, 3)
             ]
         )
         out = club_season_strength(club_games, games)
-        assert out["club_points_per_game"].iloc[0] == pytest.approx(4 / 3)
-        assert out["club_goal_difference_per_game"].iloc[0] == pytest.approx(1 / 3)
+        # A running record, one row per match date: the last row carries the
+        # whole three-match season, the first only the opening win.
+        assert len(out) == 3
+        assert out["club_points_per_game"].iloc[-1] == pytest.approx(4 / 3)
+        assert out["club_goal_difference_per_game"].iloc[-1] == pytest.approx(1 / 3)
+        assert out["club_points_per_game"].iloc[0] == pytest.approx(3.0)
+        assert out["club_matches"].tolist() == [1, 2, 3]
+
+    def test_the_record_never_includes_a_match_played_later(self) -> None:
+        """The reason this function returns a running record at all.
+
+        A season is named for its August and runs to July, so a match on 20 July
+        belongs to it while falling after the 1 July as-of boundary most rows
+        use. Averaged over the whole season, that match reached 17.6% of rows
+        and postdated the label on 1.22% of them.
+        """
+        club_games = pd.DataFrame(
+            [
+                {
+                    "game_id": 1,
+                    "club_id": 7,
+                    "own_goals": 0,
+                    "opponent_goals": 3,
+                    "own_position": 8,
+                },
+                {
+                    "game_id": 2,
+                    "club_id": 7,
+                    "own_goals": 5,
+                    "opponent_goals": 0,
+                    "own_position": 1,
+                },
+            ]
+        )
+        games = pd.DataFrame(
+            [
+                {"game_id": 1, "date": "2021-05-01", "season": 2020, "competition_type": "d"},
+                # After the 1 July boundary, still season 2020.
+                {"game_id": 2, "date": "2021-07-20", "season": 2020, "competition_type": "d"},
+            ]
+        )
+        record = club_season_strength(club_games, games)
+        table = pd.DataFrame(
+            [
+                {
+                    "player_id": 1,
+                    "season": 2020,
+                    "primary_club_id": 7,
+                    "primary_competition_id": "GB1",
+                    "as_of_date": pd.Timestamp("2021-07-01"),
+                }
+            ]
+        )
+        out = attach_context(
+            table,
+            competition_mix=pd.DataFrame(columns=["player_id", "season"]),
+            club_strength=record,
+            competition_levels=pd.DataFrame(columns=["primary_competition_id", "season"]),
+        )
+        # The 5-0 on 20 July had not been played on 1 July and must not count.
+        assert out["club_matches"].iloc[0] == 1
+        assert out["club_points_per_game"].iloc[0] == pytest.approx(0.0)
+        assert out["club_record_date"].iloc[0] == pd.Timestamp("2021-05-01")
 
     def test_a_game_with_no_season_is_dropped_not_guessed(self) -> None:
         club_games = pd.DataFrame(
             [{"game_id": 9, "club_id": 7, "own_goals": 1, "opponent_goals": 0, "own_position": 1}]
         )
-        games = pd.DataFrame([{"game_id": 9, "season": None, "competition_type": "x"}])
+        games = pd.DataFrame(
+            [{"game_id": 9, "date": "2020-09-01", "season": None, "competition_type": "x"}]
+        )
         assert club_season_strength(club_games, games).empty
 
 

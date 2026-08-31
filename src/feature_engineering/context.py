@@ -13,11 +13,25 @@ cup) and the size of the competition. These are properties of the competition,
 not of any season, so they carry no time dimension and cannot leak.
 
 **Club results strength** — from ``club_games.csv``. Points per game, goal
-difference and league position, computed from match results *within the season
-being described*. This is safe: the as-of date is the later of the season
-boundary and the player's last appearance, so every result in that season is
-already observed when the label is set. It is also the honest measure — a
-club's actual results, not a reputation.
+difference and league position, accumulated **up to the row's as-of date**
+rather than over the whole season. It is the honest measure — a club's actual
+results, not a reputation.
+
+The as-of bound is not fussiness. This module previously argued that a whole-season
+mean was safe "because the as-of date is the later of the season boundary and
+the player's last appearance, so every result in that season is already
+observed". That argument is wrong by up to thirty days. A season runs
+August-July and is named for the August, so a match played on 20 July belongs
+to it while sitting *after* the 1 July boundary that most as-of dates fall on:
+5.56% of all fixtures are dated in July. Measured on the full panel, the
+whole-season mean folded post-as-of matches into 15,126 rows (17.6%), and for
+1,049 of them (1.22%) those matches were played after the *label* was set —
+label leakage, in a numeric aggregate where no date-column check could see it.
+
+Removing it costs nothing measurable (paired on the 2022 validation season,
+EUR -10,497 for performance-only at t = -0.69, p = 0.49; EUR -1,684 at
+p = 0.89 with prior value), which is the point: the leak was not buying
+accuracy, only overstating provenance.
 
 **Competition value level** — the one that needs care, and the reason this
 module exists rather than a few extra lines in ``build.py``. The natural
@@ -141,16 +155,33 @@ def player_competition_mix(
 
 
 def club_season_strength(club_games: pd.DataFrame, games: pd.DataFrame) -> pd.DataFrame:
-    """Points per game, goal difference and league position, per club-season.
+    """A club's running record: one row per club-season-**match date**.
 
-    Built from results the season already produced, so it is knowable at the
-    as-of date. ``is_win`` is 1/0 in this source and does not distinguish a draw
-    from a defeat, so points are reconstructed from the goals instead.
+    Not one row per club-season. The caller joins this with
+    :func:`pandas.merge_asof` on the player-season's as-of date, so a row is
+    described by the club's form *at the moment that row's evidence closed* and
+    never by matches played afterwards. See this module's docstring for the
+    measured size of the leak the whole-season version carried.
+
+    Returning the running record rather than accepting the as-of dates here
+    keeps the aggregation independent of which frame is being enriched — the
+    labelled build and the current-season build hand it the same club history
+    and differ only in where they cut it.
+
+    ``club_matches`` is the count to date, which is also the availability
+    denominator :mod:`src.feature_engineering.performance` needs: the player's
+    appearances are counted to the same as-of date, so numerator and
+    denominator now close at the same moment.
+
+    ``is_win`` is 1/0 in this source and does not distinguish a draw from a
+    defeat, so points are reconstructed from the goals instead.
     """
     joined = club_games.merge(
-        games.loc[:, ["game_id", "season", "competition_type"]], on="game_id", how="left"
-    ).dropna(subset=["season"])
+        games.loc[:, ["game_id", "date", "season", "competition_type"]], on="game_id", how="left"
+    ).dropna(subset=["season", "date"])
     joined = joined.astype({"season": "int64"})
+    joined["date"] = pd.to_datetime(joined["date"], errors="coerce")
+    joined = joined.dropna(subset=["date"])
 
     goals_for = pd.to_numeric(joined["own_goals"], errors="coerce")
     goals_against = pd.to_numeric(joined["opponent_goals"], errors="coerce")
@@ -158,15 +189,42 @@ def club_season_strength(club_games: pd.DataFrame, games: pd.DataFrame) -> pd.Da
         goals_for > goals_against, 3.0, np.where(goals_for == goals_against, 1.0, 0.0)
     )
     joined["goal_difference"] = goals_for - goals_against
+    joined["position"] = pd.to_numeric(joined["own_position"], errors="coerce")
 
-    grouped = joined.groupby(["club_id", "season"], as_index=False).agg(
-        club_matches=("game_id", "count"),
-        club_points_per_game=("points", "mean"),
-        club_goal_difference_per_game=("goal_difference", "mean"),
-        club_league_position=("own_position", "mean"),
+    joined = joined.sort_values(["club_id", "season", "date"])
+    by_club_season = joined.groupby(["club_id", "season"], sort=False)
+
+    # Cumulative rather than aggregate: match n's row carries the record over
+    # matches 1..n. Two matches on the same date both appear; merge_asof takes
+    # the last one at or before the as-of date, which is the complete record
+    # for that day.
+    joined["club_matches"] = by_club_season.cumcount() + 1
+    joined["club_points_per_game"] = by_club_season["points"].cumsum() / joined["club_matches"]
+    joined["club_goal_difference_per_game"] = (
+        by_club_season["goal_difference"].cumsum() / joined["club_matches"]
     )
-    logger.info("club strength for %d club-seasons", len(grouped))
-    return grouped
+    joined["club_league_position"] = by_club_season["position"].transform(
+        lambda s: s.expanding().mean()
+    )
+
+    running = joined.loc[
+        :,
+        [
+            "club_id",
+            "season",
+            "date",
+            "club_matches",
+            "club_points_per_game",
+            "club_goal_difference_per_game",
+            "club_league_position",
+        ],
+    ].reset_index(drop=True)
+    logger.info(
+        "club running strength: %d match rows over %d club-seasons",
+        len(running),
+        by_club_season.ngroups,
+    )
+    return running
 
 
 def competition_strength(labelled: pd.DataFrame, *, target_column: str) -> pd.DataFrame:
@@ -218,28 +276,85 @@ def competition_strength(labelled: pd.DataFrame, *, target_column: str) -> pd.Da
     return out
 
 
+CLUB_RECORD_DATE_COLUMN = "club_record_date"
+"""Date of the most recent club match folded into this row's club columns.
+
+Carried into the training table on purpose. The club record is joined with
+``merge_asof``, and a merge direction is an argument rather than a fact; this
+column turns it into one a check can read.
+"""
+
+CLUB_RUNNING_COLUMNS = (
+    "club_matches",
+    "club_points_per_game",
+    "club_goal_difference_per_game",
+    "club_league_position",
+)
+"""What :func:`club_season_strength` contributes, joined as of the row's date."""
+
+
 def attach_context(
     table: pd.DataFrame,
     *,
     competition_mix: pd.DataFrame,
     club_strength: pd.DataFrame,
     competition_levels: pd.DataFrame,
+    as_of_column: str = "as_of_date",
 ) -> pd.DataFrame:
-    """Join every context feature onto the player-season table."""
+    """Join every context feature onto the player-season table.
+
+    The club record joins with :func:`pandas.merge_asof`, not an equality
+    merge: :func:`club_season_strength` returns a running record and the row is
+    entitled to the part of it that had happened by ``as_of_column``. Every
+    other join is on keys that carry no within-season time dimension.
+    """
     out = table.merge(
         competition_mix.drop(columns=["total_minutes_ctx"], errors="ignore"),
         on=["player_id", "season"],
         how="left",
     )
-    out = out.merge(
-        club_strength.rename(columns={"club_id": "primary_club_id"}),
-        on=["primary_club_id", "season"],
-        how="left",
-    )
+    out = _attach_club_record(out, club_strength, as_of_column=as_of_column)
     return out.merge(competition_levels, on=["primary_competition_id", "season"], how="left")
 
 
+def _attach_club_record(
+    table: pd.DataFrame, club_strength: pd.DataFrame, *, as_of_column: str
+) -> pd.DataFrame:
+    """The club's record as it stood on the row's as-of date.
+
+    ``merge_asof`` requires both sides sorted on the join key and returns a
+    fresh index, so the original index is carried through explicitly rather
+    than assumed — the caller's frame is not always a clean RangeIndex.
+    """
+    if as_of_column not in table.columns or club_strength.empty:
+        for column in CLUB_RUNNING_COLUMNS:
+            table[column] = np.nan
+        return table
+
+    right = club_strength.rename(
+        columns={"club_id": "primary_club_id", "date": CLUB_RECORD_DATE_COLUMN}
+    ).sort_values(CLUB_RECORD_DATE_COLUMN)
+    left = table.sort_values(as_of_column)
+    merged = pd.merge_asof(
+        left,
+        right,
+        left_on=as_of_column,
+        right_on=CLUB_RECORD_DATE_COLUMN,
+        by=["primary_club_id", "season"],
+        direction="backward",
+        allow_exact_matches=True,
+    )
+    merged.index = left.index
+    # Kept, not dropped. It is the provenance of every club column on the row —
+    # the date of the last match folded into them — so leaving it in the frame
+    # is what lets `check_no_future_dates` audit this join by value instead of
+    # anyone having to trust the merge direction. See that check's docstring.
+    return merged.reindex(table.index)
+
+
 __all__ = [
+    "CLUB_RECORD_DATE_COLUMN",
+    "CLUB_RUNNING_COLUMNS",
     "CONTEXT_CATEGORICAL",
     "CONTEXT_NUMERIC",
     "MIN_ROWS_FOR_STRENGTH",

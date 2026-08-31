@@ -139,32 +139,24 @@ def squad_role(lineups: pd.DataFrame, *, start_month: int = 8) -> pd.DataFrame:
     return out.drop(columns=["captain_matches"])
 
 
-def squad_match_counts(club_games: pd.DataFrame, games: pd.DataFrame) -> pd.DataFrame:
-    """How many matches each club played per season — the availability denominator."""
-    joined = club_games.loc[:, ["game_id", "club_id"]].merge(
-        games.loc[:, ["game_id", "season"]], on="game_id", how="left"
-    )
-    joined = joined.dropna(subset=["season"]).astype({"season": "int64"})
-    return joined.groupby(["club_id", "season"], as_index=False).agg(
-        club_season_matches=("game_id", "nunique")
-    )
-
-
 def attach_performance(
     table: pd.DataFrame,
     *,
     match_features: pd.DataFrame,
     role: pd.DataFrame,
-    squad_matches: pd.DataFrame,
 ) -> pd.DataFrame:
-    """Join the richer performance features and derive the ones that need both sides."""
+    """Join the richer performance features and derive the ones that need both sides.
+
+    ``club_matches`` is expected to be present already, put there by
+    :func:`~src.feature_engineering.context.attach_context` as of this row's
+    date. It is not re-derived here: two functions computing the same
+    denominator from the same source, at two different time bounds, is how the
+    numerator and denominator drifted apart in the first place.
+    """
     out = table.merge(match_features, on=["player_id", "season"], how="left")
     out = out.merge(role, on=["player_id", "season"], how="left")
-    out = out.merge(
-        squad_matches.rename(columns={"club_id": "primary_club_id"}),
-        on=["primary_club_id", "season"],
-        how="left",
-    )
+    if "club_matches" not in out.columns:
+        out["club_matches"] = np.nan
 
     out["goal_contributions"] = out["goals"] + out["assists"]
     per_90 = 90.0 / out["minutes_played"].clip(lower=90.0)
@@ -173,7 +165,7 @@ def attach_performance(
     # count can exceed either club's total. Above 1 the ratio stops meaning
     # "how available was he" and starts meaning "he moved", which
     # `competitions_played` already carries.
-    out["squad_match_share"] = (out["appearances"] / out["club_season_matches"].clip(lower=1)).clip(
+    out["squad_match_share"] = (out["appearances"] / out["club_matches"].clip(lower=1)).clip(
         upper=1.0
     )
     return out.drop(columns=["matches_counted", "club_season_matches"], errors="ignore")
@@ -184,6 +176,5 @@ __all__ = [
     "PERFORMANCE_NUMERIC",
     "attach_performance",
     "match_level_features",
-    "squad_match_counts",
     "squad_role",
 ]
