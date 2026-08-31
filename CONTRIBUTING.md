@@ -68,11 +68,21 @@ docker run --rm -v "$PWD/frontend:/w" -w /w node:24-slim \
 ```
 
 **Regenerate `requirements-lock.txt` after editing `requirements.txt`**, and
-`requirements-serve-lock.txt` after editing `requirements-serve.txt`:
+`requirements-serve-lock.txt` after editing `requirements-serve.txt`.
+
+Dependencies are declared in two files on purpose. `requirements.txt` carries
+reasoned ranges, each with a comment saying why the bound exists — `pandas<3`
+because pandas 3 changes the default string dtype and makes Copy-on-Write
+permanent, which is a silent behaviour change in a categorical-heavy pipeline.
+`requirements-lock.txt` pins all 55 packages, transitives included, and is what
+CI, the Docker image and `make setup` install, so a build today and a build in
+March contain the same bytes.
 
 ```bash
 uv pip compile requirements.txt --python-version 3.13 --output-file requirements-lock.txt
 uv pip compile requirements-serve.txt --python-version 3.13 --output-file requirements-serve-lock.txt
 ```
 
-`tests/unit/test_dependencies.py` fails if a declaration and its lock disagree.
+`tests/unit/test_dependencies.py` fails if a declaration and its lock disagree,
+if the lock stops pinning exactly, if it steps over a declared bound, or if an
+HTML parser reappears through a transitive dependency.

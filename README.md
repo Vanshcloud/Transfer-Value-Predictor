@@ -150,25 +150,26 @@ python scripts/build_reports.py    # evaluation, SHAP, error analysis, model car
 
 **The training table**
 
-| | |
-|---|---|
-| rows | **85,966** player-seasons |
-| players | **24,411** |
-| seasons | **2011–2024** |
-| features | **54** (+2 in the prior-value variant) |
-| rows with a prior-season value | **61,522** |
-| current-season rows, predictable | **8,709** |
-| **confirmed leakage findings, after six audits** | **0** |
+| Metric | Value |
+|--------|-------|
+| Rows | 85,966 player-seasons |
+| Players | 24,411 |
+| Seasons | 2011–2024 |
+| Features | 54 (+2 in prior-value variant) |
+| Rows with prior-season value | 61,522 |
+| Current-season predictions | 8,709 |
+| Confirmed data leakage | 0 |
 
-The label is the first valuation recorded **after** the season's evidence is
-complete — a forward as-of join, never an equality merge, because valuations
-are an irregular on-change event series. Two variants come out of the one
-table: *performance-only* (every row, the useful model for scouting) and
-*with prior value* (61,522 rows, the accurate model for tracking). Shipping
-only the second would be technically true and practically useless.
+> Data leakage was assessed through six independent audit phases; no confirmed
+> leakage remained in the final dataset.
 
-> The label window, the 120/180/365-day tolerance analysis, the join mechanics
-> and how the table grew from 36,880 rows are in
+Two variants come out of the one table: *performance-only* (every row, the
+useful model for scouting) and *with prior value* (61,522 rows, the accurate
+model for tracking). Shipping only the second would be technically true and
+practically useless.
+
+> How the label is built, the tolerance window, the join mechanics and how the
+> table reached this size are in
 > **[`docs/METHODOLOGY.md` §1](docs/METHODOLOGY.md#1-label-construction)**.
 
 ## What the model sees
@@ -446,23 +447,13 @@ make test          # unit tests
 make quality       # ruff + black --check + mypy
 ```
 
-Python 3.13.
+Python 3.13. Dependencies are declared as reasoned ranges in
+`requirements.txt` and pinned exactly — all 55 packages, transitives included —
+in `requirements-lock.txt`, which is what CI, Docker and `make setup` install.
+`tests/unit/test_dependencies.py` fails if the two ever disagree.
 
-Dependencies are declared in two files on purpose. `requirements.txt` carries
-reasoned ranges, each with a comment saying why the bound exists — `pandas<3`
-because pandas 3 changes the default string dtype and makes Copy-on-Write
-permanent, which is a silent behaviour change in a categorical-heavy pipeline.
-`requirements-lock.txt` pins all 55 packages, transitives included, and is what
-CI, the Docker image and `make setup` install, so a build today and a build in
-March contain the same bytes. Regenerate it with:
-
-```bash
-uv pip compile requirements.txt --python-version 3.13 --output-file requirements-lock.txt
-```
-
-`tests/unit/test_dependencies.py` fails if the two disagree, if the lock stops
-pinning exactly, if it steps over a declared bound, or if an HTML parser
-reappears through a transitive dependency.
+> Why the bounds are where they are, and how to regenerate either lock, is in
+> **[`CONTRIBUTING.md`](CONTRIBUTING.md)**.
 
 ## Testing
 
@@ -536,35 +527,26 @@ assumed — the working is in
 
 ## What an adversarial audit found
 
-The project has been audited five times. The last one
-([`plans/07-adversarial-audit.md`](plans/07-adversarial-audit.md)) was told not
-to improve anything and to try to break it instead, and found two silent
-high-severity bugs that four previous passes had missed — both of which
-returned an empty list rather than an error, which is why nothing caught them:
+The project has been audited six times. The fifth pass was told not to improve
+anything and to try to break it instead, and found two high-severity bugs that
+four previous passes had missed — both returning an empty list rather than an
+error, which is why nothing caught them:
 
-- **Comparables were dead for every active player.** `similar_players` anchored
-  on a player's most recent row, which since v1.2.0 is the unlabelled season
-  being played, against a labelled-only pool. 8,709 players, 32.8% of the
-  panel, all getting "No comparable seasons found."
-- **59% of players had an empty career chart.** The service required all 54
-  features to be non-null before showing a row, in a pipeline that carries a
-  fitted imputer — dropping 65.3% of rows and every player's first season.
+- **Comparables were dead for every active player** — 32.8% of the panel.
+- **59% of players had an empty career chart**, because the service required
+  all 54 features to be non-null in a pipeline that carries a fitted imputer.
 
-Neither was a modelling error and neither showed in a metric. Both are fixed,
-both have regression tests, and the pattern is worth stating: *an empty result
+Neither was a modelling error and neither showed in a metric. Both are fixed
+and both have regression tests. The pattern is worth stating: *an empty result
 is not a safe failure mode.* The metrics in this README were never wrong; the
 dashboard was quietly showing a third of its users nothing.
 
-A sixth pass ([`plans/08-staff-engineering-pass.md`](plans/08-staff-engineering-pass.md))
-then looked at the engineering rather than the science and found the largest
-single defect in the serving path: **`POST /predict` spent 97% of its time
-rebuilding a SHAP explainer** for a model that never changes. Caching it took
-the endpoint from **385ms to 30ms** with bit-identical output. Inference was
-never the cost — it is 5.9ms of the 30.
+The sixth pass looked at engineering rather than science and found the largest
+defect in the serving path: **`POST /predict` spent 97% of its time rebuilding
+a SHAP explainer** for a model that never changes. Caching it took the endpoint
+from **385 ms to 30 ms** with bit-identical output.
 
-Measured latency, p50, on the full panel:
-
-| endpoint | p50 |
+| Endpoint | p50 |
 |---|---|
 | `GET /players/{id}` | 2.8 ms |
 | `GET /players/{id}/history` | 8.9 ms |
@@ -572,8 +554,12 @@ Measured latency, p50, on the full panel:
 | `GET /players?q=` | 14.2 ms |
 | `POST /predict` (with SHAP explanation) | 29.8 ms |
 
-Startup is 1.27s including both models, 86k player-seasons and 50k names; RSS
+Startup is 1.27 s including both models, 86k player-seasons and 50k names; RSS
 settles around 660 MB.
+
+> Both audits in full, with the measurements behind every figure:
+> **[`plans/07-adversarial-audit.md`](plans/07-adversarial-audit.md)** and
+> **[`plans/08-staff-engineering-pass.md`](plans/08-staff-engineering-pass.md)**.
 
 ## How it was built
 
