@@ -42,6 +42,15 @@ the useful model, for scouting) and *with prior value* (61,522 rows; the
 accurate model, for tracking). Shipping only the second would be technically
 true and practically useless.
 
+They differ by a row filter and two columns. Performance-only is fitted on the
+**54** declared features; with-prior-value adds
+`prev_log_market_value_in_eur` and `prev_value_age_days` for **56**, and drops
+every row that has no earlier valuation to lag. The lagged value is the target
+from an earlier season, which is why it is named with the `prev_` prefix the
+leakage detector accepts as proof a copy of the target is deliberate — and why
+`prev_value_age_days` exists beside it, since a valuation one season old and
+one four years old deserve different weight.
+
 ### What the table grew to
 
 | | before Phase 15 | now |

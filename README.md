@@ -155,7 +155,7 @@ python scripts/build_reports.py    # evaluation, SHAP, error analysis, model car
 | Rows | 85,966 player-seasons |
 | Players | 24,411 |
 | Seasons | 2011–2024 |
-| Features | 54 (+2 in prior-value variant) |
+| Features | 54 |
 | Rows with prior-season value | 61,522 |
 | Current-season predictions | 8,709 |
 | Confirmed data leakage | 0 |
