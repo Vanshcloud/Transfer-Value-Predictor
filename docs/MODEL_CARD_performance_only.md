@@ -1,6 +1,6 @@
 # Model card — performance_only
 
-Generated 2026-08-30T23:31:52.501716+00:00 from `performance_only__lightgbm`.
+Generated 2026-08-31T19:07:45.881722+00:00 from `performance_only__lightgbm`.
 This file is written from the artifact, so it cannot describe a model that
 is no longer the one on disk.
 
@@ -18,9 +18,9 @@ Estimate a player's market value from on-pitch performance and biography alone, 
 
 | Family | `lightgbm` |
 |---|---|
-| Hyperparameters | `{'model__regressor__n_estimators': 300, 'model__regressor__learning_rate': 0.1, 'model__regressor__num_leaves': 63}` |
+| Hyperparameters | `{'model__regressor__n_estimators': 300, 'model__regressor__learning_rate': 0.1, 'model__regressor__num_leaves': 63, 'model__regressor__min_child_samples': 120, 'model__regressor__reg_lambda': 0.0}` |
 | Target | `market_value_in_eur`, trained on `log1p`, reported in EUR |
-| Features | 41 |
+| Features | 54 |
 | Seed | 42 |
 
 ## Data and split
@@ -36,26 +36,39 @@ Test seasons, in EUR. These are held-out seasons the model never saw.
 
 | Metric | Validation | Test |
 |---|---|---|
-| MAE | €2,063,630 | €2,205,618 |
-| RMSE | €5,271,584 | €5,419,571 |
-| R² | 0.798 | 0.813 |
-| MAPE | 51.8% | 58.0% |
+| MAE | €1,938,817 | €2,068,081 |
+| RMSE | €4,978,845 | €4,995,721 |
+| R² | 0.820 | 0.841 |
+| MAPE | 47.6% | 52.2% |
 | Rows | 6,573 | 13,486 |
+
+## Prediction intervals
+
+| Nominal level | 80% |
+|---|---|
+| Measured coverage | 76.9% |
+| Median width | €2,052,897 |
+| Measured on | 13,486 test rows |
+
+Quantiles are taken from the validation season and the coverage above
+is measured on the test seasons, which neither the model nor the
+interval has seen. Measured coverage below the nominal level is the
+cost of predicting forward across seasons that are not exchangeable.
 
 ## What it relies on
 
 | Feature | Importance |
 |---|---|
-| `numeric__competition_value_level` | 1,446 |
-| `numeric__age` | 1,298 |
-| `numeric__years_since_debut` | 1,118 |
-| `numeric__club_goal_difference_per_game` | 1,056 |
-| `numeric__club_league_position` | 1,048 |
-| `numeric__club_points_per_game` | 938 |
-| `numeric__competition_tier_rank` | 796 |
-| `numeric__squad_match_share` | 783 |
-| `numeric__height_in_cm` | 686 |
-| `numeric__minutes_played` | 618 |
+| `numeric__competition_value_level` | 1,258 |
+| `numeric__age` | 1,185 |
+| `numeric__years_since_debut` | 902 |
+| `numeric__club_goal_difference_per_game` | 815 |
+| `numeric__club_league_position` | 812 |
+| `numeric__club_points_per_game` | 760 |
+| `numeric__competition_tier_rank` | 734 |
+| `numeric__age_squared` | 696 |
+| `numeric__squad_match_share` | 665 |
+| `numeric__prev_club_points_per_game` | 507 |
 
 ## Limitations
 
@@ -64,7 +77,7 @@ Test seasons, in EUR. These are held-out seasons the model never saw.
 - **Coverage begins in 2012.** Appearance data starts 2012-07-03, so career-length features are left-censored and capped; a player whose career began earlier looks younger in career terms than they are.
 - **Seasons are August to July.** Leagues on a spring-autumn calendar are split across that boundary and are represented less faithfully.
 - **The model has never seen the season it is asked about.** That is deliberate, and it is why the reported error is roughly 60% worse than a random split would suggest. The reported number is the honest one.
-- **Weakest measured segment: value band <1M** — MAPE 77% over 5,463 rows.
+- **Weakest measured segment: value band <1M** — MAPE 69% over 5,463 rows.
 
 ## Leakage controls
 
@@ -74,3 +87,5 @@ Test seasons, in EUR. These are held-out seasons the model never saw.
   `current_club_*` family) never enter the feature matrix.
 - The prior valuation, where used, is explicitly lagged and named so.
 - Splits are re-checked for row and player overlap after every split.
+- Club form is joined as of the row's own date, so a match played after
+  the label was set cannot reach the features through an aggregate.

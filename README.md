@@ -8,7 +8,7 @@ contributions that produced it, compare him to the seasons nearest him in the
 model's own feature space — then change the inputs and watch the number move.
 
 Metrics are reported on **held-out seasons the model has never seen**: test MAE
-**€2.21M** (R² 0.813) for the scouting model, **€1.66M** (R² 0.914) with a prior
+**€2.07M** (R² 0.841) for the scouting model, **€1.64M** (R² 0.914) with a prior
 valuation. A random split would read better and answer a question nobody
 deploying this will ever ask.
 
@@ -76,7 +76,7 @@ those, `fetch_data.py` stops with a message naming both options rather than
 failing obscurely.
 
 **You do not need an account to run the project.** `data/sample/` is committed,
-so `make test` gives you 657 passing tests and 49 skips with no credentials at
+so `make test` gives you 679 passing tests and 53 skips with no credentials at
 all — the 49 are the integration tests that need the full panel. `make test`
 deselects them by marker; a bare `pytest` on that same clone *skips* them and
 still reports zero failures, which is the stronger property and the one CI
@@ -135,7 +135,7 @@ true and practically useless.
 
 ## What the model sees
 
-41 features, from every file the Kaggle dataset ships. The project previously
+54 features, from every file the Kaggle dataset ships. The project previously
 downloaded three of its ten, which is why "no league strength" and "five
 performance statistics" were listed as limitations of the data rather than of
 the pipeline.
@@ -152,9 +152,10 @@ the pipeline.
 | **Competition** | value level, tier rank, competitions played, continental minutes share, type, confederation |
 | **Biography** | age, age², height, position, sub-position, foot, citizenship |
 | **Career stage** | years since debut, seasons observed |
+| **Career momentum** | last season's minutes, appearances, contributions, start share, competition level, club form and squad share; the gap in seasons; season-over-season deltas; expanding career means and maxima |
 | **Prior value** *(second variant only)* | lagged log value, its staleness in days |
 
-Two of these needed care rather than code.
+Three of these needed care rather than code.
 
 **`competition_value_level`** is the honest answer to "how strong is this
 league", and the honest answer is the market value of the players in it — which
@@ -171,6 +172,28 @@ squad value to a 2013 row is the same error as joining a contract expiry date,
 which this project already bans. `clubs.csv` is the one file of the ten that is
 deliberately not downloaded.
 
+It is also joined **as of each row's own date** rather than averaged over the
+season, and that is a correction rather than a refinement. A season is named
+for its August and runs to July, so a fixture on 20 July belongs to it while
+falling after the 1 July boundary most as-of dates sit on — 5.56% of all
+fixtures are dated in July. The whole-season mean therefore folded matches
+played *after* the row's as-of date into 17.6% of rows, and matches played
+after the **label** into 1,049 of them. That is label leakage, and it survived
+every existing check because it lived inside a number rather than in a column
+name or a date. `club_season_strength` now returns a running record and
+`attach_context` cuts it with `merge_asof`; removing the leak cost nothing
+measurable (p = 0.49 and p = 0.89). Full workings in
+[`plans/06-final-research-audit.md`](plans/06-final-research-audit.md).
+
+**Career momentum** is the block that finally gave the performance-only variant
+a memory. It knew how established a player was and nothing about what he had
+done, so a 24-year-old with 2,800 minutes looked the same whether last season
+was 2,900 minutes or 300. These are lagged *features*, never a lagged label,
+which is what makes them legal in the variant that withholds the prior
+valuation. Pooled over five held-out seasons at three seeds they move
+performance-only from €1,976,268 to €1,850,058 (−6.4%, t = 11.30) and leave the
+prior-value variant statistically unchanged.
+
 ## Baselines
 
 Gradient boosting, test-set metrics in EUR, from `scripts/train_baseline.py`.
@@ -180,9 +203,9 @@ meet in use.
 
 | Split | performance-only | + prior value |
 |---|---|---|
-| Random (flattering) | R² 0.529 / MAE €2.24M | R² 0.784 / MAE €1.49M |
-| Group by player | R² 0.604 / MAE €2.13M | R² 0.812 / MAE €1.69M |
-| **Temporal** | **R² 0.762 / MAE €2.39M** | **R² 0.892 / MAE €1.75M** |
+| Random (flattering) | R² 0.805 / MAE €1.63M | R² 0.903 / MAE €1.27M |
+| Group by player | R² 0.795 / MAE €1.60M | R² 0.912 / MAE €1.37M |
+| **Temporal** | **R² 0.770 / MAE €2.31M** | **R² 0.899 / MAE €1.71M** |
 
 The gap between the random and temporal rows is the point. Reporting the random
 number would roughly halve the stated error and answer a question nobody
@@ -201,8 +224,8 @@ seasons, then scored once on the test seasons. LightGBM ships for both variants.
 
 | Variant | Winner | Test MAE | Test R² | vs. baseline |
 |---|---|---|---|---|
-| performance-only | LightGBM | €2.21M ± 0.04M | 0.813 | 0.762 |
-| with prior value | LightGBM | €1.66M ± 0.04M | 0.914 | 0.892 |
+| performance-only | LightGBM | €2.07M ± 0.04M | 0.841 | 0.770 |
+| with prior value | LightGBM | €1.64M ± 0.04M | 0.914 | 0.899 |
 
 ![The model page: held-out metrics, provenance, and every family ranked by validation MAE](docs/img/model.png)
 
@@ -210,9 +233,13 @@ seasons, then scored once on the test seasons. LightGBM ships for both variants.
 families it beat — with the spread between them stated rather than hidden.*
 
 **"Wins" is doing less work than it looks.** The top four families on the
-performance-only variant were separated by EUR 44,000 of validation MAE, and the
+performance-only variant are separated by EUR 44,000 of validation MAE, and the
 standard error of that MAE is EUR 60,000. They are the same model as far as this
-data can tell.
+data can tell. On the prior-value variant the top three explainable families
+sit inside EUR 5,600 of one another — stacked 1,651,350, CatBoost 1,655,749,
+LightGBM 1,656,909 — against a standard error an order of magnitude larger, so
+the one-standard-error rule decides it on deployment footprint and LightGBM
+ships.
 
 So selection is not `min()`. Two rules decide what ships:
 
@@ -224,7 +251,8 @@ have them, the blend does not. HistGradientBoosting is subtler and shipped once
 before this rule existed: SHAP works on it, so every prediction looked
 explained, while `feature_importances_` has never existed on it and the model
 card came out blank. Both are excluded, both still run, and the leaderboard
-shows what excluding them costs: 1.92% and 0.33% of validation MAE.
+shows what excluding them costs — which, after the final audit's feature work,
+is €10,152 of validation MAE at p = 0.32. The constraint is now free.
 
 **Then the one-standard-error rule** (Breiman, Friedman, Olshen & Stone, 1984):
 among families within one standard error of the best, take the cheapest.
@@ -235,11 +263,13 @@ deployment footprint rather than artifact size, because artifact size points the
 wrong way: CatBoost serialises to a fifth of LightGBM's file and costs 328 MB of
 package.
 
-**The zoo still barely beats the baseline** — R² 0.762 → 0.813 and 0.892 →
-0.914. Eleven families and a hyperparameter search bought about 0.05 and 0.02,
-which is worth stating plainly rather than burying: the signal in this data is
-in the features, not in the estimator. Phase 15 moved R² from 0.441 to 0.813 by
-adding features, not by adding models.
+**The zoo still barely beats the baseline.** Eleven families and a
+hyperparameter search buy a few hundredths of R², which is worth stating
+plainly rather than burying: the signal in this data is in the features, not in
+the estimator. v1.2.0 moved R² from 0.441 to 0.813 by adding features. The
+final audit moved it again, to 0.833, by adding thirteen more — and separately
+found that the largest remaining estimator-side gain was not a better family at
+all but `min_child_samples` and `reg_lambda`, which had never been in the grid.
 
 Each run writes a versioned artifact to `models/` — the fitted preprocessing
 and estimator as one object, plus metrics, named feature importance, the full
@@ -252,7 +282,11 @@ reloaded artifact reproduces its recorded metrics exactly. The contract is
 `scripts/build_reports.py` reads the saved models — it trains nothing — and
 writes self-contained HTML into `reports/`, plus a model card per variant and
 [`docs/model_comparison.md`](docs/model_comparison.md), which shows *why*
-LightGBM was selected rather than just that it was:
+LightGBM was selected rather than just that it was. The data those models are
+fitted to has its own card,
+[`docs/DATASET_CARD.md`](docs/DATASET_CARD.md) — hand-written rather than
+generated, because most of what matters there is why a column is *absent*, and
+an absent column cannot generate its own explanation.
 
 | | |
 |---|---|
@@ -331,7 +365,7 @@ That is the honest finding, not a defect to tune away.
 
 **Layering.** `src/services/prediction.py` imports no web framework — a test
 asserts it, against parsed imports rather than a grep. That is what lets the
-same prediction path serve HTTP, a batch job or a CLI, and why the 83 tests for
+same prediction path serve HTTP, a batch job or a CLI, and why the 92 tests for
 prediction logic need no running server.
 
 ## Dashboard
@@ -447,8 +481,8 @@ push and pull request:
   imported inside `src/storage/`, and Plotly only inside `Chart.tsx`.
 
 CI runs on a clean checkout, where `data/` and `models/` are empty. Every test
-that needs them **skips** rather than fails — verified on a fresh clone: 657
-pass, the 49 integration tests skip, nothing fails. A suite that is only green on a machine with a trained
+that needs them **skips** rather than fails — verified on a fresh clone: 679
+pass, the 53 integration tests skip, nothing fails. A suite that is only green on a machine with a trained
 model is not a suite anyone can trust.
 
 ## Development
@@ -489,13 +523,20 @@ version-controlled and wired via `core.hooksPath`, so it survives a reclone.
 Stated because a model whose limits are not written down is a model whose
 limits are discovered by whoever trusts it first.
 
-**Coverage begins in 2012, and cannot be extended from this dataset.**
-`games.csv` reaches back to 2006, which looks like five extra seasons. It is
-not: before 2012-07-03 there are 2,470 events across 190 games and 943 players
-— international tournaments, not league football — and `game_lineups.csv` does
-not start until 2013. Minutes cannot be reconstructed from substitution events
-in principle, because a player who plays the full match generates no event.
-Career-length features are left-censored and capped at 10 for that reason.
+**Coverage begins in 2012, and extending it is possible and pointless.**
+`appearances.csv` has no row before 2012-07-03 and `game_lineups.csv` none
+before 2013, so no earlier season has performance data. Valuations, though,
+reach back to 2000. The final audit built the rows that fact allows —
+**40,339 of them, 2003–2011, 10,741 players**, a 66% increase in training data
+— from biography and a prior valuation alone. Only **7 of the 54 declared
+features exist on such a row** (age, age², height, position, sub-position, foot,
+citizenship); the rest have no data to come from. Adding all 40,339 rows moved
+pooled held-out MAE by €2,873, or 0.19%: **t = 0.35, p = 0.73**. That experiment
+was run against the 41-feature list of the time, where 34 of 41 were missing;
+the momentum block only makes such a row emptier, never fuller. A row missing most of its features
+teaches the imputer's median, not the mapping. The limitation is real, and it
+is now measured rather than asserted. Career-length features stay left-censored
+and capped at 10 for the same reason.
 
 **The labels are Transfermarkt's community estimates, not prices anyone paid.**
 `transfers.csv` carries real fees and `--target transfer_fee` will train on
@@ -504,26 +545,123 @@ players who were actually sold — so it learns what a sold player costs, which
 is not what a player is worth. The default target is the appraisal, and the
 model reproduces that consensus including wherever it is biased.
 
+Four alternative targets were measured against it rather than reasoned about.
+A **delta-value** target is the same model re-parameterised and nominally worse
+(p = 0.37). A **within-season percentile** ranks identically (Spearman 0.907 vs
+0.909) but costs 50–66% more MAE once converted back to euros, because the
+inverse map needs the target season's value distribution and nobody has that at
+prediction time. **Career peak** is right-censored on 28.4% of rows in a way
+that correlates with the target. None of them is better; the appraisal stays.
+
 **Error grows with value.** The target spans four orders of magnitude and the
 headline MAE is in EUR, so a mid-table figure conceals much larger absolute
 misses at the top of the market. Read the per-band breakdown in
 `reports/error_analysis.html` before trusting a number for an expensive player.
 
-**The prediction intervals are wide, and honestly so.** A gradient booster has
-no calibrated uncertainty; the interval is measured from the model's own
-residual quantiles on held-out seasons. Wide is the finding, not a defect to
-tune away.
+**The prediction intervals are wide, and cover slightly less than they say.**
+A gradient booster has no calibrated uncertainty; the interval is measured from
+the model's own residual quantiles. Those quantiles now come from the
+**validation** season and their coverage is measured on the **test** seasons —
+until the final audit both came from the test seasons, which makes a nominal
+80% interval cover exactly 80% by construction and is arithmetic rather than
+evidence. Measured honestly it reaches about **0.77** against a nominal 0.80
+for the performance-only model, and 0.80 for the prior-value one. Every
+response now carries `measured_coverage` beside `level`, and the dashboard
+shows both.
 
-**The best model does not ship.** A stacked blend of the three boosters beat
-every explainable family on both variants, by 1.92% and 0.33% of validation
-MAE. It cannot produce a feature importance or a SHAP value, and every
-prediction response documents an explanation, so it is excluded by
-`EXPLAINABLE_REQUIRED` in [`src/pipelines/tune.py`](src/pipelines/tune.py). It
-still runs and still appears in the leaderboard, so the cost of that decision
-is visible rather than assumed.
+The shortfall is not closed on purpose. Conformal prediction guarantees
+coverage under exchangeability and consecutive football seasons are not
+exchangeable; widening the bounds until the number read 0.80 would mean fitting
+them to the test set. Conformalised quantile regression, symmetric split
+conformal and raw LightGBM quantile regression were all measured and all lose
+on Winkler score to the method already here. Wide is still the finding.
 
-**Seasons are August to July**, so leagues on a spring–autumn calendar are
-split across that boundary and represented less faithfully.
+**The best model does not ship, and that now costs almost nothing.** A stacked
+blend of the three boosters cannot produce a feature importance or a SHAP
+value, and every prediction response documents an explanation, so it is
+excluded by `EXPLAINABLE_REQUIRED` in
+[`src/pipelines/tune.py`](src/pipelines/tune.py). At v1.2.0 that cost 1.92% and
+0.33% of validation MAE. On the corrected feature set the blend beats LightGBM
+by €10,152 with **p = 0.32** — the two are indistinguishable, because the
+career-momentum block gave LightGBM most of what the ensemble was buying.
+
+Knowledge distillation was tested rather than assumed. A LightGBM student
+taught on 75% true labels and 25% of the stacked teacher's beat the shipped
+model by €22,333 (t = 3.41, p = 0.0006) while staying fully explainable, which
+looked like a reason to add a teacher to every training run. It was not: a
+LightGBM teaching *itself* gains nothing (p = 0.81), and against a properly
+**regularised** LightGBM the student is worth €2,487 at p = 0.72. The ensemble
+was standing in for regularisation the search had never been allowed to try,
+because `min_child_samples` and `reg_lambda` were not in the grid. They are
+now, which is where that €22,333 actually went — four times the grid for one
+family, no teacher, and nothing added to the serving image.
+
+**Seasons are August to July, and no single boundary is right for every
+league.** `games.csv` carries each competition's own season label, so this was
+testable rather than merely regrettable. The two disagree on 6.27% of fixtures
+— Brazilian Série A, the J1 League, Eliteserien, Allsvenskan, the K-League, MLS
+and every European qualifying round played in July — and 19.6% of
+player-seasons span the boundary, though only 2.02% of minutes are misfiled.
+The harm is real: rows with more than 5% of their minutes misfiled carry
+0.04–0.12 more median relative error *within every value band*, and that
+survives controlling for the population those July fixtures select.
+
+A full alternative table indexed on the declared season was built anyway. It
+first appeared to be a 10% improvement, and it was an artefact: anchoring the
+as-of date on each competition's last fixture moved it earlier on 93% of rows
+and cut the median label horizon from 141 days to 23, so the model was
+forecasting three weeks ahead instead of five months. Rebuilt with the horizon
+held fixed, the gain is null for the scouting model (p = 0.77, 0.06, 0.25) and
+significantly *worse* for the prior-value one (−€68,996, p = 0.0005), on 6.5%
+fewer rows.
+
+The reason is the limitation itself: the declared index groups July qualifiers
+correctly but then leaves the 1 July label anchor seven months adrift of a
+Brazilian season ending in December. This panel has no anchor that is right for
+every calendar, and the fixed-July one is wrong on fewer of the rows that
+matter. Measured, not assumed —
+[`plans/06-final-research-audit.md`](plans/06-final-research-audit.md) §5.
+
+## What an adversarial audit found
+
+The project has been audited five times. The last one
+([`plans/07-adversarial-audit.md`](plans/07-adversarial-audit.md)) was told not
+to improve anything and to try to break it instead, and found two silent
+high-severity bugs that four previous passes had missed — both of which
+returned an empty list rather than an error, which is why nothing caught them:
+
+- **Comparables were dead for every active player.** `similar_players` anchored
+  on a player's most recent row, which since v1.2.0 is the unlabelled season
+  being played, against a labelled-only pool. 8,709 players, 32.8% of the
+  panel, all getting "No comparable seasons found."
+- **59% of players had an empty career chart.** The service required all 54
+  features to be non-null before showing a row, in a pipeline that carries a
+  fitted imputer — dropping 65.3% of rows and every player's first season.
+
+Neither was a modelling error and neither showed in a metric. Both are fixed,
+both have regression tests, and the pattern is worth stating: *an empty result
+is not a safe failure mode.* The metrics in this README were never wrong; the
+dashboard was quietly showing a third of its users nothing.
+
+A sixth pass ([`plans/08-staff-engineering-pass.md`](plans/08-staff-engineering-pass.md))
+then looked at the engineering rather than the science and found the largest
+single defect in the serving path: **`POST /predict` spent 97% of its time
+rebuilding a SHAP explainer** for a model that never changes. Caching it took
+the endpoint from **385ms to 30ms** with bit-identical output. Inference was
+never the cost — it is 5.9ms of the 30.
+
+Measured latency, p50, on the full panel:
+
+| endpoint | p50 |
+|---|---|
+| `GET /players/{id}` | 2.8 ms |
+| `GET /players/{id}/history` | 8.9 ms |
+| `GET /players/{id}/similar` | 10.0 ms |
+| `GET /players?q=` | 14.2 ms |
+| `POST /predict` (with SHAP explanation) | 29.8 ms |
+
+Startup is 1.27s including both models, 86k player-seasons and 50k names; RSS
+settles around 660 MB.
 
 ## How it was built
 
@@ -539,8 +677,8 @@ Backend test coverage, with the command that prints each number:
 
 | | Coverage | Tests |
 |---|---|---|
-| `make test-cov` — no credentials, no data | **90%** | 657 pass, 49 deselected |
-| `make test-cov-all` — needs the Kaggle download and a trained model | **97%** | 706 pass |
+| `make test-cov` — no credentials, no data | **90%** | 679 pass, 53 deselected |
+| `make test-cov-all` — needs the Kaggle download and a trained model | **97%** | 732 pass |
 
 The gap is the pipeline orchestration in `src/pipelines/`, which is what the
 integration tests exercise. Both targets fail below their floor, so neither

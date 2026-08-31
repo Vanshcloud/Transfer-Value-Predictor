@@ -1,6 +1,6 @@
 # Model card — with_prior_value
 
-Generated 2026-08-30T23:43:32.905750+00:00 from `with_prior_value__lightgbm`.
+Generated 2026-08-31T19:26:16.883404+00:00 from `with_prior_value__lightgbm`.
 This file is written from the artifact, so it cannot describe a model that
 is no longer the one on disk.
 
@@ -18,9 +18,9 @@ Forecast how a player's *already known* market value will move. This is the trac
 
 | Family | `lightgbm` |
 |---|---|
-| Hyperparameters | `{'model__regressor__n_estimators': 300, 'model__regressor__learning_rate': 0.05, 'model__regressor__num_leaves': 63}` |
+| Hyperparameters | `{'model__regressor__n_estimators': 300, 'model__regressor__learning_rate': 0.05, 'model__regressor__num_leaves': 63, 'model__regressor__min_child_samples': 20, 'model__regressor__reg_lambda': 20.0}` |
 | Target | `market_value_in_eur`, trained on `log1p`, reported in EUR |
-| Features | 43 |
+| Features | 56 |
 | Seed | 42 |
 
 ## Data and split
@@ -36,26 +36,39 @@ Test seasons, in EUR. These are held-out seasons the model never saw.
 
 | Metric | Validation | Test |
 |---|---|---|
-| MAE | €1,668,757 | €1,661,311 |
-| RMSE | €4,282,374 | €4,077,559 |
-| R² | 0.890 | 0.914 |
-| MAPE | 29.5% | 30.1% |
+| MAE | €1,656,909 | €1,637,639 |
+| RMSE | €4,261,596 | €4,085,037 |
+| R² | 0.891 | 0.914 |
+| MAPE | 29.6% | 30.3% |
 | Rows | 5,101 | 10,169 |
+
+## Prediction intervals
+
+| Nominal level | 80% |
+|---|---|
+| Measured coverage | 79.3% |
+| Median width | €1,862,759 |
+| Measured on | 10,169 test rows |
+
+Quantiles are taken from the validation season and the coverage above
+is measured on the test seasons, which neither the model nor the
+interval has seen. Measured coverage below the nominal level is the
+cost of predicting forward across seasons that are not exchangeable.
 
 ## What it relies on
 
 | Feature | Importance |
 |---|---|
-| `numeric__age` | 2,097 |
-| `numeric__prev_value_age_days` | 1,697 |
-| `numeric__competition_value_level` | 1,531 |
-| `numeric__prev_log_market_value_in_eur` | 1,398 |
-| `numeric__competition_tier_rank` | 825 |
-| `numeric__club_goal_difference_per_game` | 758 |
-| `numeric__years_since_debut` | 731 |
-| `numeric__club_points_per_game` | 730 |
-| `numeric__minutes_played` | 659 |
-| `numeric__club_league_position` | 620 |
+| `numeric__age` | 1,885 |
+| `numeric__prev_value_age_days` | 1,412 |
+| `numeric__competition_value_level` | 1,151 |
+| `numeric__prev_log_market_value_in_eur` | 1,141 |
+| `numeric__competition_tier_rank` | 655 |
+| `numeric__club_goal_difference_per_game` | 650 |
+| `numeric__club_points_per_game` | 646 |
+| `numeric__delta_competition_value_level` | 612 |
+| `numeric__delta_minutes_played` | 539 |
+| `numeric__years_since_debut` | 514 |
 
 ## Limitations
 
@@ -65,7 +78,7 @@ Test seasons, in EUR. These are held-out seasons the model never saw.
 - **Seasons are August to July.** Leagues on a spring-autumn calendar are split across that boundary and are represented less faithfully.
 - **The model has never seen the season it is asked about.** That is deliberate, and it is why the reported error is roughly 60% worse than a random split would suggest. The reported number is the honest one.
 - **This variant is anchored to the previous valuation.** It will track the market rather than challenge it, and it cannot produce a prediction at all for a player with no valuation history.
-- **Weakest measured segment: value band <1M** — MAPE 34% over 3,493 rows.
+- **Weakest measured segment: value band <1M** — MAPE 35% over 3,493 rows.
 
 ## Leakage controls
 
@@ -75,3 +88,5 @@ Test seasons, in EUR. These are held-out seasons the model never saw.
   `current_club_*` family) never enter the feature matrix.
 - The prior valuation, where used, is explicitly lagged and named so.
 - Splits are re-checked for row and player overlap after every split.
+- Club form is joined as of the row's own date, so a match played after
+  the label was set cannot reach the features through an aggregate.

@@ -4,6 +4,156 @@ Notable changes to this project. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+Cut this as 1.3.0 when you are ready: the code still declares 1.2.0 so that
+`tests/unit/test_version.py` keeps agreeing with the latest tag, and bumping
+`src/__init__.py`, `frontend/package.json` and the tag together is the release
+step rather than part of the audit.
+
+A research-grade audit that re-verified every claim from the raw files rather
+than from the previous phase's notes. It found one real leak, one overstated
+metric, one feature block worth adding — and rejected six plausible ideas on
+measurement. Full workings in
+[`plans/06-final-research-audit.md`](plans/06-final-research-audit.md).
+
+### Fixed
+
+- **`POST /api/v1/predict` was 385ms; it is now 30ms.** `shap.TreeExplainer`
+  walks the whole booster (300 trees at 63 leaves) and was being rebuilt on
+  every request for an estimator that never changes. **97% of the endpoint's
+  latency was that rebuild** — the actual SHAP call is 5.6ms and inference
+  5.9ms. Now memoised per fitted estimator with a `WeakKeyDictionary`, so a
+  redeployed artifact still releases its explainer. Output verified
+  bit-identical over 25 rows: max SHAP difference 0.000e+00.
+- **The hyperparameter search fitted unweighted while the final model fitted
+  weighted.** `src/models/tuning.py:_score_candidate` ranked the grid under an
+  objective the project does not deploy. Both now use the same recency
+  weighting, and the models were retrained so the artifacts match the code.
+- **`similar_players` returned nothing for every currently-playing player.**
+  It anchored on the player's most recent row, which since v1.2.0 is the
+  unlabelled season being played; the neighbour pool is labelled-only, so the
+  pool was empty and the endpoint returned `200` with `[]`. **8,709 players,
+  32.8% of the panel** — and the dashboard rendered "No comparable seasons
+  found", so it looked like an answer. Now anchors on the latest *labelled*
+  season: 144 of 200 sampled active players get comparables, against 0 before.
+- **65.3% of rows were hidden from the career chart and the comparables pool.**
+  `_rows_for_variant` and `prediction_history` required all 54 features to be
+  non-null, in a pipeline that carries a fitted imputer. That dropped 56,148 of
+  85,966 labelled rows including **every player's first season**, and left
+  **14,402 of 24,411 players (59%) with an empty history**. The gate is now the
+  target — and the prior value for the variant defined by it — and nothing
+  else. Pre-existing (the 41-feature list dropped 56.5%), worsened by the
+  momentum block, fixed now.
+- **Implausible feature values were answered rather than rejected.**
+  `data.min_age: 15` and `data.max_age: 45` were declared in
+  `configs/config.yaml`, parsed and cross-validated in `src/utils/config.py`,
+  and read by nothing — so `POST /api/v1/predict {"features": {"age": 1e12}}`
+  returned `200` and a confident number. Now enforced via `PLAUSIBLE_RANGES`,
+  verified against 0 violations in 85,966 training and 8,709 serving rows.
+- **The leakage validator never saw 28.4% of the table, or the serving table
+  at all.** It checked only the prior-value variant — every column, but 61,522
+  of 85,966 rows. Both now validated, plus `current_season`, which is what the
+  API answers from. All three clean: 0 errors, 0 warnings.
+- **Five stale numeric claims in docstrings**, all rationale rather than
+  behaviour: target skew 8.70 → 6.16, prior-value skew 4.53 → 5.53, the split
+  R² figures in `src/models/splits.py`, and the cost of the explainability
+  constraint. Every conclusion survives; one flipped sign in the project's
+  favour.
+- **Label leakage in the club-form features.** `club_points_per_game`,
+  `club_goal_difference_per_game`, `club_league_position`, `club_matches` and
+  `squad_match_share` were whole-season means. A season runs August–July, so a
+  fixture on 20 July belongs to it while falling after the 1 July as-of
+  boundary — **5.56% of all fixtures are dated in July**. The mean therefore
+  included matches played after the row's as-of date on 17.6% of rows, and
+  after the **label** on 1,049 of them (1.22%). Seven leakage checks missed it
+  because it lived inside a number, not a column name or a date.
+  `club_season_strength` now returns a running record joined with `merge_asof`
+  on the row's own date. Removing it cost nothing measurable (p = 0.49, 0.89).
+- **The prediction interval was calibrated on the test set it was scored
+  against**, which makes a nominal 80% interval cover exactly 80% by
+  construction. Quantiles now come from the validation season and coverage is
+  measured on the test seasons: **0.763 achieved against 0.80 nominal** for the
+  scouting model. Served as `confidence.measured_coverage`, printed in both
+  model cards, and shown in the dashboard beside the nominal level.
+
+### Added
+
+- **13 career-momentum features** — last season's minutes, appearances,
+  contributions, start share, competition level, club form and squad share; the
+  season gap; season-over-season deltas; expanding career means and maxima.
+  Lagged *features*, never a lagged label, so they are legal in the variant that
+  withholds the prior valuation. Pooled over five held-out seasons at three
+  seeds: **performance-only €1,976,268 → €1,850,058 (−6.4%, t = 11.30)**,
+  improved in 5/5 seasons.
+
+### Headline metrics
+
+Test seasons, which the model and the interval have both never seen.
+
+| variant | v1.2.0 | now | |
+|---|---|---|---|
+| performance-only | €2,205,618 / R² 0.813 | **€2,068,081 / R² 0.841** | −6.2% MAE |
+| with prior value | €1,661,311 / R² 0.914 | **€1,637,639 / R² 0.914** | −1.4% MAE |
+
+The prior-value figures moved slightly *worse* between the audit and release —
+€1,624,273 to €1,637,639 — because the hyperparameter search was corrected to
+fit under the recency weighting the final model actually uses. The earlier
+number came from a configuration chosen under an objective the project does not
+deploy; it happened to land better on the test seasons, which is exactly the
+kind of thing not to chase. Among the explainable families LightGBM is within
+one standard error of the best and wins the deployment-cost tiebreak.
+- **`min_child_samples` and `reg_lambda` in the LightGBM grid.** Worth €19,846
+  (p = 0.0087) and €22,214 (p = 0.0014) of pooled held-out MAE, and the reason
+  knowledge distillation was rejected — see below.
+- **`measured_coverage`** on the prediction response, and `career_stage` plus
+  `primary_competition_id` segments in the error report.
+- `check_no_future_dates` now runs over the whole frame rather than the feature
+  subset, and the as-of club join keeps its source date as `club_record_date`.
+  A numeric aggregate cannot be audited directly; the provenance timestamp of
+  the join that built it can.
+
+### Added
+
+- `tests/integration/test_api_live.py::TestNothingImportantIsSilentlyEmpty` —
+  the guard for the class of bug that produced two high-severity findings: a
+  `200` with an empty body. It asserts, against the real artifacts and for a
+  player whose latest row is the unlabelled current season, that comparables
+  and history come back, that history covers *every* labelled season rather
+  than some, and that servable players equal labelled players. A population
+  assertion, because a regression that empties an endpoint for a third of users
+  passes every single-player test.
+
+### Measured and rejected
+
+Every one of these was implemented, measured, and thrown away.
+
+- **Knowledge distillation.** A LightGBM student taught by the stacked blend
+  beat the shipped model by €22,333 (p = 0.0006) while staying explainable.
+  Against a *regularised* LightGBM it is worth €2,487 (p = 0.72); a LightGBM
+  teaching itself gains nothing (p = 0.81). The ensemble was substituting for
+  regularisation the grid had never been allowed to try.
+- **Indexing seasons by each competition's own calendar.** First looked like a
+  10% win; it was an artefact of the as-of date moving earlier on 93% of rows
+  and cutting the median label horizon from **141 days to 23**. With the
+  horizon held fixed: null for the scouting model, **significantly worse**
+  (−€68,996, p = 0.0005) with prior value, on 6.5% fewer rows.
+- **Pre-2012 rows.** 40,339 of them *can* be reconstructed from valuations and
+  biography. 34 of 54 features are structurally missing; adding all of them
+  moved MAE by 0.19%, **p = 0.73**.
+- **Club home attendance.** −€297,445, p = 1e−65. Season 2020 was played behind
+  closed doors: mean attendance 14,769 → 2,752, correlation with value
+  +0.65 → +0.24. The column measures a pandemic for one year in fourteen.
+- **Transfer history** (p = 0.74, 0.35) and **club strength trajectory**
+  (−€35,695, p = 0.023 — actively harmful).
+- **Three alternative targets.** Delta-value (p = 0.37), within-season
+  percentile (identical Spearman, 50–66% worse in EUR because the inverse map
+  needs a distribution nobody has at prediction time), career peak
+  (right-censored on 28.4% of rows, non-randomly).
+- **Conformalised quantile regression, split conformal, and raw LightGBM
+  quantile regression.** All lose on Winkler score to the band-wise method
+  already here, once that one is calibrated honestly.
+
 ## [1.2.0] — 2026-08-31
 
 Six of the seven "unavoidable dataset limitations" from the v1.1.0 audit turned

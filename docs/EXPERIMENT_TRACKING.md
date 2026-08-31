@@ -49,6 +49,9 @@ against each other — `performance_only` is the scouting model, and it is
 Changing `feature_columns` invalidates every earlier run. Adding a feature is a
 new feature-set version, not a tweak.
 
+Feature-set versions so far: 19 columns (v1.0), 41 (v1.2, the seven unused
+Kaggle files), 54 (v1.3, the career-momentum block).
+
 ## 3. Split strategy
 
 **Temporal is the only split that reports.** Train ≤2021, validate 2022, test
@@ -86,6 +89,32 @@ Do not chase R² at the cost of correctness. A temporal R² of 0.77 is worth mor
 than a random-split 0.82, because only the first one describes what happens on
 a season the model has not seen. If a change improves the headline number,
 check what it did to the leakage report before believing it.
+
+### A second standing caution: check what question the change is answering
+
+The final audit prototyped indexing seasons by each competition's own calendar
+instead of a fixed August–July boundary. It looked like a 10% win — up to
+€206,774 of held-out MAE, p < 0.0001, on more rows and more players.
+
+It was an artefact. Anchoring the as-of date on the competition's last fixture
+instead of 1 July moved it earlier on 93% of rows and cut the median label
+horizon from **141 days to 23**. The model was not better; it was being asked
+to forecast three weeks ahead instead of five months. Re-run with the as-of
+rule held fixed so that only season *membership* changed, the same experiment
+returns p = 0.77 and p = 0.06 and costs 5,560 rows.
+
+So: when a change moves a metric a long way, find out whether it also moved the
+question. Anything that touches `as_of_date`, the label window, or which rows
+survive the join changes the difficulty of the problem, and a difficulty change
+shows up in a metric exactly like a modelling improvement. The cheap diagnostic
+is `label_horizon_days` — compare its distribution before and after.
+
+### A third: validate on more than one season
+
+`club_home_attendance` improved the 2022 validation season by €53,486
+(p = 0.007) and cost €297,445 (p = 1e−65) pooled across 2018–2022, because
+season 2020 was played behind closed doors and the column measures a pandemic
+for one year in fourteen. One held-out season is an anecdote.
 
 ## 5. Random seed
 
