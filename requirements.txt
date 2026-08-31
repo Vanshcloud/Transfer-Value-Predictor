@@ -10,6 +10,9 @@
 # deliberate migration, not as a side effect of an install.
 pandas>=2.2,<3
 numpy>=2.0
+# Never imported by name. It is pandas' Parquet engine, and every table in this
+# project round-trips through Parquet, so `pd.read_parquet` fails without it.
+# Listed explicitly because an implicit dependency is one nobody pins.
 pyarrow>=17.0
 duckdb>=1.1
 

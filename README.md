@@ -1,5 +1,14 @@
 # Transfer Value Predictor
 
+[![CI](https://github.com/Vanshcloud/Transfer-Value-Predictor/actions/workflows/ci.yml/badge.svg)](https://github.com/Vanshcloud/Transfer-Value-Predictor/actions/workflows/ci.yml)
+[![Python 3.13](https://img.shields.io/badge/python-3.13-blue.svg)](https://www.python.org/downloads/)
+[![Coverage 90%](https://img.shields.io/badge/coverage-90%25-brightgreen.svg)](#testing)
+[![Tests 732](https://img.shields.io/badge/tests-732-brightgreen.svg)](#testing)
+[![Licence MIT](https://img.shields.io/badge/licence-MIT-green.svg)](LICENSE)
+[![Data CC0](https://img.shields.io/badge/data-CC0-lightgrey.svg)](docs/DATASET_CARD.md)
+[![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
+[![Typed: mypy](https://img.shields.io/badge/typed-mypy-blue.svg)](https://mypy-lang.org/)
+
 Predict the market value (EUR) of professional footballers from performance,
 biographical and contextual data — and explain every prediction.
 
@@ -61,6 +70,50 @@ scikit-learn bundles its own OpenMP, which is why "sklearn works but LightGBM
 doesn't" is such a common and confusing report. On Linux and in Docker the
 manylinux wheels bundle libgomp and no action is needed.
 
+## Architecture
+
+```mermaid
+flowchart TD
+    K["Kaggle CC0 mirror<br/>davidcariboo/player-scores<br/>9 of 10 files"] --> F
+
+    subgraph OFF ["Offline — scripts/, run on demand"]
+        F["fetch_data.py<br/>requests only, never a browser"] --> V["validate_data.py<br/>schema + quality contracts"]
+        V --> B["build_features.py<br/>one row per player-season<br/>as-of join, 54 features"]
+        B --> L{"LeakageValidator<br/>7 checks, a pipeline stage"}
+        L -- "any error" --> STOP["build fails<br/>nothing written"]
+        L -- "clean" --> T[("DuckDB + Parquet<br/>training_table · current_season")]
+        T --> M["train_models.py<br/>11 families, expanding-window folds<br/>1-SE rule + explainability gate"]
+        M --> A[["models/*.joblib<br/>fitted preprocessing + estimator<br/>+ metrics, calibration, leaderboard"]]
+        A --> R["build_reports.py<br/>SHAP · error analysis · model cards"]
+    end
+
+    subgraph ON ["Online — always read-only"]
+        A --> S["PredictionService<br/>src/services/ · knows no HTTP"]
+        T --> S
+        S --> API["FastAPI<br/>/predict · /players · /model"]
+        API --> UI["Next.js dashboard<br/>search · compare · what-if"]
+    end
+
+    style STOP fill:#4a1512,stroke:#c0392b,color:#fff
+    style L fill:#3d3410,stroke:#b7950b,color:#fff
+    style A fill:#123a2a,stroke:#27ae60,color:#fff
+```
+
+Three properties this shape is chosen to guarantee:
+
+- **The leakage stage can stop a build.** It is a pipeline stage, not a test,
+  because a leak does not raise an exception — it produces a *better* number,
+  and nobody investigates a model that beat expectations.
+- **Preprocessing travels inside the artifact.** The fitted `ColumnTransformer`
+  and the estimator serialise as one object, so training and serving cannot
+  drift apart.
+- **`src/` never imports `api/`.** The prediction service knows nothing about
+  HTTP, which is why a batch job and the dashboard run identical code. CI
+  enforces the direction rather than trusting it.
+
+Full directory map and the reasoning behind each boundary:
+[`PROJECT_STRUCTURE.md`](PROJECT_STRUCTURE.md).
+
 ## Pipeline
 
 **First, data access.** `fetch_data.py` downloads the CC0 Kaggle mirror
@@ -77,7 +130,7 @@ failing obscurely.
 
 **You do not need an account to run the project.** `data/sample/` is committed,
 so `make test` gives you 679 passing tests and 53 skips with no credentials at
-all — the 49 are the integration tests that need the full panel. `make test`
+all — the 53 are the integration tests that need the full panel. `make test`
 deselects them by marker; a bare `pytest` on that same clone *skips* them and
 still reports zero failures, which is the stronger property and the one CI
 checks. Only the three pipeline commands below need the
@@ -91,7 +144,7 @@ python scripts/fetch_data.py       # Kaggle -> data/raw -> data/processed (parqu
 python scripts/validate_data.py    # contract checks; --strict fails on warnings too
 python scripts/build_features.py   # one row per player-season, labelled and leak-checked
 python scripts/train_baseline.py   # baselines across all three splits
-python scripts/train_models.py     # nine tuned families, best saved per variant
+python scripts/train_models.py     # eleven tuned families, best saved per variant
 python scripts/build_reports.py    # evaluation, SHAP, error analysis, model cards
 ```
 
@@ -103,7 +156,7 @@ The training table:
 | players | 17,053 | **24,411** |
 | seasons | 2011–2024 | 2011–2024 |
 | rows with a prior-season value | 19,827 | **61,522** |
-| features | 19 | **41** |
+| features | 19 | **54** |
 | current-season rows, predictable | 0 | **8,709** |
 | leakage findings | 0 | 0 |
 
@@ -511,6 +564,40 @@ uv pip compile requirements.txt --python-version 3.13 --output-file requirements
 pinning exactly, if it steps over a declared bound, or if an HTML parser
 reappears through a transitive dependency.
 
+## Testing
+
+```bash
+make test        # 679 pass, 53 skip — no data, no credentials, ~15s
+make test-cov    # the same suite with coverage, fails under 88%
+pytest           # everything; integration tests run if data and models exist
+```
+
+**732 tests, 90% coverage.** The split matters more than the count:
+
+| Suite | Files | Needs | Behaviour without data |
+|---|---|---|---|
+| `tests/unit/` | 31 | nothing | runs — against committed `data/sample/` |
+| `tests/integration/` | 7 | Kaggle download + a trained model | **skips**, never fails |
+
+Integration tests skipping rather than failing is deliberate. A suite that is
+only green on the machine that trained the model is not a suite, and CI checks
+the stronger property: on a clean clone with no data at all, `pytest` reports
+zero failures.
+
+Three kinds of test earn their place beyond the usual:
+
+- **Leakage tests that construct the leak.** `tests/unit/test_context.py`
+  builds a club that plays a fixture after the row's as-of date and asserts it
+  cannot reach the features. A test that would still pass with the guard
+  deleted is not testing the guard.
+- **Documented-number tests.** `tests/unit/test_documented_numbers.py` runs
+  pytest's own collector in a subprocess and fails if the README's test counts
+  or coverage claims have drifted. Prose does not recompute; this compares it.
+- **Population assertions.** `TestNothingImportantIsSilentlyEmpty` asserts that
+  the number of servable players *equals* the number of labelled players. Two
+  high-severity bugs survived four audits by returning `200` with an empty
+  list, and every single-player test passed throughout.
+
 ## Contributors
 
 This project has a single author, Vansh Tomar. `scripts/hooks/commit-msg`
@@ -685,6 +772,74 @@ integration tests exercise. Both targets fail below their floor, so neither
 number can drift without CI going red. The frontend is covered separately by
 `cd frontend && npm test` (see [Dashboard](#dashboard)).
 
+## Future work
+
+Everything below is open because a measurement says so; the ideas that were
+built, measured and rejected are in [`plans/`](plans/) and are deliberately not
+listed as future work. Full reasoning in [`ROADMAP.md`](ROADMAP.md).
+
+- **Report the repeated-season protocol as the headline.** Selection uses one
+  validation season. Every *comparison* in phases 16–18 already used expanding
+  windows over 2018–2022 at three seeds with paired testing; the *result*
+  should be reported the same way. Costs roughly 30× the training time.
+- **Compare against a published baseline.** "Good" is currently established
+  against this project's own earlier selves. Blocked on finding published work
+  evaluated on a comparable panel with a temporal split — most uses random
+  splits, which is not a fair comparison in either direction.
+- **Anchor the label per competition without moving the horizon.** The
+  August–July index costs measurable accuracy on the 19.6% of player-seasons
+  that straddle it, and the obvious fix was built and measured *worse*. Blocked
+  on a per-competition calendar table this dataset does not contain.
+- **Export to a format that cannot execute.** ONNX would remove the
+  unpickling assumption in [`SECURITY.md`](SECURITY.md), at the cost of the
+  fitted preprocessing travelling inside the artifact — a deliberate trade, not
+  a pending fix.
+
+## Citations
+
+If you use this repository, cite the dataset as well as the code — the labels
+are somebody else's work.
+
+```bibtex
+@software{tomar_transfer_value_predictor,
+  author  = {Tomar, Vansh},
+  title   = {Transfer Value Predictor: explainable market-value estimation
+             for professional footballers},
+  year    = {2026},
+  url     = {https://github.com/Vanshcloud/Transfer-Value-Predictor},
+  license = {MIT}
+}
+
+@misc{cariboo_player_scores,
+  author       = {Cariboo, David},
+  title        = {Football Data from Transfermarkt},
+  howpublished = {Kaggle dataset \texttt{davidcariboo/player-scores}},
+  note         = {CC0 1.0 Universal},
+  url          = {https://www.kaggle.com/datasets/davidcariboo/player-scores}
+}
+```
+
+Methods this project leans on directly:
+
+- Breiman, Friedman, Olshen and Stone (1984), *Classification and Regression
+  Trees* — the one-standard-error rule, which is what stops model selection
+  reading a third decimal as a result.
+- Lundberg and Lee (2017), *A Unified Approach to Interpreting Model
+  Predictions* — SHAP, used for every explanation served.
+- Romano, Patterson and Candès (2019), *Conformalized Quantile Regression* —
+  evaluated against the shipped interval method and measured worse on Winkler
+  score here, which is why it is not used.
+
+## Acknowledgements
+
+- **David Cariboo**, for maintaining the CC0 mirror that makes this project
+  legally possible at all.
+- **Transfermarkt's contributor community**, whose valuations are the labels.
+  The model reproduces their consensus, including wherever it is biased — it
+  does not independently observe what anyone would pay.
+- The maintainers of **scikit-learn, LightGBM, XGBoost, CatBoost, SHAP,
+  FastAPI, pandas and Next.js**, all of which are load-bearing here.
+
 ## Licence
 
 MIT — full text in [`LICENSE`](LICENSE).
@@ -693,3 +848,13 @@ The data carries its own terms and they are not MIT. Labels and appearances come
 from `davidcariboo/player-scores`, which is CC0. Transfermarkt's own Terms of Use
 §11.1 prohibit both automated access and ML training on the content, which is why
 nothing here fetches it.
+
+---
+
+**Further reading.** [`PROJECT_STRUCTURE.md`](PROJECT_STRUCTURE.md) ·
+[`docs/DATASET_CARD.md`](docs/DATASET_CARD.md) ·
+[`docs/MODEL_CARD_performance_only.md`](docs/MODEL_CARD_performance_only.md) ·
+[`docs/API_CONTRACT.md`](docs/API_CONTRACT.md) ·
+[`docs/demo_script.md`](docs/demo_script.md) ·
+[`ROADMAP.md`](ROADMAP.md) · [`SECURITY.md`](SECURITY.md) ·
+[`CONTRIBUTING.md`](CONTRIBUTING.md) · [`plans/`](plans/)

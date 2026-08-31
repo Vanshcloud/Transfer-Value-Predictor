@@ -4,12 +4,7 @@ Notable changes to this project. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
-
-Cut this as 1.3.0 when you are ready: the code still declares 1.2.0 so that
-`tests/unit/test_version.py` keeps agreeing with the latest tag, and bumping
-`src/__init__.py`, `frontend/package.json` and the tag together is the release
-step rather than part of the audit.
+## [1.3.0] — 2026-09-01
 
 A research-grade audit that re-verified every claim from the raw files rather
 than from the previous phase's notes. It found one real leak, one overstated
@@ -123,6 +118,24 @@ one standard error of the best and wins the deployment-cost tiebreak.
   than some, and that servable players equal labelled players. A population
   assertion, because a regression that empties an endpoint for a third of users
   passes every single-player test.
+
+### Repository
+
+- `SECURITY.md`, `CODE_OF_CONDUCT.md`, `ROADMAP.md`, `PROJECT_STRUCTURE.md` and
+  `docs/demo_script.md` are new. `ROADMAP.md` lists only work a measurement
+  says is open; ideas that were built and rejected live in `plans/` and are
+  deliberately not restated as future work.
+- Model cards gain **Assumptions**, **Failure modes**, **Fairness** and
+  **Ethical considerations**. Fairness is a measured table rather than a claim —
+  MAPE by competition, which spans 36% to 102%. Written in the generator, not
+  the output, so the next report build cannot undo it.
+- README gains an architecture diagram, a Testing section, citations,
+  acknowledgements and future work. Two stale counts fixed (53 skips, not 49;
+  54 features, not 41) and a generated model-card figure corrected — "roughly
+  60% worse than a random split" was measured at 45% against a grouped one.
+- `pyproject.toml` gains `[project.urls]` and classifiers; `.env.example` now
+  documents `CORS_ORIGINS`, which the API reads and compose sets but nothing
+  told a deployer about. Empty `src/preprocessing/` package removed.
 
 ### Measured and rejected
 

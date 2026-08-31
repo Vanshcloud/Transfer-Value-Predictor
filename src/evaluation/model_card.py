@@ -38,6 +38,105 @@ OUT_OF_SCOPE = (
 )
 
 
+_ASSUMPTIONS: tuple[str, ...] = (
+    "**The future resembles the recent past.** Training seasons are weighted "
+    "toward recent ones, but a structural break — a new financial-fair-play "
+    "regime, another closed-doors season — is not something the model can "
+    "anticipate. Season 2020 is already such a break in this data.",
+    "**A player's competition is a proxy for the quality he faced.** The model "
+    "never sees an opponent. It sees the league's historical value level and "
+    "his club's results, which is an average standing in for a specific.",
+    "**Minutes are earned, not assigned.** Availability is read as a signal of "
+    "quality. A player kept out by injury and one kept out by his manager look "
+    "the same here.",
+    "**The valuation being predicted is set within a year of the as-of date.** "
+    "Widen that horizon and the question changes; the label window is a "
+    "modelling choice, recorded per row as `label_horizon_days`.",
+)
+
+_FAILURE_MODES: tuple[str, ...] = (
+    "**Players with no history.** A first covered season has no lagged "
+    "features and the model falls back on biography and current output. The "
+    "`career_stage` breakdown in the error report isolates exactly these rows.",
+    "**Sudden reputational moves.** A transfer saga, a tournament breakout or "
+    "a long-term injury repriced the player faster than any season-level "
+    "feature can register. The model is smooth; the market is not.",
+    "**The very top of the market.** Above EUR 50M there are few comparable "
+    "seasons and the absolute error is largest. Relative error is smallest "
+    "there, which is a different statement and easy to confuse.",
+    "**Leagues thinly represented in the panel.** Competition strength is an "
+    "expanding historical mean, so a league with little history gets a null "
+    "and the imputer's median instead of a level.",
+    "**Anything outside the covered competitions.** No row exists, so no "
+    "prediction is served rather than a guess being manufactured.",
+)
+
+_ETHICS: tuple[str, ...] = (
+    "**This is decision support, not a decision.** Every response carries an "
+    "explanation and an interval so a human can disagree with it. A valuation "
+    "used to set a person's wages or transfer terms without that human is a "
+    "misuse of the model.",
+    "**The labels encode a community's opinion of people.** Transfermarkt "
+    "valuations are crowd estimates, and any bias in that crowd — toward "
+    "visible leagues, particular nationalities, particular styles — is "
+    "reproduced faithfully. The model cannot correct a bias it is trained to "
+    "imitate.",
+    "**Nationality is a feature.** `country_of_citizenship` improves accuracy "
+    "and is a protected attribute. It is retained because removing it does not "
+    "remove the information (league and club are proxies) and does hide it. "
+    "Stated plainly so the choice is reviewable rather than invisible.",
+    "**No personal data beyond the public record.** Biography, appearances and "
+    "public valuations only. Nothing here is scraped, and nothing about a "
+    "player's private life is used or inferred.",
+)
+
+
+def _fairness_section(analysis: ErrorAnalysis | None) -> list[str]:
+    """Measured error spread across leagues, rather than a promise of fairness.
+
+    A fairness claim with no numbers behind it is decoration. What can honestly
+    be shown is where the model is worse and by how much, so the segments are
+    printed and the reader draws the conclusion.
+    """
+    lines = [
+        "## Fairness",
+        "",
+        "The model is not audited against protected attributes as a classifier "
+        "would be — there is no favourable outcome to allocate, only an "
+        "estimate that is more or less accurate. What matters here is whether "
+        "it is *reliably* accurate across groups, so the measured spread is "
+        "reported instead of a fairness score.",
+        "",
+    ]
+    if analysis is None:
+        lines += ["No per-segment analysis was supplied for this card.", ""]
+        return lines
+
+    segments = sorted(analysis.segments_for("primary_competition_id"), key=lambda s: -s.mape)
+    if not segments:
+        lines += ["No competition-level segments met the minimum row count.", ""]
+        return lines
+
+    lines += [
+        "Worst and best competitions by MAPE, over segments with enough rows " "to mean anything:",
+        "",
+        "| Competition | Rows | MAE | MAPE |",
+        "|---|---|---|---|",
+    ]
+    for segment in segments[:3] + segments[-3:]:
+        lines.append(
+            f"| `{segment.value}` | {segment.n:,} | EUR {segment.mae:,.0f} | {segment.mape:.0%} |"
+        )
+    lines += [
+        "",
+        "A wide spread here means the model serves some leagues better than "
+        "others, which is a property of how much history the panel holds for "
+        "each. Read it before quoting one number for every competition.",
+        "",
+    ]
+    return lines
+
+
 def _limitations(artifact: ModelArtifact, analysis: ErrorAnalysis | None) -> list[str]:
     limitations = [
         "**Market value is an estimate, not a fact.** The labels come from "
@@ -54,9 +153,9 @@ def _limitations(artifact: ModelArtifact, analysis: ErrorAnalysis | None) -> lis
         "**Seasons are August to July.** Leagues on a spring-autumn calendar "
         "are split across that boundary and are represented less faithfully.",
         "**The model has never seen the season it is asked about.** That is "
-        "deliberate, and it is why the reported error is roughly 60% worse "
-        "than a random split would suggest. The reported number is the "
-        "honest one.",
+        "deliberate, and it is why the reported error is roughly 45% worse "
+        "than a split grouped by player would suggest. The reported number is "
+        "the honest one.",
     ]
 
     if artifact.variant == "with_prior_value":
@@ -141,9 +240,22 @@ def build_model_card(
         "|---|---|",
         *[f"| `{name}` | {value:,.4g} |" for name, value in importance],
         "",
+        "## Assumptions",
+        "",
+        *[f"- {item}" for item in _ASSUMPTIONS],
+        "",
         "## Limitations",
         "",
         *[f"- {item}" for item in _limitations(artifact, analysis)],
+        "",
+        "## Failure modes",
+        "",
+        *[f"- {item}" for item in _FAILURE_MODES],
+        "",
+        *_fairness_section(analysis),
+        "## Ethical considerations",
+        "",
+        *[f"- {item}" for item in _ETHICS],
         "",
         "## Leakage controls",
         "",
