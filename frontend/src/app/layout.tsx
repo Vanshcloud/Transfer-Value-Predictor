@@ -4,10 +4,7 @@ import "./globals.css";
 import Nav from "@/components/Nav";
 
 const geistSans = Geist({ variable: "--font-geist-sans", subsets: ["latin"] });
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
-  subsets: ["latin"],
-});
+const geistMono = Geist_Mono({ variable: "--font-geist-mono", subsets: ["latin"] });
 
 export const metadata: Metadata = {
   title: "Transfer Value Predictor",
@@ -28,11 +25,7 @@ try {
 } catch (e) {}
 `;
 
-export default function RootLayout({
-  children,
-}: {
-  children: React.ReactNode;
-}) {
+export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en" suppressHydrationWarning>
       <head>
@@ -50,8 +43,8 @@ export default function RootLayout({
           {children}
         </main>
         <footer className="mx-auto max-w-6xl px-4 py-10 text-xs text-slate-500 dark:text-slate-400">
-          Labels from the CC0 Kaggle mirror of Transfermarkt data. Transfermarkt
-          is never scraped. Metrics are measured on held-out seasons.
+          Labels from the CC0 Kaggle mirror of Transfermarkt data. Transfermarkt is
+          never scraped. Metrics are measured on held-out seasons.
         </footer>
       </body>
     </html>

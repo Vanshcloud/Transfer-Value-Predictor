@@ -68,20 +68,13 @@ export interface ChartProps {
 
 /** A trace's points as (label, value) pairs, for the text alternative. */
 function points(trace: Data): [string, string][] {
-  const record = trace as unknown as {
-    x?: unknown[];
-    y?: unknown[];
-    orientation?: string;
-  };
+  const record = trace as unknown as { x?: unknown[]; y?: unknown[]; orientation?: string };
   const horizontal = record.orientation === "h";
   const labels = (horizontal ? record.y : record.x) ?? [];
   const values = (horizontal ? record.x : record.y) ?? [];
   return labels
     .slice(0, 60)
-    .map((label, index): [string, string] => [
-      String(label),
-      String(values[index] ?? ""),
-    ]);
+    .map((label, index): [string, string] => [String(label), String(values[index] ?? "")]);
 }
 
 /**
@@ -90,11 +83,7 @@ function points(trace: Data): [string, string][] {
  * Capped at 60 rows per trace: past that a table stops being an alternative
  * and becomes its own navigation problem, and no chart here plots more.
  */
-function DataTable({
-  data,
-  title,
-  valueLabel,
-}: Pick<ChartProps, "data" | "title" | "valueLabel">) {
+function DataTable({ data, title, valueLabel }: Pick<ChartProps, "data" | "title" | "valueLabel">) {
   const traces = data.map(points).filter((rows) => rows.length > 0);
   if (traces.length === 0) return null;
 

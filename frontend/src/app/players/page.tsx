@@ -60,9 +60,7 @@ export default function PlayerSearch() {
           className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-lg shadow-sm placeholder:text-slate-400 focus:border-sky-500 dark:border-slate-700 dark:bg-slate-900"
         />
         <div className="mt-3 flex flex-wrap gap-2">
-          <span className="text-xs text-slate-500 dark:text-slate-400">
-            Try:
-          </span>
+          <span className="text-xs text-slate-500 dark:text-slate-400">Try:</span>
           {EXAMPLES.map((example) => (
             <button
               key={example}
@@ -75,15 +73,9 @@ export default function PlayerSearch() {
         </div>
       </div>
 
-      {error != null && (
-        <ErrorPanel error={error} onRetry={() => search(query)} />
-      )}
+      {error != null && <ErrorPanel error={error} onRetry={() => search(query)} />}
 
-      {pending && (
-        <Card>
-          <Loading label="Searching" />
-        </Card>
-      )}
+      {pending && <Card><Loading label="Searching" /></Card>}
 
       {!pending && results != null && (
         <Card>
@@ -96,17 +88,12 @@ export default function PlayerSearch() {
                   <div className="flex items-center justify-between gap-4 py-3">
                     <div className="min-w-0">
                       <div className="flex items-center gap-2">
-                        <span className="truncate font-medium">
-                          {result.name}
-                        </span>
-                        {!result.predictable && (
-                          <Badge tone="warn">no modelled season</Badge>
-                        )}
+                        <span className="truncate font-medium">{result.name}</span>
+                        {!result.predictable && <Badge tone="warn">no modelled season</Badge>}
                       </div>
                       <div className="text-xs text-slate-500 dark:text-slate-400">
                         {result.position ?? "—"}
-                        {result.latest_season &&
-                          ` · latest ${result.latest_season}`}
+                        {result.latest_season && ` · latest ${result.latest_season}`}
                       </div>
                     </div>
                     <span className="shrink-0 text-sm tabular-nums text-slate-600 dark:text-slate-300">

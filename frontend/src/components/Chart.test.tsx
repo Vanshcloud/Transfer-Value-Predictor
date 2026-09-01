@@ -13,10 +13,9 @@ import { describe, expect, it, vi } from "vitest";
 // Plot itself is stubbed. The SSR guard it exists for is caught by `next
 // build` in CI, which is where that failure actually appears.
 vi.mock("next/dynamic", () => ({
-  default: () =>
-    function StubbedPlot() {
-      return <div data-testid="plot" />;
-    },
+  default: () => function StubbedPlot() {
+    return <div data-testid="plot" />;
+  },
 }));
 
 const { default: Chart } = await import("./Chart");
@@ -33,46 +32,33 @@ const bars = [
 describe("Chart", () => {
   it("names the figure for a screen reader", () => {
     render(<Chart data={bars} title="Feature contributions" />);
-    expect(
-      screen.getByRole("figure", { name: "Feature contributions" }),
-    ).toBeInTheDocument();
+    expect(screen.getByRole("figure", { name: "Feature contributions" })).toBeInTheDocument();
   });
 
   it("exposes the same numbers as a table, not just as pixels", () => {
     render(<Chart data={bars} title="Feature contributions" />);
     const table = screen.getByRole("table");
-    expect(
-      within(table).getByRole("rowheader", { name: "appearances" }),
-    ).toBeInTheDocument();
+    expect(within(table).getByRole("rowheader", { name: "appearances" })).toBeInTheDocument();
     expect(within(table).getByText("0.657")).toBeInTheDocument();
     expect(within(table).getByText("0.3")).toBeInTheDocument();
   });
 
   it("reads a vertical trace off x/y the other way round", () => {
     render(
-      <Chart
-        data={[{ type: "scatter", x: [2023, 2024], y: [12, 19] }]}
-        title="Value history"
-      />,
+      <Chart data={[{ type: "scatter", x: [2023, 2024], y: [12, 19] }]} title="Value history" />,
     );
     const table = screen.getByRole("table");
-    expect(
-      within(table).getByRole("rowheader", { name: "2023" }),
-    ).toBeInTheDocument();
+    expect(within(table).getByRole("rowheader", { name: "2023" })).toBeInTheDocument();
     expect(within(table).getByText("19")).toBeInTheDocument();
   });
 
   it("labels the value column when units are given", () => {
     render(<Chart data={bars} title="Value" valueLabel="EUR" />);
-    expect(
-      screen.getByRole("columnheader", { name: "EUR" }),
-    ).toBeInTheDocument();
+    expect(screen.getByRole("columnheader", { name: "EUR" })).toBeInTheDocument();
   });
 
   it("hides the SVG from assistive tech, since the table carries the content", () => {
-    const { container } = render(
-      <Chart data={bars} title="Feature contributions" />,
-    );
+    const { container } = render(<Chart data={bars} title="Feature contributions" />);
     expect(container.querySelector('[aria-hidden="true"]')).toContainElement(
       screen.getByTestId("plot"),
     );
@@ -86,8 +72,6 @@ describe("Chart", () => {
   it("caps the table so it does not become its own navigation problem", () => {
     const many = Array.from({ length: 200 }, (_, i) => i);
     render(<Chart data={[{ type: "bar", x: many, y: many }]} title="Many" />);
-    expect(
-      within(screen.getByRole("table")).getAllByRole("rowheader"),
-    ).toHaveLength(60);
+    expect(within(screen.getByRole("table")).getAllByRole("rowheader")).toHaveLength(60);
   });
 });

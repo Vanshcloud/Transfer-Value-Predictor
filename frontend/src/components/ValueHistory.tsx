@@ -41,11 +41,7 @@ export default function ValueHistory({ seasons }: { seasons: SeasonRow[] }) {
             y: recorded.map((s) => s.market_value_in_eur),
             line: { color: "#0284c7", width: 2 },
             marker: { size: 8 },
-            customdata: recorded.map((s) => [
-              s.goals,
-              s.appearances,
-              s.minutes_played,
-            ]),
+            customdata: recorded.map((s) => [s.goals, s.appearances, s.minutes_played]),
             hovertemplate:
               "<b>%{x}</b><br>%{y:,.0f} EUR<br>" +
               "%{customdata[0]} goals in %{customdata[1]} apps<br>" +
@@ -60,17 +56,13 @@ export default function ValueHistory({ seasons }: { seasons: SeasonRow[] }) {
       />
       <dl className="mt-4 flex flex-wrap gap-6 text-sm">
         <div>
-          <dt className="text-xs text-slate-500 uppercase dark:text-slate-400">
-            Peak
-          </dt>
+          <dt className="text-xs text-slate-500 uppercase dark:text-slate-400">Peak</dt>
           <dd className="tabular-nums">
             {eur(Math.max(...recorded.map((s) => s.market_value_in_eur)))}
           </dd>
         </div>
         <div>
-          <dt className="text-xs text-slate-500 uppercase dark:text-slate-400">
-            Seasons
-          </dt>
+          <dt className="text-xs text-slate-500 uppercase dark:text-slate-400">Seasons</dt>
           <dd className="tabular-nums">{seasons.length}</dd>
         </div>
         <div>
@@ -78,9 +70,7 @@ export default function ValueHistory({ seasons }: { seasons: SeasonRow[] }) {
             Total minutes
           </dt>
           <dd className="tabular-nums">
-            {seasons
-              .reduce((total, s) => total + s.minutes_played, 0)
-              .toLocaleString()}
+            {seasons.reduce((total, s) => total + s.minutes_played, 0).toLocaleString()}
           </dd>
         </div>
       </dl>

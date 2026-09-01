@@ -20,13 +20,11 @@ export default function Nav() {
     <header className="sticky top-0 z-20 border-b border-slate-200 bg-slate-50/85 backdrop-blur dark:border-slate-800 dark:bg-slate-950/85">
       <nav className="mx-auto flex max-w-6xl flex-wrap items-center gap-x-1 gap-y-2 px-4 py-3">
         <Link href="/" className="mr-4 font-semibold tracking-tight">
-          Transfer Value
-          <span className="text-sky-600 dark:text-sky-400"> Predictor</span>
+          Transfer Value<span className="text-sky-600 dark:text-sky-400"> Predictor</span>
         </Link>
         <div className="flex flex-1 flex-wrap gap-1">
           {LINKS.slice(1).map((link) => {
-            const active =
-              pathname === link.href || pathname.startsWith(`${link.href}/`);
+            const active = pathname === link.href || pathname.startsWith(`${link.href}/`);
             return (
               <Link
                 key={link.href}

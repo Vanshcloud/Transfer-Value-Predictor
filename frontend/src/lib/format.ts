@@ -53,7 +53,5 @@ export function featureLabel(name: string): string {
 export function shortDate(iso: string | null | undefined): string {
   if (!iso) return "—";
   const parsed = new Date(iso);
-  return Number.isNaN(parsed.valueOf())
-    ? "—"
-    : parsed.toISOString().slice(0, 10);
+  return Number.isNaN(parsed.valueOf()) ? "—" : parsed.toISOString().slice(0, 10);
 }

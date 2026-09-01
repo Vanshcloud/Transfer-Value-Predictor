@@ -45,13 +45,8 @@ export default function ModelMetadata({
     <Card title="Model" subtitle="Where this prediction came from">
       <dl className="grid grid-cols-1 gap-x-6 gap-y-2 sm:grid-cols-2">
         {rows.map(([label, value]) => (
-          <div
-            key={label}
-            className="flex justify-between gap-4 border-b border-slate-100 py-1.5 dark:border-slate-800"
-          >
-            <dt className="text-sm text-slate-500 dark:text-slate-400">
-              {label}
-            </dt>
+          <div key={label} className="flex justify-between gap-4 border-b border-slate-100 py-1.5 dark:border-slate-800">
+            <dt className="text-sm text-slate-500 dark:text-slate-400">{label}</dt>
             <dd className="text-right text-sm font-medium tabular-nums text-slate-900 dark:text-slate-100">
               {value}
             </dd>
@@ -59,9 +54,9 @@ export default function ModelMetadata({
         ))}
       </dl>
       <p className="mt-4 text-xs leading-relaxed text-slate-500 dark:text-slate-400">
-        Metrics are measured on <strong>seasons the model never saw</strong>. A
-        random split would report roughly 30% better error and would not
-        describe how the model behaves on a season that has not happened yet.
+        Metrics are measured on <strong>seasons the model never saw</strong>. A random
+        split would report roughly 30% better error and would not describe how the
+        model behaves on a season that has not happened yet.
       </p>
     </Card>
   );

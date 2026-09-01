@@ -14,11 +14,7 @@ import { eur } from "@/lib/format";
 import Chart from "./Chart";
 import { Card, Empty } from "./ui";
 
-export default function PredictionHistory({
-  points,
-}: {
-  points: HistoryPoint[];
-}) {
+export default function PredictionHistory({ points }: { points: HistoryPoint[] }) {
   if (points.length === 0) {
     return (
       <Card title="Predicted vs actual">
@@ -30,8 +26,7 @@ export default function PredictionHistory({
   const heldOut = points.filter((p) => p.held_out);
   const meanAbsHeldOut =
     heldOut.length > 0
-      ? heldOut.reduce((total, p) => total + Math.abs(p.error_eur), 0) /
-        heldOut.length
+      ? heldOut.reduce((total, p) => total + Math.abs(p.error_eur), 0) / heldOut.length
       : null;
 
   return (
@@ -65,13 +60,9 @@ export default function PredictionHistory({
             // there says nothing about how it will behave in future.
             marker: {
               size: 10,
-              symbol: points.map((p) =>
-                p.held_out ? "circle" : "circle-open",
-              ),
+              symbol: points.map((p) => (p.held_out ? "circle" : "circle-open")),
             },
-            customdata: points.map((p) =>
-              p.held_out ? "held out" : "in training range",
-            ),
+            customdata: points.map((p) => (p.held_out ? "held out" : "in training range")),
             hovertemplate:
               "%{x} predicted<br>%{y:,.0f} EUR<br>%{customdata}<extra></extra>",
           },
@@ -103,9 +94,9 @@ export default function PredictionHistory({
       </div>
 
       <p className="mt-3 text-xs leading-relaxed text-slate-500 dark:text-slate-400">
-        Hollow markers are seasons inside the training range — the model has
-        already seen them, so landing close there is not evidence. Solid markers
-        are held-out seasons, and those are the ones worth judging it on.
+        Hollow markers are seasons inside the training range — the model has already
+        seen them, so landing close there is not evidence. Solid markers are held-out
+        seasons, and those are the ones worth judging it on.
       </p>
     </Card>
   );

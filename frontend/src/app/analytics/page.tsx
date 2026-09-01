@@ -19,9 +19,7 @@ const SEEDS = ["a", "e", "i", "o", "u"];
 
 export default function AnalyticsPage() {
   const fetcher = useCallback(async (): Promise<SearchResult[]> => {
-    const batches = await Promise.all(
-      SEEDS.map((seed) => api.searchPlayers(seed, 50)),
-    );
+    const batches = await Promise.all(SEEDS.map((seed) => api.searchPlayers(seed, 50)));
     const seen = new Map<number, SearchResult>();
     for (const batch of batches) {
       for (const result of batch.results) {
@@ -41,15 +39,10 @@ export default function AnalyticsPage() {
   const byPosition = new Map<string, number[]>();
   for (const player of players) {
     const key = player.position ?? "Unknown";
-    byPosition.set(key, [
-      ...(byPosition.get(key) ?? []),
-      player.market_value_in_eur ?? 0,
-    ]);
+    byPosition.set(key, [...(byPosition.get(key) ?? []), player.market_value_in_eur ?? 0]);
   }
 
-  const values = players
-    .map((p) => p.market_value_in_eur ?? 0)
-    .filter((v) => v > 0);
+  const values = players.map((p) => p.market_value_in_eur ?? 0).filter((v) => v > 0);
 
   return (
     <div className="space-y-6">
@@ -61,11 +54,7 @@ export default function AnalyticsPage() {
       </div>
 
       {error != null && <ErrorPanel error={error} onRetry={reload} />}
-      {loading && (
-        <Card>
-          <Loading label="Loading panel" />
-        </Card>
-      )}
+      {loading && <Card><Loading label="Loading panel" /></Card>}
 
       {!loading && players.length === 0 && (
         <Card>
@@ -87,8 +76,7 @@ export default function AnalyticsPage() {
                   type: "histogram",
                   x: values.map((v) => Math.log10(v)),
                   marker: { color: "#0ea5e9" },
-                  hovertemplate:
-                    "10^%{x:.1f} EUR<br>%{y} players<extra></extra>",
+                  hovertemplate: "10^%{x:.1f} EUR<br>%{y} players<extra></extra>",
                 },
               ]}
               layout={{
@@ -97,16 +85,13 @@ export default function AnalyticsPage() {
               }}
             />
             <p className="mt-3 text-xs text-slate-500 dark:text-slate-400">
-              This skew is why the model trains on log1p of the value: raw, a
-              handful of €100M players dominate the loss and the model learns
-              little about everyone else.
+              This skew is why the model trains on log1p of the value: raw, a handful
+              of €100M players dominate the loss and the model learns little about
+              everyone else.
             </p>
           </Card>
 
-          <Card
-            title="By position"
-            subtitle="Median value per position in the sample"
-          >
+          <Card title="By position" subtitle="Median value per position in the sample">
             <Chart
               title="Median value by position"
               height={280}

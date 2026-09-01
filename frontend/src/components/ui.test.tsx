@@ -30,11 +30,7 @@ describe("ErrorPanel", () => {
   });
 
   it("shows the server's code so a bug report can name it", () => {
-    render(
-      <ErrorPanel
-        error={new ApiError("player_not_found", "no player with id 9", 404)}
-      />,
-    );
+    render(<ErrorPanel error={new ApiError("player_not_found", "no player with id 9", 404)} />);
     expect(screen.getByText("player_not_found")).toBeInTheDocument();
     expect(screen.getByText("no player with id 9")).toBeInTheDocument();
   });
@@ -47,16 +43,12 @@ describe("ErrorPanel", () => {
 
   it("offers retry only when there is something to retry", async () => {
     const onRetry = vi.fn();
-    const { rerender } = render(
-      <ErrorPanel error={new Error("down")} onRetry={onRetry} />,
-    );
+    const { rerender } = render(<ErrorPanel error={new Error("down")} onRetry={onRetry} />);
     await userEvent.click(screen.getByRole("button", { name: /try again/i }));
     expect(onRetry).toHaveBeenCalledOnce();
 
     rerender(<ErrorPanel error={new Error("down")} />);
-    expect(
-      screen.queryByRole("button", { name: /try again/i }),
-    ).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /try again/i })).not.toBeInTheDocument();
   });
 
   it("is reachable by keyboard", async () => {
@@ -76,9 +68,7 @@ describe("Card", () => {
         <p>body</p>
       </Card>,
     );
-    expect(
-      screen.getByRole("heading", { name: "Feature contributions" }),
-    ).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Feature contributions" })).toBeInTheDocument();
     expect(screen.getByText("What moved this prediction")).toBeInTheDocument();
   });
 
@@ -94,21 +84,16 @@ describe("Card", () => {
 
 describe("Stat and Badge", () => {
   it("keeps the label with its value", () => {
-    render(
-      <Stat label="Temporal MAE" value="€4.44M" hint="held-out seasons" />,
-    );
+    render(<Stat label="Temporal MAE" value="€4.44M" hint="held-out seasons" />);
     expect(screen.getByText("Temporal MAE")).toBeInTheDocument();
     expect(screen.getByText("€4.44M")).toBeInTheDocument();
     expect(screen.getByText("held-out seasons")).toBeInTheDocument();
   });
 
-  it.each(["neutral", "positive", "negative", "warn"] as const)(
-    "renders the %s tone",
-    (tone) => {
-      render(<Badge tone={tone}>label</Badge>);
-      expect(screen.getByText("label")).toBeInTheDocument();
-    },
-  );
+  it.each(["neutral", "positive", "negative", "warn"] as const)("renders the %s tone", (tone) => {
+    render(<Badge tone={tone}>label</Badge>);
+    expect(screen.getByText("label")).toBeInTheDocument();
+  });
 });
 
 describe("Empty", () => {
