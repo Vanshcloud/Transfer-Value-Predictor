@@ -2,7 +2,7 @@
 
 /** Two players, side by side, on the same model and the same season basis. */
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useAsync } from "@/lib/useAsync";
 import Link from "next/link";
 import {
@@ -14,6 +14,7 @@ import {
   type SimilarPlayer,
   type Variant,
 } from "@/lib/api";
+import { readPair, writePair } from "@/lib/comparePair";
 import { eur, featureLabel } from "@/lib/format";
 import Chart from "@/components/Chart";
 import Radar from "@/components/Radar";
@@ -21,10 +22,13 @@ import { Card, Empty, ErrorPanel, Loading } from "@/components/ui";
 
 const COLOURS = ["#0284c7", "#f59e0b"] as const;
 
+/** All the picker needs of a player: enough to label them and fetch them. */
+type Chosen = Pick<SearchResult, "player_id" | "name">;
+
 interface Side {
   query: string;
   results: SearchResult[];
-  chosen: SearchResult | null;
+  chosen: Chosen | null;
   prediction: PredictResponse | null;
   player: Player | null;
   similar: SimilarPlayer[];
@@ -145,10 +149,7 @@ export default function ComparePage() {
   }, [right.query, runSearch]);
 
   const pick = useCallback(
-    async (
-      result: SearchResult,
-      set: (updater: (side: Side) => Side) => void,
-    ) => {
+    async (result: Chosen, set: (updater: (side: Side) => Side) => void) => {
       // The query becomes the resolved name, so the field shows who was
       // actually chosen rather than whatever was typed to find them.
       set((side) => ({
@@ -183,6 +184,50 @@ export default function ComparePage() {
     },
     [variant],
   );
+
+  // ---- the comparison lives in the URL ------------------------------------
+  //
+  // Both sides were React state and nothing else, so opening a player's page
+  // and pressing Back returned an empty form: the component had unmounted and
+  // remounted with no memory of who was being compared, and both names had to
+  // be typed again. The pair is the page's entire meaning, so it belongs in the
+  // address bar — which also makes a comparison a link somebody can send.
+  //
+  // `replaceState`, not `pushState`: picking a player is not a navigation, and
+  // pushing would make Back walk backwards through every selection instead of
+  // leaving the page.
+  const restored = useRef(false);
+
+  useEffect(() => {
+    if (restored.current) return;
+    restored.current = true;
+
+    const pair = readPair(window.location.search);
+    const load = async (id: number | null, set: typeof setLeft) => {
+      if (id === null) return;
+      try {
+        const player = await api.player(id);
+        await pick({ player_id: id, name: player.name ?? `Player ${id}` }, set);
+      } catch {
+        // A stale or hand-edited link should leave an empty picker rather than
+        // an error banner: there is nothing for the reader to fix.
+      }
+    };
+    void Promise.all([load(pair.a, setLeft), load(pair.b, setRight)]);
+  }, [pick]);
+
+  useEffect(() => {
+    if (!restored.current) return;
+    window.history.replaceState(
+      null,
+      "",
+      writePair(
+        window.location.pathname,
+        left.chosen?.player_id,
+        right.chosen?.player_id,
+      ),
+    );
+  }, [left.chosen, right.chosen]);
 
   const both = left.prediction && right.prediction;
 
