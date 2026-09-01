@@ -22,12 +22,24 @@ import { eur, eurExact } from "@/lib/format";
 import { Card, ErrorPanel } from "./ui";
 
 /** Editable inputs, with the bounds the training data actually spans. */
-const CONTROLS: { key: string; label: string; min: number; max: number; step: number }[] = [
+const CONTROLS: {
+  key: string;
+  label: string;
+  min: number;
+  max: number;
+  step: number;
+}[] = [
   { key: "age", label: "Age", min: 16, max: 40, step: 0.5 },
   { key: "goals", label: "Goals", min: 0, max: 50, step: 1 },
   { key: "assists", label: "Assists", min: 0, max: 30, step: 1 },
   { key: "appearances", label: "Appearances", min: 0, max: 60, step: 1 },
-  { key: "minutes_played", label: "Minutes played", min: 0, max: 4500, step: 50 },
+  {
+    key: "minutes_played",
+    label: "Minutes played",
+    min: 0,
+    max: 4500,
+    step: 50,
+  },
   { key: "yellow_cards", label: "Yellow cards", min: 0, max: 20, step: 1 },
 ];
 
@@ -52,7 +64,8 @@ export default function WhatIf({
 
   const initial = useMemo(() => {
     const seed: Record<string, number> = {};
-    for (const control of editable) seed[control.key] = toNumber(features[control.key]);
+    for (const control of editable)
+      seed[control.key] = toNumber(features[control.key]);
     return seed;
   }, [editable, features]);
 
@@ -65,7 +78,9 @@ export default function WhatIf({
     setPending(true);
     setError(null);
     try {
-      setResult(await api.predictFromFeatures({ ...features, ...values }, variant));
+      setResult(
+        await api.predictFromFeatures({ ...features, ...values }, variant),
+      );
     } catch (caught) {
       setError(caught);
     } finally {
@@ -104,11 +119,15 @@ export default function WhatIf({
                   htmlFor={`whatif-${control.key}`}
                   className="flex items-baseline justify-between text-sm"
                 >
-                  <span className="text-slate-700 dark:text-slate-300">{control.label}</span>
+                  <span className="text-slate-700 dark:text-slate-300">
+                    {control.label}
+                  </span>
                   <span className="font-mono tabular-nums text-slate-900 dark:text-slate-100">
                     {value}
                     {moved && (
-                      <span className="ml-2 text-xs text-slate-400">was {original}</span>
+                      <span className="ml-2 text-xs text-slate-400">
+                        was {original}
+                      </span>
                     )}
                   </span>
                 </label>
@@ -169,7 +188,9 @@ export default function WhatIf({
               >
                 {delta >= 0 ? "+" : ""}
                 {eur(delta)}
-                <span className="ml-2 text-sm opacity-70">×{ratio.toFixed(2)}</span>
+                <span className="ml-2 text-sm opacity-70">
+                  ×{ratio.toFixed(2)}
+                </span>
               </div>
             </div>
           )}
@@ -194,11 +215,11 @@ export default function WhatIf({
       )}
 
       <p className="mt-4 text-xs leading-relaxed text-slate-500 dark:text-slate-400">
-        Derived features such as goals per 90 are <strong>not</strong> recomputed as
-        you drag: they are defined once in the feature pipeline, and a second
-        definition living in the browser would eventually disagree with it. So
-        raising goals here shows the effect of goals alone, holding the per-90
-        rates at the real season&apos;s values.
+        Derived features such as goals per 90 are <strong>not</strong>{" "}
+        recomputed as you drag: they are defined once in the feature pipeline,
+        and a second definition living in the browser would eventually disagree
+        with it. So raising goals here shows the effect of goals alone, holding
+        the per-90 rates at the real season&apos;s values.
       </p>
     </Card>
   );

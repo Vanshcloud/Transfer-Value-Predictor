@@ -4,7 +4,14 @@
  * €1,000,000 into "€1000k" on a card nobody re-reads.
  */
 import { describe, expect, it } from "vitest";
-import { eur, eurExact, featureLabel, number, percent, shortDate } from "./format";
+import {
+  eur,
+  eurExact,
+  featureLabel,
+  number,
+  percent,
+  shortDate,
+} from "./format";
 
 describe("eur", () => {
   it.each([
@@ -28,10 +35,13 @@ describe("eur", () => {
     expect(eur(-2_500_000)).toBe("€-2.50M");
   });
 
-  it.each([null, undefined, NaN])("renders %s as an em dash, never as 0", (value) => {
-    // A missing value shown as "€0" is a claim; an em dash is an absence.
-    expect(eur(value as number | null | undefined)).toBe("—");
-  });
+  it.each([null, undefined, NaN])(
+    "renders %s as an em dash, never as 0",
+    (value) => {
+      // A missing value shown as "€0" is a claim; an em dash is an absence.
+      expect(eur(value as number | null | undefined)).toBe("—");
+    },
+  );
 });
 
 describe("eurExact", () => {
@@ -71,11 +81,15 @@ describe("number", () => {
 describe("featureLabel", () => {
   it("strips the ColumnTransformer prefix the model adds", () => {
     expect(featureLabel("numeric__goals_per_90")).toBe("goals per 90");
-    expect(featureLabel("categorical__position_Attack")).toBe("position Attack");
+    expect(featureLabel("categorical__position_Attack")).toBe(
+      "position Attack",
+    );
   });
 
   it("uppercases EUR, which is a currency and not a word", () => {
-    expect(featureLabel("numeric__prev_log_market_value_in_eur")).toContain("EUR");
+    expect(featureLabel("numeric__prev_log_market_value_in_eur")).toContain(
+      "EUR",
+    );
   });
 
   it("leaves an already-clean name alone", () => {
@@ -88,7 +102,10 @@ describe("shortDate", () => {
     expect(shortDate("2026-08-29T09:07:53.371592+00:00")).toBe("2026-08-29");
   });
 
-  it.each([null, undefined, "not a date"])("renders %s as an em dash", (value) => {
-    expect(shortDate(value as string | null | undefined)).toBe("—");
-  });
+  it.each([null, undefined, "not a date"])(
+    "renders %s as an em dash",
+    (value) => {
+      expect(shortDate(value as string | null | undefined)).toBe("—");
+    },
+  );
 });

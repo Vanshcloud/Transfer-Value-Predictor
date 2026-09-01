@@ -54,10 +54,19 @@ export interface RadarSeries {
   features: Record<string, unknown>;
 }
 
-function point(cx: number, cy: number, radius: number, index: number, count: number) {
+function point(
+  cx: number,
+  cy: number,
+  radius: number,
+  index: number,
+  count: number,
+) {
   // Start at twelve o'clock and go clockwise, which is how people read a dial.
   const angle = (Math.PI * 2 * index) / count - Math.PI / 2;
-  return [cx + radius * Math.cos(angle), cy + radius * Math.sin(angle)] as const;
+  return [
+    cx + radius * Math.cos(angle),
+    cy + radius * Math.sin(angle),
+  ] as const;
 }
 
 export default function Radar({
@@ -77,12 +86,19 @@ export default function Radar({
   const radius = size / 2 - 58;
   const rings = [0.25, 0.5, 0.75, 1];
 
+  // Axis labels are drawn outside the outer ring and are as long as
+  // "minutes per appearance", so a viewBox of exactly `size` clipped them:
+  // "assists per 90" rendered as "assists per 9" and "years since debut" as
+  // "since debut". The geometry is unchanged; the canvas is simply widened
+  // either side so the text it already draws has somewhere to land.
+  const pad = 96;
+
   return (
     <div className="flex flex-col items-center">
       <svg
-        viewBox={`0 0 ${size} ${size}`}
+        viewBox={`${-pad} 0 ${size + pad * 2} ${size}`}
         width="100%"
-        style={{ maxWidth: size }}
+        style={{ maxWidth: size + pad * 2 }}
         role="img"
         aria-label={`Percentile comparison across ${axes.length} metrics`}
       >
@@ -90,7 +106,9 @@ export default function Radar({
           <polygon
             key={ring}
             points={axes
-              .map((_, index) => point(cx, cy, radius * ring, index, axes.length).join(","))
+              .map((_, index) =>
+                point(cx, cy, radius * ring, index, axes.length).join(","),
+              )
               .join(" ")}
             className="fill-none stroke-slate-200 dark:stroke-slate-700"
             strokeWidth={1}
@@ -141,7 +159,9 @@ export default function Radar({
               key={name}
               x={x}
               y={y}
-              textAnchor={Math.abs(x - cx) < 4 ? "middle" : x > cx ? "start" : "end"}
+              textAnchor={
+                Math.abs(x - cx) < 4 ? "middle" : x > cx ? "start" : "end"
+              }
               dominantBaseline="middle"
               className="fill-slate-600 text-[10px] dark:fill-slate-300"
             >
@@ -164,9 +184,10 @@ export default function Radar({
       </div>
 
       <p className="mt-3 max-w-md text-center text-xs text-slate-500 dark:text-slate-400">
-        Each axis is a percentile across all {distribution.features[axes[0]]?.n.toLocaleString()}{" "}
-        player-seasons, so the outer ring means best in the panel — not merely
-        better than the other player here.
+        Each axis is a percentile across all{" "}
+        {distribution.features[axes[0]]?.n.toLocaleString()} player-seasons, so
+        the outer ring means best in the panel — not merely better than the
+        other player here.
       </p>
     </div>
   );

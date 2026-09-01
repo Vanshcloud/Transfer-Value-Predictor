@@ -81,23 +81,18 @@ function PlayerPicker({
                 className="w-full px-3 py-2 text-left text-sm hover:bg-slate-100 dark:hover:bg-slate-800"
               >
                 {result.name}
-                <span className="ml-2 text-xs text-slate-400">{result.position}</span>
+                <span className="ml-2 text-xs text-slate-400">
+                  {result.position}
+                </span>
               </button>
             </li>
           ))}
         </ul>
       )}
-      {side.chosen && (
-        <div className="mt-2 flex items-center justify-between rounded-lg bg-slate-100 px-3 py-2 dark:bg-slate-800">
-          <span className="text-sm font-medium">{side.chosen.name}</span>
-          <button
-            onClick={() => onQuery("")}
-            className="text-xs text-slate-500 hover:underline"
-          >
-            change
-          </button>
-        </div>
-      )}
+      {/* No confirmation chip. Picking a player writes their full name into
+          the input itself, which is where a search box is expected to show
+          what it found — the previous version left the raw query ("Jude
+          bell") in the field and repeated the resolved name underneath it. */}
     </div>
   );
 }
@@ -115,7 +110,8 @@ export default function ComparePage() {
     () => api.featureDistribution(variant),
     [variant],
   );
-  const { state: distributionState } = useAsync<FeatureDistribution>(distributionFetcher);
+  const { state: distributionState } =
+    useAsync<FeatureDistribution>(distributionFetcher);
   const distribution =
     distributionState.status === "ready" ? distributionState.data : null;
 
@@ -127,7 +123,10 @@ export default function ComparePage() {
       }
       try {
         const { results } = await api.searchPlayers(query, 8);
-        set((side) => ({ ...side, results: results.filter((r) => r.predictable) }));
+        set((side) => ({
+          ...side,
+          results: results.filter((r) => r.predictable),
+        }));
       } catch (caught) {
         setError(caught);
       }
@@ -146,16 +145,36 @@ export default function ComparePage() {
   }, [right.query, runSearch]);
 
   const pick = useCallback(
-    async (result: SearchResult, set: (updater: (side: Side) => Side) => void) => {
-      set((side) => ({ ...side, chosen: result, results: [] }));
+    async (
+      result: SearchResult,
+      set: (updater: (side: Side) => Side) => void,
+    ) => {
+      // The query becomes the resolved name, so the field shows who was
+      // actually chosen rather than whatever was typed to find them.
+      set((side) => ({
+        ...side,
+        chosen: result,
+        results: [],
+        query: result.name,
+      }));
       setPending(true);
       try {
         const [prediction, player, neighbours] = await Promise.all([
-          api.predictForPlayer(result.player_id, variant),
+          // 25 is the API's maximum. Both players need a value for the same
+          // features before their bars can be compared, and eight of each sign
+          // left gaps the chart drew as a missing bar.
+          api.predictForPlayer(result.player_id, variant, undefined, 25),
           api.player(result.player_id),
-          api.similarPlayers(result.player_id, 5, variant).catch(() => ({ results: [] })),
+          api
+            .similarPlayers(result.player_id, 5, variant)
+            .catch(() => ({ results: [] })),
         ]);
-        set((side) => ({ ...side, prediction, player, similar: neighbours.results }));
+        set((side) => ({
+          ...side,
+          prediction,
+          player,
+          similar: neighbours.results,
+        }));
       } catch (caught) {
         setError(caught);
       } finally {
@@ -195,7 +214,11 @@ export default function ComparePage() {
         </div>
       </Card>
 
-      {pending && <Card><Loading /></Card>}
+      {pending && (
+        <Card>
+          <Loading />
+        </Card>
+      )}
 
       {!both && !pending && (
         <Card>
@@ -233,21 +256,49 @@ export default function ComparePage() {
             <Chart
               title="Contribution comparison"
               height={420}
-              data={[left, right].map((side, index) => {
-                const explanation = side.prediction!.explanation;
-                const contributions = [
-                  ...(explanation?.top_positive_features ?? []),
-                  ...(explanation?.top_negative_features ?? []),
-                ];
-                return {
+              data={(() => {
+                // Both traces must span the same features, or Plotly unions the
+                // two category lists and any feature only one player returned
+                // draws a single bar — which read as "this player has no value
+                // here" when it meant "this was not in that player's top slice".
+                //
+                // So: build one ordered axis from the union, look each player's
+                // own contribution up on it, and rank by the larger of the two
+                // magnitudes so a feature that matters to either of them earns
+                // its row.
+                const byFeature = [left, right].map((side) => {
+                  const explanation = side.prediction!.explanation;
+                  return new Map(
+                    [
+                      ...(explanation?.top_positive_features ?? []),
+                      ...(explanation?.top_negative_features ?? []),
+                    ].map((c) => [c.feature, c.shap_value]),
+                  );
+                });
+
+                const features = [
+                  ...new Set(byFeature.flatMap((m) => [...m.keys()])),
+                ]
+                  .sort(
+                    (a, b) =>
+                      Math.max(
+                        ...byFeature.map((m) => Math.abs(m.get(a) ?? 0)),
+                      ) -
+                      Math.max(
+                        ...byFeature.map((m) => Math.abs(m.get(b) ?? 0)),
+                      ),
+                  )
+                  .slice(-16);
+
+                return [left, right].map((side, index) => ({
                   type: "bar" as const,
                   name: side.chosen?.name ?? `Player ${index + 1}`,
                   orientation: "h" as const,
-                  x: contributions.map((c) => c.shap_value),
-                  y: contributions.map((c) => featureLabel(c.feature)),
+                  x: features.map((f) => byFeature[index].get(f) ?? 0),
+                  y: features.map((f) => featureLabel(f)),
                   marker: { color: index === 0 ? "#0284c7" : "#f59e0b" },
-                };
-              })}
+                }));
+              })()}
               layout={{
                 // Grouped is Plotly's default for bar traces, so barmode is
                 // left unset rather than restated.
@@ -312,8 +363,8 @@ export default function ComparePage() {
 
           <Card>
             <p className="text-sm text-slate-600 dark:text-slate-400">
-              To change either player&apos;s season and watch the value move, open
-              their page:{" "}
+              To change either player&apos;s season and watch the value move,
+              open their page:{" "}
               {[left, right].map((side, index) => (
                 <span key={index}>
                   {index > 0 && " · "}

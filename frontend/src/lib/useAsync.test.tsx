@@ -45,9 +45,12 @@ describe("useAsync", () => {
     const first = () => stale.promise;
     const second = () => fresh.promise;
 
-    const { result, rerender } = renderHook(({ fetcher }) => useAsync(fetcher), {
-      initialProps: { fetcher: first },
-    });
+    const { result, rerender } = renderHook(
+      ({ fetcher }) => useAsync(fetcher),
+      {
+        initialProps: { fetcher: first },
+      },
+    );
 
     rerender({ fetcher: second });
     await act(async () => {
@@ -56,16 +59,22 @@ describe("useAsync", () => {
     });
 
     await waitFor(() => expect(result.current.state.status).toBe("ready"));
-    expect(result.current.state).toEqual({ status: "ready", data: "current player" });
+    expect(result.current.state).toEqual({
+      status: "ready",
+      data: "current player",
+    });
   });
 
   it("does not report an error from a cancelled request", async () => {
     const stale = deferred<string>();
     const fresh = deferred<string>();
 
-    const { result, rerender } = renderHook(({ fetcher }) => useAsync(fetcher), {
-      initialProps: { fetcher: () => stale.promise },
-    });
+    const { result, rerender } = renderHook(
+      ({ fetcher }) => useAsync(fetcher),
+      {
+        initialProps: { fetcher: () => stale.promise },
+      },
+    );
 
     rerender({ fetcher: () => fresh.promise });
     await act(async () => {
@@ -86,7 +95,9 @@ describe("useAsync", () => {
     await waitFor(() => expect(result.current.state.status).toBe("ready"));
 
     act(() => result.current.reload());
-    await waitFor(() => expect(result.current.state).toEqual({ status: "ready", data: "call 2" }));
+    await waitFor(() =>
+      expect(result.current.state).toEqual({ status: "ready", data: "call 2" }),
+    );
   });
 
   it("names the mistake when the fetcher is not stable", async () => {
@@ -95,10 +106,14 @@ describe("useAsync", () => {
     // error naming useCallback is the difference between a five-minute fix and
     // an afternoon in a network tab.
     const error = vi.spyOn(console, "error").mockImplementation(() => {});
-    const { unmount } = renderHook(() => useAsync(() => Promise.resolve("value")));
+    const { unmount } = renderHook(() =>
+      useAsync(() => Promise.resolve("value")),
+    );
 
     await waitFor(() =>
-      expect(error).toHaveBeenCalledWith(expect.stringContaining("useCallback")),
+      expect(error).toHaveBeenCalledWith(
+        expect.stringContaining("useCallback"),
+      ),
     );
     // Said once, not once per iteration.
     const complaints = error.mock.calls.filter((call) =>

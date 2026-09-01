@@ -13,12 +13,26 @@ import { Card, Stat } from "./ui";
 export default function PredictionPanel({
   prediction,
   actual,
+  actualSeason,
 }: {
   prediction: PredictResponse;
   actual?: number | null;
+  /**
+   * Which season `actual` was recorded in. Usually the predicted season, but
+   * not for a player whose newest row is the season being played — that row
+   * has no valuation, so the most recent published one is older and saying
+   * which year it belongs to is the difference between context and a
+   * misleading comparison.
+   */
+  actualSeason?: number | null;
 }) {
   const confidence = prediction.confidence;
-  const error = actual != null ? prediction.prediction_eur - actual : null;
+  // Only a like-for-like comparison. Differencing this season's prediction
+  // against an earlier season's valuation would present the market moving as
+  // though the model had got something wrong.
+  const sameSeason = actualSeason == null || actualSeason === prediction.season;
+  const error =
+    actual != null && sameSeason ? prediction.prediction_eur - actual : null;
 
   return (
     <Card>
@@ -39,12 +53,18 @@ export default function PredictionPanel({
         <div className="flex flex-wrap gap-8">
           {actual != null && (
             <Stat
-              label="Recorded value"
+              label={
+                actualSeason != null && !sameSeason
+                  ? `Recorded value · ${actualSeason}`
+                  : "Recorded value"
+              }
               value={eur(actual)}
               hint={
                 error != null
                   ? `${error >= 0 ? "over" : "under"} by ${eur(Math.abs(error))}`
-                  : undefined
+                  : !sameSeason
+                    ? "last published valuation"
+                    : undefined
               }
             />
           )}
@@ -69,10 +89,10 @@ export default function PredictionPanel({
             </span>
           </div>
           <p className="mt-2 text-xs leading-relaxed text-slate-500 dark:text-slate-400">
-            Not a probability. This is measured from the model&apos;s own errors on{" "}
-            {confidence.reference_rows.toLocaleString()} held-out rows —{" "}
-            {confidence.basis}. It is wide because predicting market value a season
-            ahead is genuinely hard, not because something is broken.
+            Not a probability. This is measured from the model&apos;s own errors
+            on {confidence.reference_rows.toLocaleString()} held-out rows —{" "}
+            {confidence.basis}. It is wide because predicting market value a
+            season ahead is genuinely hard, not because something is broken.
           </p>
           {typeof confidence.measured_coverage === "number" && (
             /* The nominal level is what the interval asks for; this is what it
@@ -83,9 +103,9 @@ export default function PredictionPanel({
               <span className="font-medium text-slate-700 dark:text-slate-200">
                 {percent(confidence.measured_coverage, 0)}
               </span>{" "}
-              of true values, against the {percent(confidence.level, 0)} it targets.
-              Seasons are not interchangeable, so an interval calibrated on one
-              covers a little less on the next.
+              of true values, against the {percent(confidence.level, 0)} it
+              targets. Seasons are not interchangeable, so an interval
+              calibrated on one covers a little less on the next.
             </p>
           )}
         </div>

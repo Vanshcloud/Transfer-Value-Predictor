@@ -8,7 +8,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ApiError, api, API_BASE } from "./api";
 
-function mockFetch(response: Partial<Response> & { json?: () => Promise<unknown> }) {
+function mockFetch(
+  response: Partial<Response> & { json?: () => Promise<unknown> },
+) {
   const spy = vi.fn().mockResolvedValue({ ok: true, status: 200, ...response });
   vi.stubGlobal("fetch", spy);
   return spy;
@@ -27,7 +29,11 @@ describe("request", () => {
       ok: false,
       status: 404,
       json: async () => ({
-        error: { code: "player_not_found", message: "no player with id 9", detail: null },
+        error: {
+          code: "player_not_found",
+          message: "no player with id 9",
+          detail: null,
+        },
       }),
     });
 
@@ -45,13 +51,16 @@ describe("request", () => {
       json: async () => ({
         error: {
           code: "validation_error",
-          message: "invalid feature value(s): goals: cannot be negative, got -1",
+          message:
+            "invalid feature value(s): goals: cannot be negative, got -1",
           detail: ["goals: cannot be negative, got -1"],
         },
       }),
     });
 
-    const error = await api.predictFromFeatures({ goals: -1 }).catch((caught) => caught);
+    const error = await api
+      .predictFromFeatures({ goals: -1 })
+      .catch((caught) => caught);
     expect(error).toBeInstanceOf(ApiError);
     expect(error.code).toBe("validation_error");
     // "which field, and why" is the entire value of a 422.
@@ -75,7 +84,10 @@ describe("request", () => {
   });
 
   it("turns a dead backend into an actionable message, not 'Failed to fetch'", async () => {
-    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new TypeError("Failed to fetch")));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockRejectedValue(new TypeError("Failed to fetch")),
+    );
     const error = await api.health().catch((caught) => caught);
     expect(error).toBeInstanceOf(ApiError);
     expect(error.code).toBe("network_error");

@@ -220,14 +220,34 @@ export const api = {
   player: (id: number) => request<Player>(`/api/v1/players/${id}`),
 
   similarPlayers: (id: number, k = 8, variant?: Variant) =>
-    request<{ player_id: number; season: number | null; results: SimilarPlayer[] }>(
+    request<{
+      player_id: number;
+      season: number | null;
+      results: SimilarPlayer[];
+    }>(
       `/api/v1/players/${id}/similar?k=${k}${variant ? `&variant=${variant}` : ""}`,
     ),
 
-  predictForPlayer: (playerId: number, variant?: Variant, season?: number) =>
+  /**
+   * `topN` is how many contributions each side of the explanation returns.
+   * Eight is right for a page that lists them; the compare page asks for more,
+   * because it needs the same features present for *both* players before it
+   * can put their bars side by side.
+   */
+  predictForPlayer: (
+    playerId: number,
+    variant?: Variant,
+    season?: number,
+    topN = 8,
+  ) =>
     request<PredictResponse>("/api/v1/predict", {
       method: "POST",
-      body: JSON.stringify({ player_id: playerId, variant, season, top_n: 8 }),
+      body: JSON.stringify({
+        player_id: playerId,
+        variant,
+        season,
+        top_n: topN,
+      }),
     }),
 
   predictFromFeatures: (features: Record<string, unknown>, variant?: Variant) =>
@@ -246,9 +266,11 @@ export const api = {
       `/api/v1/features/distribution${variant ? `?variant=${variant}` : ""}`,
     ),
 
-  models: () => request<{ variants: string[]; default: string | null }>("/api/v1/models"),
+  models: () =>
+    request<{ variants: string[]; default: string | null }>("/api/v1/models"),
 
-  modelInfo: (variant: string) => request<ModelInfo>(`/api/v1/models/${variant}`),
+  modelInfo: (variant: string) =>
+    request<ModelInfo>(`/api/v1/models/${variant}`),
 
   modelMetrics: (variant: string) =>
     request<ModelMetrics>(`/api/v1/models/${variant}/metrics`),

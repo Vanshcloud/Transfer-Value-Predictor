@@ -26,7 +26,9 @@ function Row({ contribution }: { contribution: Contribution }) {
       </span>
       <span
         className={`font-mono text-sm tabular-nums ${
-          up ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400"
+          up
+            ? "text-emerald-600 dark:text-emerald-400"
+            : "text-rose-600 dark:text-rose-400"
         }`}
       >
         ×{contribution.effect_multiplier.toFixed(2)}
@@ -86,7 +88,10 @@ export default function Contributions({
         ]}
         layout={{
           margin: { l: 190, r: 20, t: 8, b: 40 },
-          xaxis: { title: { text: "contribution (log space)" }, zeroline: true },
+          xaxis: {
+            title: { text: "contribution (log space)" },
+            zeroline: true,
+          },
         }}
       />
 
@@ -114,9 +119,10 @@ export default function Contributions({
       </div>
 
       <p className="mt-4 text-xs leading-relaxed text-slate-500 dark:text-slate-400">
-        Contributions are multiplicative, not additive in euros. The model predicts
-        log value, so ×1.51 means this feature raised the prediction by 51% —
-        whatever the player is worth. They cannot be summed into a euro figure.
+        Contributions are multiplicative, not additive in euros. The model
+        predicts log value, so ×1.51 means this feature raised the prediction by
+        51% — whatever the player is worth. They cannot be summed into a euro
+        figure.
       </p>
     </Card>
   );

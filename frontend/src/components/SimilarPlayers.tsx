@@ -58,8 +58,9 @@ export default function SimilarPlayers({
         </ul>
       )}
       <p className="mt-3 text-xs text-slate-500 dark:text-slate-400">
-        Distance is measured on the preprocessed features the model sees. Comparisons
-        stay within one season — market conditions differ across years.
+        Distance is measured on the preprocessed features the model sees.
+        Comparisons stay within one season — market conditions differ across
+        years.
       </p>
     </Card>
   );

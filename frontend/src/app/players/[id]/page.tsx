@@ -34,7 +34,8 @@ const VARIANTS: { key: Variant; label: string; blurb: string }[] = [
   {
     key: "performance_only",
     label: "Performance only",
-    blurb: "Has never been told the market's opinion, so it can disagree with it.",
+    blurb:
+      "Has never been told the market's opinion, so it can disagree with it.",
   },
   {
     key: "with_prior_value",
@@ -52,7 +53,11 @@ interface PageData {
   history: HistoryPoint[];
 }
 
-export default function PlayerPage({ params }: { params: Promise<{ id: string }> }) {
+export default function PlayerPage({
+  params,
+}: {
+  params: Promise<{ id: string }>;
+}) {
   const { id } = use(params);
   const playerId = Number(id);
 
@@ -102,14 +107,26 @@ export default function PlayerPage({ params }: { params: Promise<{ id: string }>
     return (
       <div className="space-y-4">
         <ErrorPanel error={error} onRetry={reload} />
-        <Link href="/players" className="text-sm text-sky-600 hover:underline dark:text-sky-400">
+        <Link
+          href="/players"
+          className="text-sm text-sky-600 hover:underline dark:text-sky-400"
+        >
           ← Back to search
         </Link>
       </div>
     );
   }
 
-  const latest = player?.seasons.at(-1) ?? null;
+  // The most recent season that actually carries a valuation. `latest` is the
+  // season being played for anyone currently active, and that row has no
+  // market value by construction — so reading the recorded value off it made
+  // the figure vanish for exactly the players people look up. The search list
+  // and the similar-seasons panel both show that value, and the page it links
+  // to was the one place it could not be seen.
+  const lastValued =
+    [...(player?.seasons ?? [])]
+      .reverse()
+      .find((s) => s.market_value_in_eur != null) ?? null;
 
   return (
     <div className="space-y-6">
@@ -168,7 +185,8 @@ export default function PlayerPage({ params }: { params: Promise<{ id: string }>
         <>
           <PredictionPanel
             prediction={prediction}
-            actual={latest?.market_value_in_eur ?? null}
+            actual={lastValued?.market_value_in_eur ?? null}
+            actualSeason={lastValued?.season ?? null}
           />
 
           <div className="grid gap-6 lg:grid-cols-3">
@@ -188,7 +206,10 @@ export default function PlayerPage({ params }: { params: Promise<{ id: string }>
 
             <div className="space-y-6">
               <ModelMetadata info={info} metrics={metrics} />
-              <SimilarPlayers players={similar} season={similar[0]?.season ?? null} />
+              <SimilarPlayers
+                players={similar}
+                season={similar[0]?.season ?? null}
+              />
             </div>
           </div>
 

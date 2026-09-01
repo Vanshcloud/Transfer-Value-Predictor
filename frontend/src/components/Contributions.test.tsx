@@ -18,7 +18,9 @@ import type { Contribution } from "@/lib/api";
 // these tests about the numbers, and the real SSR guard is covered by
 // `next build` in CI, which is where that failure actually shows up.
 vi.mock("./Chart", () => ({
-  default: ({ title }: { title: string }) => <div data-testid="chart" aria-label={title} />,
+  default: ({ title }: { title: string }) => (
+    <div data-testid="chart" aria-label={title} />
+  ),
 }));
 
 function contribution(over: Partial<Contribution> = {}): Contribution {
@@ -33,8 +35,16 @@ function contribution(over: Partial<Contribution> = {}): Contribution {
 }
 
 const positive = [
-  contribution({ feature: "numeric__appearances", shap_value: 0.657, effect_multiplier: 1.93 }),
-  contribution({ feature: "numeric__goals", shap_value: 0.3, effect_multiplier: 1.35 }),
+  contribution({
+    feature: "numeric__appearances",
+    shap_value: 0.657,
+    effect_multiplier: 1.93,
+  }),
+  contribution({
+    feature: "numeric__goals",
+    shap_value: 0.3,
+    effect_multiplier: 1.35,
+  }),
 ];
 const negative = [
   contribution({
@@ -54,7 +64,9 @@ describe("Contributions", () => {
 
   it("never renders a euro figure per feature", () => {
     // The whole point. A per-feature euro amount would be a false statement.
-    const { container } = render(<Contributions positive={positive} negative={negative} />);
+    const { container } = render(
+      <Contributions positive={positive} negative={negative} />,
+    );
     expect(container.textContent).not.toMatch(/€/);
   });
 
@@ -66,8 +78,12 @@ describe("Contributions", () => {
 
   it("keeps the caveat that these cannot be summed into euros", () => {
     render(<Contributions positive={positive} negative={negative} />);
-    expect(screen.getByText(/cannot be summed into a euro figure/i)).toBeInTheDocument();
-    expect(screen.getByText(/multiplicative, not additive/i)).toBeInTheDocument();
+    expect(
+      screen.getByText(/cannot be summed into a euro figure/i),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(/multiplicative, not additive/i),
+    ).toBeInTheDocument();
   });
 
   it("strips the ColumnTransformer prefix the model attaches", () => {
@@ -78,15 +94,21 @@ describe("Contributions", () => {
 
   it("separates what raised the value from what lowered it", () => {
     render(<Contributions positive={positive} negative={negative} />);
-    const raises = screen.getByRole("heading", { name: /raises the value/i }).parentElement!;
-    const lowers = screen.getByRole("heading", { name: /lowers the value/i }).parentElement!;
+    const raises = screen.getByRole("heading", {
+      name: /raises the value/i,
+    }).parentElement!;
+    const lowers = screen.getByRole("heading", {
+      name: /lowers the value/i,
+    }).parentElement!;
     expect(within(raises).getByText("goals")).toBeInTheDocument();
     expect(within(lowers).getByText("position Attack")).toBeInTheDocument();
   });
 
   it("says so plainly when the family cannot be explained, rather than showing nothing", () => {
     render(<Contributions positive={[]} negative={[]} />);
-    expect(screen.getByText(/cannot be explained with SHAP/i)).toBeInTheDocument();
+    expect(
+      screen.getByText(/cannot be explained with SHAP/i),
+    ).toBeInTheDocument();
     expect(screen.queryByTestId("chart")).not.toBeInTheDocument();
   });
 

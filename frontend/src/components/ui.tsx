@@ -33,7 +33,9 @@ export function Card({
             {title}
           </h2>
           {subtitle && (
-            <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">{subtitle}</p>
+            <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+              {subtitle}
+            </p>
           )}
         </header>
       )}
@@ -59,7 +61,11 @@ export function Stat({
       <div className="mt-1 text-2xl font-semibold tabular-nums text-slate-900 dark:text-slate-50">
         {value}
       </div>
-      {hint && <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">{hint}</div>}
+      {hint && (
+        <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+          {hint}
+        </div>
+      )}
     </div>
   );
 }
@@ -90,7 +96,13 @@ export function Loading({ label = "Loading" }: { label?: string }) {
  * A dead backend is the common case in development, so it gets its own
  * message naming the command that fixes it rather than "Failed to fetch".
  */
-export function ErrorPanel({ error, onRetry }: { error: unknown; onRetry?: () => void }) {
+export function ErrorPanel({
+  error,
+  onRetry,
+}: {
+  error: unknown;
+  onRetry?: () => void;
+}) {
   const isApi = error instanceof ApiError;
   const code = isApi ? error.code : "unexpected_error";
   const message = error instanceof Error ? error.message : String(error);
@@ -101,7 +113,9 @@ export function ErrorPanel({ error, onRetry }: { error: unknown; onRetry?: () =>
       className="rounded-xl border border-red-200 bg-red-50 p-5 dark:border-red-900/50 dark:bg-red-950/30"
     >
       <p className="font-medium text-red-900 dark:text-red-200">{message}</p>
-      <p className="mt-1 font-mono text-xs text-red-700/80 dark:text-red-300/70">{code}</p>
+      <p className="mt-1 font-mono text-xs text-red-700/80 dark:text-red-300/70">
+        {code}
+      </p>
       {onRetry && (
         <button
           onClick={onRetry}
@@ -116,7 +130,9 @@ export function ErrorPanel({ error, onRetry }: { error: unknown; onRetry?: () =>
 
 export function Empty({ children }: { children: ReactNode }) {
   return (
-    <p className="py-8 text-center text-sm text-slate-500 dark:text-slate-400">{children}</p>
+    <p className="py-8 text-center text-sm text-slate-500 dark:text-slate-400">
+      {children}
+    </p>
   );
 }
 
@@ -128,13 +144,17 @@ export function Badge({
   tone?: "neutral" | "positive" | "negative" | "warn";
 }) {
   const tones = {
-    neutral: "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300",
-    positive: "bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300",
+    neutral:
+      "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300",
+    positive:
+      "bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300",
     negative: "bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300",
     warn: "bg-amber-100 text-amber-900 dark:bg-amber-950 dark:text-amber-300",
   } as const;
   return (
-    <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${tones[tone]}`}>
+    <span
+      className={`rounded-full px-2 py-0.5 text-xs font-medium ${tones[tone]}`}
+    >
       {children}
     </span>
   );
