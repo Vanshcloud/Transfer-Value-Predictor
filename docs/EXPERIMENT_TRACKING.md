@@ -1,6 +1,6 @@
 # Experiment tracking
 
-Phase 7 trains nine model families across two variants with a hyperparameter
+Phase 7 trains eleven model families across two variants with a hyperparameter
 search behind each one. That is where "which run was best?" stops being
 answerable from memory. This document fixes what a run *is*, so any recorded
 number can be traced back to the exact thing that produced it.
@@ -139,7 +139,7 @@ missing seed could survive. Every other family is asserted bit-identical.
 Exhaustive grid over a deliberately small grid per family — two to four
 configurations each, scored by mean MAE across the expanding-window folds.
 
-Small grids on purpose. A large grid over nine families is many hundreds of
+Small grids on purpose. A large grid over eleven families is many hundreds of
 fits for a gain that the temporal split will mostly wash out anyway, and every
 extra configuration is another chance to overfit the validation season. The
 baseline the zoo has to beat is already recorded (Phase 6): if a tuned model

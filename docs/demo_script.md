@@ -204,5 +204,5 @@ reproduce their recorded test MAE to the cent.
 is €2.07M on a target whose median is €1M, so relative error is large and
 stated as such. What the project defends is not the accuracy; it is that the
 number is measured on seasons the model never saw, that a random split would
-read ~40% better and answer a question nobody deploying it would ask, and that
+read ~30% better and answer a question nobody deploying it would ask, and that
 every limitation is quantified rather than mentioned.

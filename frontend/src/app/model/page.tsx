@@ -35,7 +35,10 @@ export default function ModelPage() {
   const error = state.status === "error" ? state.error : null;
   const [info, metrics, importance] =
     state.status === "ready" ? state.data : [null, null, null];
-  const leaderboard = (metrics?.leaderboard ?? []) as Record<string, number | string>[];
+  const leaderboard = (metrics?.leaderboard ?? []) as Record<
+    string,
+    number | string
+  >[];
 
   return (
     <div className="space-y-6">
@@ -66,21 +69,34 @@ export default function ModelPage() {
       </div>
 
       {error != null && <ErrorPanel error={error} onRetry={reload} />}
-      {loading && <Card><Loading /></Card>}
+      {loading && (
+        <Card>
+          <Loading />
+        </Card>
+      )}
 
       {!loading && metrics && (
         <Card title="Test performance" subtitle="Seasons the model never saw">
           <div className="flex flex-wrap gap-8">
-            <Stat label="MAE" value={eur(metrics.test.mae_eur)} hint="typical miss" />
-            <Stat label="RMSE" value={eur(metrics.test.rmse_eur)} hint="penalises big misses" />
+            <Stat
+              label="MAE"
+              value={eur(metrics.test.mae_eur)}
+              hint="typical miss"
+            />
+            <Stat
+              label="RMSE"
+              value={eur(metrics.test.rmse_eur)}
+              hint="penalises big misses"
+            />
             <Stat label="R²" value={metrics.test.r2?.toFixed(3) ?? "—"} />
             <Stat label="MAPE" value={percent(metrics.test.mape)} />
             <Stat label="Rows" value={number(metrics.test.n)} />
           </div>
           <p className="mt-5 text-sm leading-relaxed text-slate-500 dark:text-slate-400">
             Validation MAE was {eur(metrics.validation.mae_eur)} over{" "}
-            {number(metrics.validation.n)} rows. Validation tunes; test is touched once.
-            A test set consulted repeatedly is a validation set wearing a disguise.
+            {number(metrics.validation.n)} rows. Validation tunes; test is
+            touched once. A test set consulted repeatedly is a validation set
+            wearing a disguise.
           </p>
         </Card>
       )}
@@ -94,7 +110,10 @@ export default function ModelPage() {
               ["Artifact version", `v${info.artifact_version}`],
               ["Seed", String(info.seed)],
               ["Features", String(info.feature_columns.length)],
-              ["Dataset", `${number(Number(info.dataset?.rows ?? 0))} player-seasons`],
+              [
+                "Dataset",
+                `${number(Number(info.dataset?.rows ?? 0))} player-seasons`,
+              ],
               [
                 "Split",
                 `train ≤${info.split.train_end_season} · validate ${info.split.validation_season} · test ≥${info.split.test_start_season}`,
@@ -105,8 +124,12 @@ export default function ModelPage() {
                 key={label}
                 className="flex justify-between gap-4 border-b border-slate-100 py-1.5 dark:border-slate-800"
               >
-                <dt className="text-sm text-slate-500 dark:text-slate-400">{label}</dt>
-                <dd className="text-right text-sm font-medium">{String(value)}</dd>
+                <dt className="text-sm text-slate-500 dark:text-slate-400">
+                  {label}
+                </dt>
+                <dd className="text-right text-sm font-medium">
+                  {String(value)}
+                </dd>
               </div>
             ))}
           </dl>
@@ -125,7 +148,9 @@ export default function ModelPage() {
               {
                 type: "bar",
                 orientation: "h",
-                x: leaderboard.map((row) => Number(row.validation_mae_eur)).reverse(),
+                x: leaderboard
+                  .map((row) => Number(row.validation_mae_eur))
+                  .reverse(),
                 y: leaderboard.map((row) => String(row.model)).reverse(),
                 marker: {
                   color: leaderboard
@@ -142,9 +167,22 @@ export default function ModelPage() {
               xaxis: { title: { text: "validation MAE (EUR)" } },
             }}
           />
+          {/* Derived, never hardcoded. This read "nine families ... about 10%"
+              until the final audit: the registry had grown to eleven and the
+              spread was 38%, so a sentence written once had been quietly wrong
+              on every page load since. Computing it from the same array the
+              chart plots means it cannot drift again. */}
           <p className="mt-3 text-xs text-slate-500 dark:text-slate-400">
-            The spread across nine families is about 10%. The signal in this data is
-            in the features, not the estimator.
+            The spread across {leaderboard.length} families is about{" "}
+            {Math.round(
+              (100 *
+                (Number(
+                  leaderboard[leaderboard.length - 1].validation_mae_eur,
+                ) -
+                  Number(leaderboard[0].validation_mae_eur))) /
+                Number(leaderboard[0].validation_mae_eur),
+            )}
+            %. The signal in this data is in the features, not the estimator.
           </p>
         </Card>
       )}
@@ -162,8 +200,12 @@ export default function ModelPage() {
                 {
                   type: "bar",
                   orientation: "h",
-                  x: importance.shap.features.map((f) => f.mean_abs_shap).reverse(),
-                  y: importance.shap.features.map((f) => featureLabel(f.feature)).reverse(),
+                  x: importance.shap.features
+                    .map((f) => f.mean_abs_shap)
+                    .reverse(),
+                  y: importance.shap.features
+                    .map((f) => featureLabel(f.feature))
+                    .reverse(),
                   marker: { color: "#0ea5e9" },
                   hovertemplate: "%{y}<br>mean |SHAP| %{x:.3f}<extra></extra>",
                 },
@@ -181,7 +223,9 @@ export default function ModelPage() {
                   className="flex justify-between border-b border-slate-100 py-1.5 dark:border-slate-800"
                 >
                   <span>{featureLabel(feature.feature)}</span>
-                  <span className="tabular-nums">{feature.importance.toFixed(3)}</span>
+                  <span className="tabular-nums">
+                    {feature.importance.toFixed(3)}
+                  </span>
                 </li>
               ))}
             </ul>

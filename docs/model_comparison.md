@@ -7,7 +7,7 @@ All families are trained on the same rows, the same split and the same
 seed, and ranked by **validation MAE in EUR**, which is the selection
 metric (see [EXPERIMENT_TRACKING.md](EXPERIMENT_TRACKING.md) §4). Test
 metrics are not shown per family on purpose: the test seasons are
-touched once, by the winner only. Ranking nine families on test would
+touched once, by the winner only. Ranking every family on test would
 make the test set a second validation set.
 
 Timings are wall-clock on one machine for one fit of the tuned
@@ -52,7 +52,7 @@ Winner: **LightGBM** — test MAE €1,637,639, test R² 0.914 over 10,169 rows.
 
 ## Reading this table
 
-- **The spread is narrow.** Best to worst is 38% on the selection metric across nine families. The signal in this data is in the features, not the estimator — which is exactly why the Phase 6 baseline was measured before any of this was built.
+- **The spread is narrow.** Best to worst is 38% on the selection metric across 11 families. The signal in this data is in the features, not the estimator — which is exactly why the Phase 6 baseline was measured before any of this was built.
 - **Cost breaks ties, and sometimes it is not close.** Extra Trees serialises to 1,519 MB against the winner's 1.3 MB — 1,209x larger — while scoring worse. Accuracy columns alone would not show why it was never a candidate.
 - **`val MAE` selects; `cv MAE` explains.** The cross-validation column
   is the mean across expanding-window folds inside the training

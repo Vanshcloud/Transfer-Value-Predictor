@@ -208,7 +208,7 @@ label, worth −6.4% MAE (t = 11.30).
 
 Before any tuning, gradient boosting scores **R² 0.770 / MAE €2.31M**
 (performance-only) and **R² 0.899 / MAE €1.71M** (with prior value) on the
-temporal split. A random split reads about 40% better and answers a question
+temporal split. A random split reads about 30% better and answers a question
 nobody deploying this will ever ask, which is why the temporal number is the
 one reported everywhere in this README.
 

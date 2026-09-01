@@ -59,7 +59,7 @@ Two models are served, and they answer different questions:
   More accurate, and correspondingly less interesting.
 
 Metrics are reported on **held-out seasons the model never saw**, which is
-roughly 60% worse on EUR error than a random split would suggest and is the
+roughly 40% worse on EUR error than a random split would suggest and is the
 number that reflects deployment.
 
 SHAP contributions are additive in **log space**, not in euros — see

@@ -120,7 +120,7 @@ meet in use.
 | **Temporal** | **R² 0.770 / MAE €2.31M** | **R² 0.899 / MAE €1.71M** |
 
 The gap between the random and temporal rows is the point. Reporting the random
-number would roughly halve the stated error and answer a question nobody
+number would understate the error by roughly 30% and answer a question nobody
 deploying this will ever ask.
 
 Everything is seeded from one constant; two runs agree exactly, and a test

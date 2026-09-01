@@ -64,7 +64,7 @@ export default function Home() {
         </h2>
         <p className="mt-2 max-w-3xl text-sm leading-relaxed text-amber-900/90 dark:text-amber-200/80">
           Everything reported here is measured on <strong>seasons the model never
-          saw</strong>. That is roughly 60% worse on error than a random split would
+          saw</strong>. That is roughly 40% worse on error than a random split would
           show, and it is the only number that describes predicting a season that has
           not happened yet. Two models are served: one that has never been told the
           market&apos;s opinion — useful for finding disagreement — and one anchored to

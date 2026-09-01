@@ -79,7 +79,7 @@ def build_comparison_document(artifacts: list[ModelArtifact]) -> str:
         "seed, and ranked by **validation MAE in EUR**, which is the selection",
         "metric (see [EXPERIMENT_TRACKING.md](EXPERIMENT_TRACKING.md) §4). Test",
         "metrics are not shown per family on purpose: the test seasons are",
-        "touched once, by the winner only. Ranking nine families on test would",
+        "touched once, by the winner only. Ranking every family on test would",
         "make the test set a second validation set.",
         "",
         "Timings are wall-clock on one machine for one fit of the tuned",
@@ -129,7 +129,7 @@ def _observations(artifact: ModelArtifact) -> list[str]:
     spread = (worst["validation_mae_eur"] / best["validation_mae_eur"] - 1) * 100
     notes = [
         f"- **The spread is narrow.** Best to worst is {spread:.0f}% on the "
-        "selection metric across nine families. The signal in this data is in "
+        f"selection metric across {len(board)} families. The signal in this data is in "
         "the features, not the estimator — which is exactly why the Phase 6 "
         "baseline was measured before any of this was built.",
     ]

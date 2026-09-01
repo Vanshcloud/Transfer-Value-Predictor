@@ -4,7 +4,7 @@ The brief asks for all nine, so all nine are here — but they sit behind one
 :class:`ModelSpec` and one pipeline builder, so adding a tenth is a dictionary
 entry rather than a new code path. Each carries its own small grid; the grids
 are deliberately tiny (see docs/EXPERIMENT_TRACKING.md section 6), because a
-large search over nine families is hundreds of fits for a gain the temporal
+large search over every family is hundreds of fits for a gain the temporal
 split mostly washes out, and every extra configuration is another chance to
 overfit the validation season.
 

@@ -1,7 +1,7 @@
 """The honest number, established before the model zoo has anything to beat.
 
 Two baselines: a regularised linear model and one gradient-boosting model. If
-Phase 7's nine tuned models cannot beat these, the extra machinery is not
+the tuned model families cannot beat these, the extra machinery is not
 earning its place, and the only way to know that is to measure it now.
 
 Every model is wrapped in :class:`~sklearn.compose.TransformedTargetRegressor`

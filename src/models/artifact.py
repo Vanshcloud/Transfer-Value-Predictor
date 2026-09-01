@@ -9,7 +9,7 @@ carry is copied into it.
 
 A JSON sidecar is written beside the joblib so the metadata is readable without
 unpickling, which matters when the question is "which run was best?" and the
-answer should not require loading nine models.
+answer should not require loading every model.
 """
 
 from __future__ import annotations
