@@ -27,7 +27,7 @@ export default function AboutPage() {
         <p className="mt-2 leading-relaxed text-slate-600 dark:text-slate-400">
           Every reported number comes from a <strong>temporal split</strong>: the model
           trains on seasons up to 2021, tunes on 2022, and is measured once on 2023
-          onward. That is about 60% worse on euro error than a random split would
+          onward. That is about 40% worse on euro error than a random split would
           report — and it is the only arrangement that resembles being asked about a
           season that has not happened yet.
         </p>

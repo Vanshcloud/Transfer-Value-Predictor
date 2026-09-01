@@ -391,7 +391,7 @@ docker compose up --build       # API on :8000, dashboard on :3000
 ```
 
 The API image installs `requirements-serve-lock.txt`, not the full stack: the
-zoo trains nine families and serving loads one, and the difference is 291 MB of
+zoo trains eleven families and serving loads one, and the difference is 291 MB of
 CUDA libraries that xgboost brings for a GPU this inference path never touches,
 plus 269 MB of catboost and its plotly. Dropping both took the image from
 **2.62 GB to 1.32 GB** with an identical prediction on the same input. The
