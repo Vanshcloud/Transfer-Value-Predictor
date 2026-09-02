@@ -361,6 +361,13 @@ seasons, then **change the inputs and watch the value move**.
 | `/model` | How good is this model, and why was it chosen? |
 | `/about` | Where the data came from and where not to trust it. |
 
+![The player search: every result carries an initials disc, the club, and the league that club plays in](docs/img/search.png)
+
+*Names repeat. Two of these Rodris are a Rayo Vallecano defender and Manchester
+City's midfielder, so a result carries the club it belongs to and the flag of
+the league that club plays in — the division a number was earned in changes
+what it means.*
+
 ![Two players compared: predictions, side-by-side contributions, and a percentile radar](docs/img/compare.png)
 
 *`/compare` puts two players through the same model on the same basis —
