@@ -148,7 +148,15 @@ export function Badge({
  * project does not call Transfermarkt. Initials cost one request fewer than a
  * portrait and make no claim about a licence nobody granted.
  */
-export function Avatar({ name, seed }: { name: string; seed: number }) {
+export function Avatar({
+  name,
+  seed,
+  size = 36,
+}: {
+  name: string;
+  seed: number;
+  size?: number;
+}) {
   const initials =
     name
       .split(/\s+/)
@@ -163,8 +171,13 @@ export function Avatar({ name, seed }: { name: string; seed: number }) {
   return (
     <span
       aria-hidden
-      style={{ backgroundColor: `hsl(${hue} 55% 30%)` }}
-      className="grid h-9 w-9 shrink-0 place-items-center rounded-full text-xs font-semibold text-white"
+      style={{
+        backgroundColor: `hsl(${hue} 55% 30%)`,
+        width: size,
+        height: size,
+        fontSize: Math.round(size * 0.36),
+      }}
+      className="grid shrink-0 place-items-center rounded-full font-semibold text-white"
     >
       {initials}
     </span>

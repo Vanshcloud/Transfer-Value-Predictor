@@ -18,7 +18,7 @@ import { readPair, writePair } from "@/lib/comparePair";
 import { eur, featureLabel } from "@/lib/format";
 import Chart from "@/components/Chart";
 import Radar from "@/components/Radar";
-import { Card, Empty, ErrorPanel, Loading } from "@/components/ui";
+import { Avatar, Card, Empty, ErrorPanel, Loading } from "@/components/ui";
 
 const COLOURS = ["#0284c7", "#f59e0b"] as const;
 
@@ -82,12 +82,14 @@ function PlayerPicker({
             <li key={result.player_id}>
               <button
                 onClick={() => onPick(result)}
-                className="w-full px-3 py-2 text-left text-sm hover:bg-slate-100 dark:hover:bg-slate-800"
+                className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-slate-100 dark:hover:bg-slate-800"
               >
-                {result.name}
-                <span className="ml-2 text-xs text-slate-400">
-                  {result.position}
-                </span>
+                <Avatar name={result.name} seed={result.player_id} size={24} />
+                {/* min-w-0: a flex child will not shrink below its text's own
+                    width without it, so `truncate` never fires and a long name
+                    overflows the button instead of ellipsing. */}
+                <span className="min-w-0 truncate">{result.name}</span>
+                <span className="shrink-0 text-xs text-slate-400">{result.position}</span>
               </button>
             </li>
           ))}
@@ -277,7 +279,10 @@ export default function ComparePage() {
             <div className="grid gap-6 sm:grid-cols-2">
               {[left, right].map((side, index) => (
                 <div key={index}>
-                  <div className="text-sm text-slate-500 dark:text-slate-400">
+                  <div className="flex items-center gap-2 text-sm text-slate-500 dark:text-slate-400">
+                    {side.chosen && (
+                      <Avatar name={side.chosen.name} seed={side.chosen.player_id} size={28} />
+                    )}
                     {side.chosen?.name}
                   </div>
                   <div className="mt-1 text-4xl font-semibold tabular-nums">

@@ -28,7 +28,7 @@ import PredictionPanel from "@/components/PredictionPanel";
 import SimilarPlayers from "@/components/SimilarPlayers";
 import ValueHistory from "@/components/ValueHistory";
 import WhatIf from "@/components/WhatIf";
-import { Card, ErrorPanel, Loading } from "@/components/ui";
+import { Avatar, Card, ErrorPanel, Loading } from "@/components/ui";
 
 const VARIANTS: { key: Variant; label: string; blurb: string }[] = [
   {
@@ -138,9 +138,12 @@ export default function PlayerPage({
           >
             ← Search
           </Link>
-          <h1 className="mt-1 text-3xl font-semibold tracking-tight">
-            {player?.name ?? `Player ${playerId}`}
-          </h1>
+          <div className="mt-1 flex items-center gap-3">
+            <Avatar name={player?.name ?? `Player ${playerId}`} seed={playerId} size={56} />
+            <h1 className="text-3xl font-semibold tracking-tight">
+              {player?.name ?? `Player ${playerId}`}
+            </h1>
+          </div>
           {player && (
             <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
               {[
