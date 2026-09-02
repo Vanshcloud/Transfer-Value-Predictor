@@ -21,7 +21,7 @@ import math
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, NamedTuple
 
 import pandas as pd
 from sklearn.neighbors import NearestNeighbors
@@ -68,6 +68,30 @@ MAX_CATEGORY_LENGTH = 200
 a position, a foot or a country name; nothing legitimate approaches this. The
 cap exists because ``/api/v1/predict`` is unauthenticated, and an unbounded
 string is free memory and free log volume for anyone who asks."""
+
+
+class Club(NamedTuple):
+    """Where a player plays, for display beside his name.
+
+    Not a feature and never fed to a model: the dataset records one *current*
+    club per player rather than one per season, so this labels a search result
+    honestly only as "where he is now" — reading it as the employer of the
+    season being predicted would be wrong for anyone who has since moved.
+
+    ``league`` is his club's domestic competition and ``country`` the country
+    that competition belongs to. The country is here because the league names
+    do not identify themselves: this dataset has two *premier-liga* (Russia and
+    Ukraine), two *superliga* (Denmark and Romania) and two *bundesliga*
+    (Austria and Germany).
+    """
+
+    name: str | None = None
+    league: str | None = None
+    country: str | None = None
+
+
+NO_CLUB = Club()
+"""What a player with no club on file gets. Three nulls, not an absent key."""
 
 
 class ServiceError(Exception):
@@ -151,6 +175,7 @@ class PredictionService:
         players: pd.DataFrame | None = None,
         names: Mapping[int, str] | None = None,
         current_season: pd.DataFrame | None = None,
+        clubs: Mapping[int, Club] | None = None,
     ) -> None:
         self._artifacts = dict(artifacts)
         labelled = players if players is not None else pd.DataFrame()
@@ -178,6 +203,7 @@ class PredictionService:
 
         self._players = labelled
         self._names = dict(names or {})
+        self._clubs = dict(clubs or {})
         self._explainable = {
             name: supports_shap(artifact) for name, artifact in self._artifacts.items()
         }
@@ -191,6 +217,10 @@ class PredictionService:
         """Display name, when the players table was loaded alongside."""
         return self._names.get(int(player_id))
 
+    def club_for(self, player_id: int) -> Club:
+        """Club and league, or three nulls when neither was loaded."""
+        return self._clubs.get(int(player_id), NO_CLUB)
+
     # -- construction ----------------------------------------------------
 
     @classmethod
@@ -200,6 +230,7 @@ class PredictionService:
         players: pd.DataFrame | None = None,
         names: Mapping[int, str] | None = None,
         current_season: pd.DataFrame | None = None,
+        clubs: Mapping[int, Club] | None = None,
     ) -> PredictionService:
         """Load every artifact in a directory, newest per variant."""
         artifacts: dict[str, ModelArtifact] = {}
@@ -216,7 +247,7 @@ class PredictionService:
 
         if not artifacts:
             logger.warning("no usable model artifacts in %s", model_directory)
-        return cls(artifacts, players, names, current_season)
+        return cls(artifacts, players, names, current_season, clubs)
 
     # -- introspection ---------------------------------------------------
 
@@ -303,10 +334,14 @@ class PredictionService:
         """
         rows = self._player_rows(player_id)
         latest = rows.iloc[-1]
+        club = self.club_for(player_id)
 
         return {
             "player_id": int(player_id),
             "name": self.name_for(player_id),
+            "club": club.name,
+            "league": club.league,
+            "league_country": club.country,
             "position": _plain(latest.get("position")),
             "sub_position": _plain(latest.get("sub_position")),
             "foot": _plain(latest.get("foot")),
@@ -381,10 +416,14 @@ class PredictionService:
         results = []
         for player_id, name in matches[: min(limit, MAX_SEARCH_RESULTS)]:
             row = self._latest_row(player_id)
+            club = self.club_for(player_id)
             results.append(
                 {
                     "player_id": int(player_id),
                     "name": name,
+                    "club": club.name,
+                    "league": club.league,
+                    "league_country": club.country,
                     "position": _plain(row.get("position")) if row is not None else None,
                     "latest_season": int(row["season"]) if row is not None else None,
                     "market_value_in_eur": (

@@ -242,6 +242,20 @@ class PlayerSearchResult(BaseModel):
 
     player_id: int
     name: str
+    club: str | None = Field(
+        default=None,
+        description="The club he is at now — not the club of the season being predicted.",
+    )
+    league: str | None = Field(
+        default=None, description="His club's domestic competition, e.g. 'Premier League'."
+    )
+    league_country: str | None = Field(
+        default=None,
+        description=(
+            "The country that competition belongs to. Sent because the names do not "
+            "identify themselves: two leagues here are called 'Premier Liga'."
+        ),
+    )
     position: str | None = None
     latest_season: int | None = None
     market_value_in_eur: float | None = None
@@ -309,6 +323,20 @@ class PlayerResponse(BaseModel):
 
     player_id: int
     name: str | None = None
+    club: str | None = Field(
+        default=None,
+        description="The club he is at now — not the club of the season being predicted.",
+    )
+    league: str | None = Field(
+        default=None, description="His club's domestic competition, e.g. 'Premier League'."
+    )
+    league_country: str | None = Field(
+        default=None,
+        description=(
+            "The country that competition belongs to. Sent because the names do not "
+            "identify themselves: two leagues here are called 'Premier Liga'."
+        ),
+    )
     position: str | None = None
     sub_position: str | None = None
     foot: str | None = None

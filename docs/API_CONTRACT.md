@@ -151,6 +151,18 @@ exactly what it is. Players with a modellable season are ranked first, and each
 result carries `predictable` — a search result that leads to a 404 is worse
 than no result.
 
+Every result and every player record also carries `club`, `league` and
+`league_country`, so a name has something beside it that tells two players of
+the same name apart. Three things they are not: `club` is the player's
+**current** club, because that is the only one the dataset records — it is not
+the club of the season being predicted; `league` is that club's domestic
+competition, title-cased from the slug the dataset stores, so it follows the
+sponsor names in it; and `league_country` is there because the names do not
+identify themselves — two leagues here are called *Premier Liga* (Russia and
+Ukraine), two *Superliga* (Denmark and Romania) and two *Bundesliga* (Austria
+and Germany). All three are null when the join has nothing to offer, and none
+of them is ever a model input.
+
 `GET /api/v1/players/{player_id}` returns the player's seasons **and** a
 `features` map: the model-ready feature values for the latest season. It is
 there so a what-if form can start from the real values instead of

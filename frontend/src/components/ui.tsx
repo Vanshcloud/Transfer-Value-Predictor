@@ -183,3 +183,81 @@ export function Avatar({
     </span>
   );
 }
+
+/** Country of a league, for the flag beside a club. Absent country, no flag. */
+const FLAGS: Record<string, string> = {
+  "Argentina": "🇦🇷",
+  "Australia": "🇦🇺",
+  "Austria": "🇦🇹",
+  "Belgium": "🇧🇪",
+  "Brazil": "🇧🇷",
+  "Colombia": "🇨🇴",
+  "Croatia": "🇭🇷",
+  "Czech Republic": "🇨🇿",
+  "Denmark": "🇩🇰",
+  "England": "🏴󠁧󠁢󠁥󠁮󠁧󠁿",
+  "France": "🇫🇷",
+  "Germany": "🇩🇪",
+  "Greece": "🇬🇷",
+  "Italy": "🇮🇹",
+  "Japan": "🇯🇵",
+  "Korea, South": "🇰🇷",
+  "Mexico": "🇲🇽",
+  "Netherlands": "🇳🇱",
+  "Norway": "🇳🇴",
+  "Poland": "🇵🇱",
+  "Portugal": "🇵🇹",
+  "Romania": "🇷🇴",
+  "Russia": "🇷🇺",
+  "Saudi Arabia": "🇸🇦",
+  "Scotland": "🏴󠁧󠁢󠁳󠁣󠁴󠁿",
+  "Serbia": "🇷🇸",
+  "Spain": "🇪🇸",
+  "Sweden": "🇸🇪",
+  "Switzerland": "🇨🇭",
+  "Türkiye": "🇹🇷",
+  "Ukraine": "🇺🇦",
+  "United States": "🇺🇸",
+  "Wales": "🏴󠁧󠁢󠁷󠁬󠁳󠁿",
+};
+
+/**
+ * Where a player plays, beside his name.
+ *
+ * The flag stands for the league rather than the man — a Brazilian at Arsenal
+ * flies England's, because what it marks is the division the numbers were
+ * earned in. It is decoration and is hidden from assistive technology: the
+ * league it stands for is read out with the club instead, and hovering shows
+ * it, because two leagues in this dataset are both called Premier Liga and a
+ * flag is the only thing that separates them.
+ *
+ * The dataset records one *current* club per player, not one per season, so
+ * this is where he is now — not necessarily where he was in the season being
+ * predicted.
+ */
+export function ClubTag({
+  club,
+  league,
+  country,
+}: {
+  club: string | null;
+  league: string | null;
+  country: string | null;
+}) {
+  if (!club && !league) return null;
+  const flag = country ? FLAGS[country] : undefined;
+  return (
+    <span
+      // max-w-full: an inline-flex sizes to its content and would spill out of
+      // a block parent, so the truncate below never fires without it — and the
+      // dataset spells some clubs "Panthessalonikios Athlitikos Omilos
+      // Konstantinoupoliton".
+      className="inline-flex max-w-full min-w-0 items-center gap-1 text-xs text-slate-500 dark:text-slate-400"
+      title={league ?? undefined}
+    >
+      {flag && <span aria-hidden>{flag}</span>}
+      <span className="truncate">{club ?? league}</span>
+      {club && league && <span className="sr-only">, {league}</span>}
+    </span>
+  );
+}

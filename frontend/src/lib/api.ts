@@ -74,6 +74,12 @@ export interface SeasonRow {
 export interface Player {
   player_id: number;
   name: string | null;
+  /** Where he is now. Not the club of the season being predicted. */
+  club: string | null;
+  /** His club's domestic competition, e.g. "Premier League". */
+  league: string | null;
+  /** That competition's country. Two leagues here are both "Premier Liga". */
+  league_country: string | null;
   position: string | null;
   sub_position: string | null;
   foot: string | null;
@@ -86,6 +92,12 @@ export interface Player {
 export interface SearchResult {
   player_id: number;
   name: string;
+  /** Where he is now. Not the club of the season being predicted. */
+  club: string | null;
+  /** His club's domestic competition, e.g. "Premier League". */
+  league: string | null;
+  /** That competition's country. Two leagues here are both "Premier Liga". */
+  league_country: string | null;
   position: string | null;
   latest_season: number | null;
   market_value_in_eur: number | null;

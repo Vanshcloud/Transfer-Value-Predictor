@@ -28,7 +28,7 @@ import PredictionPanel from "@/components/PredictionPanel";
 import SimilarPlayers from "@/components/SimilarPlayers";
 import ValueHistory from "@/components/ValueHistory";
 import WhatIf from "@/components/WhatIf";
-import { Avatar, Card, ErrorPanel, Loading } from "@/components/ui";
+import { Avatar, Card, ClubTag, ErrorPanel, Loading } from "@/components/ui";
 
 const VARIANTS: { key: Variant; label: string; blurb: string }[] = [
   {
@@ -143,6 +143,13 @@ export default function PlayerPage({
             <h1 className="text-3xl font-semibold tracking-tight">
               {player?.name ?? `Player ${playerId}`}
             </h1>
+            {player && (
+              <ClubTag
+                club={player.club}
+                league={player.league}
+                country={player.league_country}
+              />
+            )}
           </div>
           {player && (
             <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">

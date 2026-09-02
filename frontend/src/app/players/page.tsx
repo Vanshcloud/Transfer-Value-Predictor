@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { api, type SearchResult } from "@/lib/api";
 import { eur } from "@/lib/format";
-import { Avatar, Badge, Card, Empty, ErrorPanel, Loading } from "@/components/ui";
+import { Avatar, Badge, Card, ClubTag, Empty, ErrorPanel, Loading } from "@/components/ui";
 
 const EXAMPLES = ["Haaland", "Bellingham", "Vinicius", "Rodri", "Saka"];
 
@@ -89,8 +89,13 @@ export default function PlayerSearch() {
                     <div className="flex min-w-0 items-center gap-3">
                       <Avatar name={result.name} seed={result.player_id} />
                       <div className="min-w-0">
-                        <div className="flex items-center gap-2">
+                        <div className="flex min-w-0 items-center gap-2">
                           <span className="truncate font-medium">{result.name}</span>
+                          <ClubTag
+                            club={result.club}
+                            league={result.league}
+                            country={result.league_country}
+                          />
                           {!result.predictable && <Badge tone="warn">no modelled season</Badge>}
                         </div>
                         <div className="text-xs text-slate-500 dark:text-slate-400">

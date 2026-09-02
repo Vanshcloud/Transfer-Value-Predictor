@@ -9,7 +9,7 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
-import { Avatar, Badge, Card, Empty, ErrorPanel, Loading, Stat } from "./ui";
+import { Avatar, Badge, Card, ClubTag, Empty, ErrorPanel, Loading, Stat } from "./ui";
 import { ApiError } from "@/lib/api";
 
 describe("Loading", () => {
@@ -141,5 +141,39 @@ describe("Avatar contrast", () => {
         .container.firstElementChild!.getAttribute("style")!;
       expect(contrastWithWhite(style)).toBeGreaterThanOrEqual(4.5);
     }
+  });
+});
+
+describe("ClubTag", () => {
+  it("shows the club, with the flag standing in for the league", () => {
+    const { container } = render(
+      <ClubTag club="Arsenal FC" league="Premier League" country="England" />,
+    );
+    expect(screen.getByText("Arsenal FC")).toBeInTheDocument();
+    expect(container.textContent).toContain("\u{1F3F4}");
+  });
+
+  it("reads the league out, since a flag alone announces nothing", () => {
+    render(<ClubTag club="Arsenal FC" league="Premier League" country="England" />);
+    // Two leagues in this dataset are both called Premier Liga, so a screen
+    // reader that heard only the club would lose what the flag was carrying.
+    expect(screen.getByText(", Premier League")).toHaveClass("sr-only");
+  });
+
+  it("falls back to the league when a player is between clubs", () => {
+    render(<ClubTag club={null} league="Premier League" country="England" />);
+    expect(screen.getByText("Premier League")).toBeInTheDocument();
+  });
+
+  it("renders nothing at all when neither is known", () => {
+    const { container } = render(<ClubTag club={null} league={null} country={null} />);
+    expect(container).toBeEmptyDOMElement();
+  });
+
+  it("drops the flag rather than guessing at an unmapped country", () => {
+    const { container } = render(
+      <ClubTag club="Millonarios FC" league="Liga Betplay" country="Colombia?" />,
+    );
+    expect(container.textContent).toBe("Millonarios FC, Liga Betplay");
   });
 });

@@ -3,7 +3,7 @@
 [![CI](https://github.com/Vanshcloud/Transfer-Value-Predictor/actions/workflows/ci.yml/badge.svg)](https://github.com/Vanshcloud/Transfer-Value-Predictor/actions/workflows/ci.yml)
 [![Python 3.13](https://img.shields.io/badge/python-3.13-blue.svg)](https://www.python.org/downloads/)
 [![Coverage 90%](https://img.shields.io/badge/coverage-90%25-brightgreen.svg)](#testing)
-[![Tests 732](https://img.shields.io/badge/tests-732-brightgreen.svg)](#testing)
+[![Tests 741](https://img.shields.io/badge/tests-741-brightgreen.svg)](#testing)
 [![Licence MIT](https://img.shields.io/badge/licence-MIT-green.svg)](LICENSE)
 [![Data CC0](https://img.shields.io/badge/data-CC0-lightgrey.svg)](docs/DATASET_CARD.md)
 [![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
@@ -129,7 +129,7 @@ those, `fetch_data.py` stops with a message naming both options rather than
 failing obscurely.
 
 **You do not need an account to run the project.** `data/sample/` is committed,
-so `make test` gives you 679 passing tests and 53 skips with no credentials at
+so `make test` gives you 688 passing tests and 53 skips with no credentials at
 all — the 53 are the integration tests that need the full panel. `make test`
 deselects them by marker; a bare `pytest` on that same clone *skips* them and
 still reports zero failures, which is the stronger property and the one CI
@@ -371,7 +371,7 @@ date, dataset size, artifact version, and the **temporal** MAE and R². A number
 with no attribution invites more trust than it has earned.
 
 ```bash
-cd frontend && npm test        # 77 tests, ~2s
+cd frontend && npm test        # 96 tests, ~2s
 ```
 
 The suite covers the places where being wrong is *silent* — error mapping, the
@@ -435,7 +435,7 @@ push and pull request:
   imported inside `src/storage/`, and Plotly only inside `Chart.tsx`.
 
 CI runs on a clean checkout, where `data/` and `models/` are empty. Every test
-that needs them **skips** rather than fails — verified on a fresh clone: 679
+that needs them **skips** rather than fails — verified on a fresh clone: 688
 pass, the 53 integration tests skip, nothing fails. A suite that is only green on a machine with a trained
 model is not a suite anyone can trust.
 
@@ -458,7 +458,7 @@ in `requirements-lock.txt`, which is what CI, Docker and `make setup` install.
 ## Testing
 
 ```bash
-make test        # 679 pass, 53 skip — no data, no credentials, ~15s
+make test        # 688 pass, 53 skip — no data, no credentials, ~15s
 make test-cov    # the same suite with coverage, fails under 88%
 pytest           # everything; integration tests run if data and models exist
 ```
@@ -575,8 +575,8 @@ Backend test coverage, with the command that prints each number:
 
 | | Coverage | Tests |
 |---|---|---|
-| `make test-cov` — no credentials, no data | **90%** | 679 pass, 53 deselected |
-| `make test-cov-all` — needs the Kaggle download and a trained model | **97%** | 732 pass |
+| `make test-cov` — no credentials, no data | **90%** | 688 pass, 53 deselected |
+| `make test-cov-all` — needs the Kaggle download and a trained model | **97%** | 741 pass |
 
 The gap is the pipeline orchestration in `src/pipelines/`, which is what the
 integration tests exercise. Both targets fail below their floor, so neither

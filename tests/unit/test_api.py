@@ -16,14 +16,14 @@ import pandas as pd
 import pytest
 from fastapi.testclient import TestClient
 
-from api.dependencies import get_service
+from api.dependencies import club_index, get_service
 from api.main import create_app
 from src.evaluation.metrics import evaluate
 from src.feature_engineering.build import TARGET_COLUMN
 from src.models.artifact import ModelArtifact, extract_feature_importance
 from src.models.calibration import calibrate
 from src.models.registry import MODEL_REGISTRY, build_pipeline
-from src.services.prediction import PredictionService
+from src.services.prediction import Club, PredictionService
 
 NUMERIC = ["age", "goals", "minutes_played"]
 CATEGORICAL = ["position"]
@@ -96,7 +96,10 @@ def service(players: pd.DataFrame) -> PredictionService:
         ),
     )
     names = {pid: f"Player {pid}" for pid in players["player_id"].unique()}
-    return PredictionService({"performance_only": artifact}, players, names)
+    # One player only: a search must label the man it knows a club for and
+    # return nulls for the rest rather than dropping either from the results.
+    clubs = {101: Club("Arsenal FC", "Premier League", "England")}
+    return PredictionService({"performance_only": artifact}, players, names, clubs=clubs)
 
 
 def make_client(service: PredictionService) -> Iterator[TestClient]:
@@ -496,6 +499,68 @@ class TestSearchEndpoint:
     def test_results_say_whether_they_can_be_predicted(self, client: TestClient) -> None:
         results = client.get("/api/v1/players?q=player&limit=5").json()["results"]
         assert all("predictable" in row for row in results)
+
+    def test_a_result_carries_the_club_and_its_league(self, client: TestClient) -> None:
+        row = client.get("/api/v1/players?q=player%20101").json()["results"][0]
+        assert row["club"] == "Arsenal FC"
+        assert row["league"] == "Premier League"
+        assert row["league_country"] == "England"
+
+    def test_a_player_with_no_club_on_file_is_still_returned(self, client: TestClient) -> None:
+        """Null, not a missing key and not a dropped row."""
+        row = client.get("/api/v1/players?q=player%20102").json()["results"][0]
+        assert row["player_id"] == 102
+        assert row["club"] is None and row["league"] is None
+
+    def test_the_player_record_carries_the_same_labels(self, client: TestClient) -> None:
+        """The compare page rebuilds a selection from this endpoint alone, so a
+        club shown while picking must survive a reload of the link."""
+        body = client.get("/api/v1/players/101").json()
+        assert body["club"] == "Arsenal FC"
+        assert body["league"] == "Premier League"
+
+
+class TestClubIndex:
+    """The join behind those labels, which runs once at startup."""
+
+    PLAYERS = pd.DataFrame(
+        {
+            "player_id": [1, 2, 3, 4],
+            "current_club_name": ["Arsenal FC", "Real Madrid", None, None],
+            "current_club_domestic_competition_id": ["GB1", "XX9", None, "GB1"],
+        }
+    )
+    COMPETITIONS = pd.DataFrame(
+        {
+            "competition_id": ["GB1"],
+            "name": ["premier-league"],
+            "country_name": ["England"],
+        }
+    )
+
+    def test_it_titles_the_slug_the_dataset_stores(self) -> None:
+        assert club_index(self.PLAYERS, self.COMPETITIONS)[1] == Club(
+            "Arsenal FC", "Premier League", "England"
+        )
+
+    def test_an_unknown_competition_costs_only_its_league(self) -> None:
+        """The dataset ships club competition ids with no competitions row."""
+        assert club_index(self.PLAYERS, self.COMPETITIONS)[2] == Club("Real Madrid", None, None)
+
+    def test_a_player_with_neither_is_left_out(self) -> None:
+        assert 3 not in club_index(self.PLAYERS, self.COMPETITIONS)
+
+    def test_a_clubless_player_is_still_placed_in_his_league(self) -> None:
+        """Between clubs is not nowhere: the league is the label he has left."""
+        assert club_index(self.PLAYERS, self.COMPETITIONS)[4] == Club(
+            None, "Premier League", "England"
+        )
+
+    def test_no_competitions_table_still_yields_clubs(self) -> None:
+        assert club_index(self.PLAYERS, None)[1].name == "Arsenal FC"
+
+    def test_an_older_players_table_yields_nothing_rather_than_raising(self) -> None:
+        assert club_index(pd.DataFrame({"player_id": [1]}), self.COMPETITIONS) == {}
 
 
 class TestSimilarEndpoint:

@@ -18,12 +18,15 @@ import { readPair, writePair } from "@/lib/comparePair";
 import { eur, featureLabel } from "@/lib/format";
 import Chart from "@/components/Chart";
 import Radar from "@/components/Radar";
-import { Avatar, Card, Empty, ErrorPanel, Loading } from "@/components/ui";
+import { Avatar, Card, ClubTag, Empty, ErrorPanel, Loading } from "@/components/ui";
 
 const COLOURS = ["#0284c7", "#f59e0b"] as const;
 
 /** All the picker needs of a player: enough to label them and fetch them. */
-type Chosen = Pick<SearchResult, "player_id" | "name">;
+type Chosen = Pick<
+  SearchResult,
+  "player_id" | "name" | "club" | "league" | "league_country"
+>;
 
 interface Side {
   query: string;
@@ -88,7 +91,14 @@ function PlayerPicker({
                 {/* min-w-0: a flex child will not shrink below its text's own
                     width without it, so `truncate` never fires and a long name
                     overflows the button instead of ellipsing. */}
-                <span className="min-w-0 truncate">{result.name}</span>
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate">{result.name}</span>
+                  <ClubTag
+                    club={result.club}
+                    league={result.league}
+                    country={result.league_country}
+                  />
+                </span>
                 <span className="shrink-0 text-xs text-slate-400">{result.position}</span>
               </button>
             </li>
@@ -209,7 +219,18 @@ export default function ComparePage() {
       if (id === null) return;
       try {
         const player = await api.player(id);
-        await pick({ player_id: id, name: player.name ?? `Player ${id}` }, set);
+        // The same labels the picker showed, rebuilt from the record: a
+        // restored comparison must not lose the clubs the link was made with.
+        await pick(
+          {
+            player_id: id,
+            name: player.name ?? `Player ${id}`,
+            club: player.club,
+            league: player.league,
+            league_country: player.league_country,
+          },
+          set,
+        );
       } catch {
         // A stale or hand-edited link should leave an empty picker rather than
         // an error banner: there is nothing for the reader to fix.
@@ -279,11 +300,18 @@ export default function ComparePage() {
             <div className="grid gap-6 sm:grid-cols-2">
               {[left, right].map((side, index) => (
                 <div key={index}>
-                  <div className="flex items-center gap-2 text-sm text-slate-500 dark:text-slate-400">
+                  <div className="flex min-w-0 items-center gap-2 text-sm text-slate-500 dark:text-slate-400">
                     {side.chosen && (
                       <Avatar name={side.chosen.name} seed={side.chosen.player_id} size={28} />
                     )}
-                    {side.chosen?.name}
+                    <span className="truncate">{side.chosen?.name}</span>
+                    {side.chosen && (
+                      <ClubTag
+                        club={side.chosen.club}
+                        league={side.chosen.league}
+                        country={side.chosen.league_country}
+                      />
+                    )}
                   </div>
                   <div className="mt-1 text-4xl font-semibold tabular-nums">
                     {eur(side.prediction!.prediction_eur)}
