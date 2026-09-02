@@ -139,3 +139,34 @@ export function Badge({
     </span>
   );
 }
+
+/**
+ * An initials disc standing in for a player portrait.
+ *
+ * The CC0 dataset carries an `image_url`, but it points at Transfermarkt's own
+ * CDN — the licence covers the table, not the photographs behind it, and this
+ * project does not call Transfermarkt. Initials cost one request fewer than a
+ * portrait and make no claim about a licence nobody granted.
+ */
+export function Avatar({ name, seed }: { name: string; seed: number }) {
+  const initials =
+    name
+      .split(/\s+/)
+      .filter(Boolean)
+      .slice(0, 2)
+      .map((part) => part.charAt(0).toUpperCase())
+      .join("") || "?";
+  // Golden angle, so adjacent ids do not land on near-identical hues.
+  const hue = Math.round((seed * 137.508) % 360);
+  // 55%/30% is the point where white text clears WCAG AA (4.5:1) on *every*
+  // hue — 45%/38% left the yellow-greens at 3.53:1, which is 40% of players.
+  return (
+    <span
+      aria-hidden
+      style={{ backgroundColor: `hsl(${hue} 55% 30%)` }}
+      className="grid h-9 w-9 shrink-0 place-items-center rounded-full text-xs font-semibold text-white"
+    >
+      {initials}
+    </span>
+  );
+}

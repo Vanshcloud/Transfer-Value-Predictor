@@ -9,7 +9,7 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
-import { Badge, Card, Empty, ErrorPanel, Loading, Stat } from "./ui";
+import { Avatar, Badge, Card, Empty, ErrorPanel, Loading, Stat } from "./ui";
 import { ApiError } from "@/lib/api";
 
 describe("Loading", () => {
@@ -100,5 +100,46 @@ describe("Empty", () => {
   it("says why there is nothing, rather than rendering blank", () => {
     render(<Empty>No player matches “zzz”.</Empty>);
     expect(screen.getByText(/No player matches/)).toBeInTheDocument();
+  });
+});
+
+describe("Avatar", () => {
+  it.each([
+    ["Erling Haaland", "EH"],
+    ["Rodri", "R"],
+    ["Vinicius Junior da Silva", "VJ"],
+  ])("takes at most two initials from %s", (name, expected) => {
+    const { container } = render(<Avatar name={name} seed={1} />);
+    expect(container.textContent).toBe(expected);
+  });
+
+  it("stays hidden from screen readers, since the name sits beside it", () => {
+    const { container } = render(<Avatar name="Erling Haaland" seed={1} />);
+    expect(container.firstElementChild).toHaveAttribute("aria-hidden");
+  });
+
+  it("gives two players different hues", () => {
+    const hue = (seed: number) =>
+      render(<Avatar name="A B" seed={seed} />).container.firstElementChild?.getAttribute("style");
+    expect(hue(1)).not.toBe(hue(2));
+  });
+});
+
+describe("Avatar contrast", () => {
+  /** Ratio of white initials against the disc, per WCAG relative luminance. */
+  const contrastWithWhite = (style: string) => {
+    const [r, g, b] = style.match(/\d+/g)!.map(Number).map((c) => c / 255);
+    const lin = (c: number) => (c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4);
+    return 1.05 / (0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b) + 0.05);
+  };
+
+  it("keeps white initials readable on every hue a player id can produce", () => {
+    // The golden angle walks all 360 hues, so a spot check would miss the
+    // yellow-greens, which are exactly where white text gets hard to read.
+    for (let seed = 1; seed <= 720; seed++) {
+      const style = render(<Avatar name="A B" seed={seed} />)
+        .container.firstElementChild!.getAttribute("style")!;
+      expect(contrastWithWhite(style)).toBeGreaterThanOrEqual(4.5);
+    }
   });
 });

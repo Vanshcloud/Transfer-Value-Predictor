@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { api, type SearchResult } from "@/lib/api";
 import { eur } from "@/lib/format";
-import { Badge, Card, Empty, ErrorPanel, Loading } from "@/components/ui";
+import { Avatar, Badge, Card, Empty, ErrorPanel, Loading } from "@/components/ui";
 
 const EXAMPLES = ["Haaland", "Bellingham", "Vinicius", "Rodri", "Saka"];
 
@@ -86,14 +86,17 @@ export default function PlayerSearch() {
               {results.map((result) => {
                 const inner = (
                   <div className="flex items-center justify-between gap-4 py-3">
-                    <div className="min-w-0">
-                      <div className="flex items-center gap-2">
-                        <span className="truncate font-medium">{result.name}</span>
-                        {!result.predictable && <Badge tone="warn">no modelled season</Badge>}
-                      </div>
-                      <div className="text-xs text-slate-500 dark:text-slate-400">
-                        {result.position ?? "—"}
-                        {result.latest_season && ` · latest ${result.latest_season}`}
+                    <div className="flex min-w-0 items-center gap-3">
+                      <Avatar name={result.name} seed={result.player_id} />
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2">
+                          <span className="truncate font-medium">{result.name}</span>
+                          {!result.predictable && <Badge tone="warn">no modelled season</Badge>}
+                        </div>
+                        <div className="text-xs text-slate-500 dark:text-slate-400">
+                          {result.position ?? "—"}
+                          {result.latest_season && ` · latest ${result.latest_season}`}
+                        </div>
                       </div>
                     </div>
                     <span className="shrink-0 text-sm tabular-nums text-slate-600 dark:text-slate-300">
