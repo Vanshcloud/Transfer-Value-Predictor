@@ -470,7 +470,7 @@ make test-cov    # the same suite with coverage, fails under 88%
 pytest           # everything; integration tests run if data and models exist
 ```
 
-**732 tests, 90% coverage.** The split matters more than the count:
+**741 tests, 90% coverage.** The split matters more than the count:
 
 | Suite | Files | Needs | Behaviour without data |
 |---|---|---|---|
