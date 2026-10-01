@@ -149,7 +149,7 @@ six==1.17.0
     #   python-dateutil
 slicer==0.0.8
     # via shap
-starlette==1.6.0
+starlette==1.7.0
     # via fastapi
 threadpoolctl==3.6.0
     # via scikit-learn
