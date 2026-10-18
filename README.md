@@ -17,8 +17,11 @@ contributions that produced it, compare him to the seasons nearest him in the
 model's own feature space — then change the inputs and watch the number move.
 
 Metrics are reported on **held-out seasons the model has never seen**: test MAE
-**€2.07M** (R² 0.841) for the scouting model, **€1.64M** (R² 0.914) with a prior
-valuation. A random split would read better and answer a question nobody
+**€2.08M** (R² 0.836) for the scouting model, **€0.93M** (R² 0.962) with a prior
+valuation. These are the figures after the Phase 19 leakage remediation; the
+prior-value model now answers an easier, deployment-faithful question, and the
+earlier €2.07M / €1.64M are kept with the reason in
+[`plans/09-codex-audit-remediation.md`](plans/09-codex-audit-remediation.md). A random split would read better and answer a question nobody
 deploying this will ever ask.
 
 **Try it without signing up for anything:** `make setup && make test` runs the
@@ -129,7 +132,7 @@ those, `fetch_data.py` stops with a message naming both options rather than
 failing obscurely.
 
 **You do not need an account to run the project.** `data/sample/` is committed,
-so `make test` gives you 688 passing tests and 53 skips with no credentials at
+so `make test` gives you 713 passing tests and 53 skips with no credentials at
 all — the 53 are the integration tests that need the full panel. `make test`
 deselects them by marker; a bare `pytest` on that same clone *skips* them and
 still reports zero failures, which is the stronger property and the one CI
@@ -220,12 +223,18 @@ one reported everywhere in this README.
 Eleven families (Linear, Ridge, Lasso, ElasticNet, RandomForest, ExtraTrees,
 HistGradientBoosting, XGBoost, LightGBM, CatBoost, and a ridge-blended stack of
 the three boosters), each searched on expanding-window folds inside the training
-seasons, then scored once on the test seasons. LightGBM ships for both variants.
+seasons, then scored once on the test seasons. LightGBM ships for the
+performance-only variant and Random Forest for the prior-value one.
 
 | Variant | Winner | Test MAE | Test R² | vs. baseline |
 |---|---|---|---|---|
-| performance-only | LightGBM | €2.07M ± 0.04M | 0.841 | 0.770 |
-| with prior value | LightGBM | €1.64M ± 0.04M | 0.914 | 0.899 |
+| performance-only | LightGBM | €2.08M ± 0.04M | 0.836 | 0.770 |
+| with prior value | Random Forest | €0.93M ± 0.02M | 0.962 | 0.899 |
+
+The baseline column predates the Phase 19 rebuild and was not re-quoted; the
+prior-value row is not comparable with it, because that variant's rows and its
+prior-value definition both changed. See
+[`plans/09-codex-audit-remediation.md`](plans/09-codex-audit-remediation.md).
 
 ![The model page: held-out metrics, provenance, and every family ranked by validation MAE](docs/img/model.png)
 
@@ -338,7 +347,7 @@ That is the honest finding, not a defect to tune away.
 
 **Layering.** `src/services/prediction.py` imports no web framework — a test
 asserts it, against parsed imports rather than a grep. That is what lets the
-same prediction path serve HTTP, a batch job or a CLI, and why the 92 tests for
+same prediction path serve HTTP, a batch job or a CLI, and why the 97 tests for
 prediction logic need no running server.
 
 ## Dashboard
@@ -442,7 +451,7 @@ push and pull request:
   imported inside `src/storage/`, and Plotly only inside `Chart.tsx`.
 
 CI runs on a clean checkout, where `data/` and `models/` are empty. Every test
-that needs them **skips** rather than fails — verified on a fresh clone: 688
+that needs them **skips** rather than fails — verified on a fresh clone: 713
 pass, the 53 integration tests skip, nothing fails. A suite that is only green on a machine with a trained
 model is not a suite anyone can trust.
 
@@ -465,7 +474,7 @@ in `requirements-lock.txt`, which is what CI, Docker and `make setup` install.
 ## Testing
 
 ```bash
-make test        # 688 pass, 53 skip — no data, no credentials, ~15s
+make test        # 713 pass, 53 skip — no data, no credentials, ~15s
 make test-cov    # the same suite with coverage, fails under 88%
 pytest           # everything; integration tests run if data and models exist
 ```
@@ -582,8 +591,8 @@ Backend test coverage, with the command that prints each number:
 
 | | Coverage | Tests |
 |---|---|---|
-| `make test-cov` — no credentials, no data | **90%** | 688 pass, 53 deselected |
-| `make test-cov-all` — needs the Kaggle download and a trained model | **97%** | 741 pass |
+| `make test-cov` — no credentials, no data | **90%** | 713 pass, 53 deselected |
+| `make test-cov-all` — needs the Kaggle download and a trained model | **97%** | 766 pass |
 
 The gap is the pipeline orchestration in `src/pipelines/`, which is what the
 integration tests exercise. Both targets fail below their floor, so neither

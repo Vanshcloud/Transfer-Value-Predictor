@@ -134,7 +134,7 @@ what creates the chance of a row or a player straddling the boundary.
 Eleven families (Linear, Ridge, Lasso, ElasticNet, RandomForest, ExtraTrees,
 HistGradientBoosting, XGBoost, LightGBM, CatBoost, and a ridge-blended stack of
 the three boosters), each searched on expanding-window folds inside the training
-seasons, then scored once on the test seasons. LightGBM ships for both variants.
+seasons, then scored once on the test seasons. LightGBM ships for performance-only and, since the Phase 19 rebuild, Random Forest for the prior-value variant (plans/09).
 
 **"Wins" is doing less work than it looks.** The top four families on the
 performance-only variant are separated by EUR 44,000 of validation MAE, and the

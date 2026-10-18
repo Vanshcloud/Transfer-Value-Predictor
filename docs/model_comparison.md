@@ -16,44 +16,44 @@ other machine.
 
 ## performance_only
 
-Winner: **LightGBM** — test MAE €2,068,081, test R² 0.841 over 13,486 rows.
+Winner: **LightGBM** — test MAE €2,079,666, test R² 0.836 over 13,486 rows.
 
 | model | val MAE (EUR) | val RMSE (EUR) | val R² | val MAPE | cv MAE (EUR) | train (s) | predict (ms/1k) | size (MB) | selected |
 |---|---|---|---|---|---|---|---|---|---|
-| Stacked (LGBM+XGB+Cat) | 1,917,730 | 4,765,405 | 0.835 | 50.4% | 1,589,494 | 11.36 | 5.6 | 1.26 |  |
-| LightGBM | 1,938,817 | 4,978,845 | 0.82 | 47.6% | 1,598,800 | 4.9 | 7.5 | 2.11 | yes |
-| CatBoost | 1,942,001 | 4,902,285 | 0.826 | 47.3% | 1,618,499 | 1.86 | 3.2 | 0.37 |  |
-| XGBoost | 1,961,816 | 4,990,683 | 0.819 | 47.8% | 1,619,885 | 2.51 | 4.0 | 1.3 |  |
-| GradientBoosting (hist) | 2,011,466 | 5,282,673 | 0.798 | 48.0% | 1,660,492 | 7.3 | 4.4 | 0.8 |  |
-| Random Forest | 2,275,622 | 6,182,279 | 0.723 | 51.2% | 1,910,099 | 50.85 | 21.6 | 853.07 |  |
-| Extra Trees | 2,281,037 | 6,300,161 | 0.712 | 49.1% | 1,857,387 | 47.52 | 29.3 | 1,519.25 |  |
-| Lasso | 2,627,823 | 8,657,851 | 0.456 | 60.4% | 2,043,382 | 3.35 | 3.2 | 0.05 |  |
-| ElasticNet | 2,629,935 | 8,862,027 | 0.43 | 60.4% | 2,041,160 | 4.98 | 3.0 | 0.05 |  |
-| Ridge | 2,642,433 | 9,163,484 | 0.391 | 59.8% | 2,049,798 | 0.65 | 3.0 | 0.05 |  |
-| Linear Regression | 2,644,300 | 9,186,902 | 0.388 | 59.7% | 2,055,784 | 1.15 | 3.7 | 0.05 |  |
+| LightGBM | 1,908,448 | 4,801,131 | 0.833 | 46.9% | 1,583,245 | 3.74 | 6.1 | 2.11 | yes |
+| Stacked (LGBM+XGB+Cat) | 1,932,039 | 4,791,792 | 0.833 | 49.3% | 1,589,288 | 13.93 | 7.0 | 1.26 |  |
+| XGBoost | 1,956,135 | 5,000,207 | 0.819 | 46.6% | 1,611,270 | 1.79 | 2.4 | 1.29 |  |
+| CatBoost | 1,969,452 | 4,969,413 | 0.821 | 47.5% | 1,608,432 | 2.69 | 3.7 | 0.37 |  |
+| GradientBoosting (hist) | 2,039,968 | 5,370,494 | 0.791 | 47.9% | 1,644,583 | 6.1 | 3.4 | 0.8 |  |
+| Random Forest | 2,276,732 | 6,188,082 | 0.722 | 50.9% | 1,902,183 | 53.37 | 21.8 | 853.1 |  |
+| Extra Trees | 2,277,378 | 6,260,480 | 0.716 | 49.0% | 1,843,612 | 35.35 | 21.5 | 1,519.01 |  |
+| Lasso | 2,631,029 | 8,678,094 | 0.454 | 60.4% | 2,044,974 | 3.42 | 3.4 | 0.05 |  |
+| ElasticNet | 2,632,194 | 8,865,225 | 0.43 | 60.4% | 2,041,842 | 5.52 | 3.2 | 0.05 |  |
+| Ridge | 2,641,395 | 9,103,428 | 0.399 | 59.7% | 2,049,496 | 0.63 | 2.8 | 0.05 |  |
+| Linear Regression | 2,643,232 | 9,126,023 | 0.396 | 59.6% | 2,055,458 | 1.14 | 3.4 | 0.05 |  |
 
 ## with_prior_value
 
-Winner: **LightGBM** — test MAE €1,637,639, test R² 0.914 over 10,169 rows.
+Winner: **Random Forest** — test MAE €930,585, test R² 0.962 over 13,315 rows.
 
 | model | val MAE (EUR) | val RMSE (EUR) | val R² | val MAPE | cv MAE (EUR) | train (s) | predict (ms/1k) | size (MB) | selected |
 |---|---|---|---|---|---|---|---|---|---|
-| Stacked (LGBM+XGB+Cat) | 1,651,350 | 4,139,723 | 0.897 | 30.5% | 1,380,472 | 10.03 | 5.9 | 1.26 |  |
-| CatBoost | 1,655,749 | 4,230,510 | 0.892 | 29.8% | 1,371,489 | 1.49 | 3.8 | 0.37 |  |
-| LightGBM | 1,656,909 | 4,261,596 | 0.891 | 29.6% | 1,365,628 | 5.04 | 7.6 | 2.1 | yes |
-| XGBoost | 1,677,334 | 4,328,847 | 0.887 | 29.6% | 1,377,281 | 2.25 | 4.6 | 1.41 |  |
-| GradientBoosting (hist) | 1,684,371 | 4,296,951 | 0.889 | 29.9% | 1,378,356 | 5.96 | 4.6 | 0.8 |  |
-| Extra Trees | 1,826,919 | 4,851,943 | 0.858 | 31.0% | 1,429,625 | 29.88 | 21.7 | 998.14 |  |
-| Random Forest | 1,831,485 | 4,796,505 | 0.862 | 31.5% | 1,453,798 | 34.93 | 24.3 | 545.64 |  |
-| Lasso | 1,883,076 | 6,674,596 | 0.732 | 34.2% | 1,495,384 | 0.99 | 3.3 | 0.05 |  |
-| ElasticNet | 1,909,863 | 7,146,150 | 0.693 | 34.4% | 1,507,484 | 0.73 | 3.3 | 0.05 |  |
-| Ridge | 1,941,269 | 7,802,009 | 0.634 | 34.5% | 1,534,885 | 0.47 | 3.3 | 0.05 |  |
-| Linear Regression | 1,941,619 | 7,802,998 | 0.634 | 34.5% | 1,536,282 | 0.63 | 3.4 | 0.05 |  |
+| LightGBM | 900,492 | 2,361,204 | 0.96 | 21.2% | 716,595 | 5.5 | 6.5 | 2.1 |  |
+| XGBoost | 906,357 | 2,389,767 | 0.959 | 21.2% | 712,232 | 3.43 | 4.6 | 1.36 |  |
+| Extra Trees | 908,924 | 2,387,612 | 0.959 | 21.7% | 720,423 | 53.95 | 14.8 | 284.06 |  |
+| Stacked (LGBM+XGB+Cat) | 911,068 | 2,454,416 | 0.957 | 20.9% | 716,315 | 13.14 | 5.7 | 1.26 |  |
+| Random Forest | 912,164 | 2,358,850 | 0.96 | 21.8% | 727,694 | 53.82 | 12.6 | 173.53 | yes |
+| GradientBoosting (hist) | 913,440 | 2,518,356 | 0.954 | 21.0% | 721,215 | 7.96 | 28.2 | 0.46 |  |
+| CatBoost | 931,292 | 2,463,576 | 0.956 | 21.1% | 728,305 | 1.65 | 3.6 | 0.15 |  |
+| Linear Regression | 950,317 | 2,642,104 | 0.95 | 21.7% | 744,876 | 1.01 | 3.2 | 0.05 |  |
+| Ridge | 950,634 | 2,644,287 | 0.95 | 21.7% | 744,623 | 0.67 | 2.8 | 0.05 |  |
+| Lasso | 952,408 | 2,645,067 | 0.95 | 21.6% | 738,260 | 1.6 | 3.2 | 0.05 |  |
+| ElasticNet | 955,551 | 2,666,665 | 0.949 | 21.6% | 740,895 | 1.9 | 3.1 | 0.05 |  |
 
 ## Reading this table
 
-- **The spread is narrow.** Best to worst is 38% on the selection metric across 11 families. The signal in this data is in the features, not the estimator — which is exactly why the Phase 6 baseline was measured before any of this was built.
-- **Cost breaks ties, and sometimes it is not close.** Extra Trees serialises to 1,519 MB against the winner's 1.3 MB — 1,209x larger — while scoring worse. Accuracy columns alone would not show why it was never a candidate.
+- **The spread is narrow.** Best to worst is 39% on the selection metric across 11 families. The signal in this data is in the features, not the estimator — which is exactly why the Phase 6 baseline was measured before any of this was built.
+- **Cost breaks ties, and sometimes it is not close.** Extra Trees serialises to 1,519 MB against the winner's 2.1 MB — 720x larger — while scoring worse. Accuracy columns alone would not show why it was never a candidate.
 - **`val MAE` selects; `cv MAE` explains.** The cross-validation column
   is the mean across expanding-window folds inside the training
   seasons. A family that looks good on one and poor on the other was
