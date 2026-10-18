@@ -176,8 +176,10 @@ export default function ComparePage() {
   const typed = useCallback(
     (name: SideName, value: string) => {
       // Typing abandons whoever this side was showing, so a pick still in
-      // flight for them must not land afterwards.
+      // flight for them must not land afterwards — nor a search for what
+      // the box said before this keystroke.
       begin(`pick:${name}`);
+      begin(`search:${name}`);
       setSide[name]({ ...EMPTY, query: value });
     },
     [begin, setSide],
@@ -186,6 +188,8 @@ export default function ComparePage() {
   const pick = useCallback(
     async (result: Chosen, name: SideName) => {
       const isCurrent = begin(`pick:${name}`);
+      // A search still in flight would refill the list this pick just closed.
+      begin(`search:${name}`);
       const set = setSide[name];
       // The query becomes the resolved name, so the field shows who was
       // actually chosen rather than whatever was typed to find them. The

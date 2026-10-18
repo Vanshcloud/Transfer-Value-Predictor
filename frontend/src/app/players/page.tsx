@@ -43,11 +43,14 @@ export default function PlayerSearch() {
     [begin],
   );
 
-  // Debounced so typing does not fire a request per keystroke.
+  // Debounced so typing does not fire a request per keystroke. The ticket is
+  // taken now, not when the timer fires: a response to the previous query
+  // landing inside the debounce window would otherwise still count as current.
   useEffect(() => {
+    begin();
     const timer = setTimeout(() => search(query), 250);
     return () => clearTimeout(timer);
-  }, [query, search]);
+  }, [query, search, begin]);
 
   return (
     <div className="space-y-6">

@@ -83,6 +83,20 @@ export default function WhatIf({
 
   const touched = editable.some((c) => values[c.key] !== initial[c.key]);
 
+  // Every change of inputs, Reset included, supersedes whatever is in flight
+  // at once. Waiting for the debounced request to take the next ticket left a
+  // window in which the old answer still landed, and after Reset no request
+  // follows at all.
+  const change = useCallback(
+    (next: Record<string, number>) => {
+      begin();
+      setValues(next);
+      setPending(false);
+      setError(null);
+    },
+    [begin],
+  );
+
   // Debounced: a slider drag fires dozens of changes and each one is a model
   // call. 300ms turns a drag into one request without feeling laggy.
   useEffect(() => {
@@ -128,10 +142,7 @@ export default function WhatIf({
                   step={control.step}
                   value={value}
                   onChange={(event) =>
-                    setValues((previous) => ({
-                      ...previous,
-                      [control.key]: Number(event.target.value),
-                    }))
+                    change({ ...values, [control.key]: Number(event.target.value) })
                   }
                   className="mt-1 w-full accent-sky-600"
                 />
@@ -140,7 +151,10 @@ export default function WhatIf({
           })}
 
           <button
-            onClick={() => setValues(initial)}
+            onClick={() => {
+              change(initial);
+              setResult(null);
+            }}
             disabled={!touched}
             className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm disabled:opacity-40 dark:border-slate-700"
           >

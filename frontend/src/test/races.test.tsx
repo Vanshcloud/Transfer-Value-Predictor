@@ -150,6 +150,132 @@ describe("player search", () => {
   });
 });
 
+// Re-audit: a response landing *inside* the debounce window, before the next
+// request has been sent. Invalidation used to wait for that request to take a
+// ticket, so the stale answer still counted as current.
+describe("responses landing before the next debounced request", () => {
+  it("search: drops the old query's answer as soon as the box changes", async () => {
+    const short = deferred<{ query: string; results: SearchResult[] }>();
+    const long = deferred<{ query: string; results: SearchResult[] }>();
+    mocked.searchPlayers.mockImplementation((term: string) =>
+      term === "Ha" ? short.promise : long.promise,
+    );
+    render(<PlayerSearch />);
+    const box = screen.getByLabelText("Player name");
+
+    fireEvent.change(box, { target: { value: "Ha" } });
+    await waitFor(() => expect(mocked.searchPlayers).toHaveBeenCalledWith("Ha"));
+    fireEvent.change(box, { target: { value: "Haaland" } });
+    // Inside the 250ms window: "Haaland" has not been requested yet.
+    await act(async () => short.resolve({ query: "Ha", results: [hit(2, "Achraf Hakimi")] }));
+    expect(mocked.searchPlayers).not.toHaveBeenCalledWith("Haaland");
+    expect(screen.queryByText("Achraf Hakimi")).not.toBeInTheDocument();
+
+    await waitFor(() => expect(mocked.searchPlayers).toHaveBeenCalledWith("Haaland"));
+    await act(async () => long.resolve({ query: "Haaland", results: [hit(1, "Erling Haaland")] }));
+    expect(await screen.findByText("Erling Haaland")).toBeInTheDocument();
+    expect(screen.queryByText("Achraf Hakimi")).not.toBeInTheDocument();
+  });
+
+  it("search: a box cleared mid-request stays empty even if the answer lands at once", async () => {
+    const pending = deferred<{ query: string; results: SearchResult[] }>();
+    mocked.searchPlayers.mockReturnValue(pending.promise);
+    render(<PlayerSearch />);
+    const box = screen.getByLabelText("Player name");
+
+    fireEvent.change(box, { target: { value: "Ha" } });
+    await waitFor(() => expect(mocked.searchPlayers).toHaveBeenCalled());
+    fireEvent.change(box, { target: { value: "" } });
+    await act(async () => pending.resolve({ query: "Ha", results: [hit(2, "Achraf Hakimi")] }));
+
+    expect(screen.queryByText("Achraf Hakimi")).not.toBeInTheDocument();
+  });
+
+  it("what-if: drops a prediction for slider values already moved past", async () => {
+    const first = deferred<PredictResponse>();
+    const second = deferred<PredictResponse>();
+    mocked.predictFromFeatures
+      .mockReturnValueOnce(first.promise)
+      .mockReturnValueOnce(second.promise);
+    render(<WhatIf baseline={1_000_000} features={{ goals: 10 }} variant="performance_only" />);
+    const slide = (value: number) =>
+      fireEvent.change(screen.getByLabelText(/Goals/), { target: { value: String(value) } });
+
+    slide(11);
+    await waitFor(() => expect(mocked.predictFromFeatures).toHaveBeenCalledTimes(1));
+    slide(30);
+    // Inside the 300ms window: goals=30 has not been requested yet.
+    await act(async () => first.resolve(prediction(1_100_000)));
+    expect(mocked.predictFromFeatures).toHaveBeenCalledTimes(1);
+    expect(screen.queryByText("€1.10M")).not.toBeInTheDocument();
+
+    await waitFor(() => expect(mocked.predictFromFeatures).toHaveBeenCalledTimes(2));
+    await act(async () => second.resolve(prediction(5_000_000)));
+    expect(screen.getByText("€5.00M")).toBeInTheDocument();
+  });
+
+  it("what-if: Reset abandons the request in flight, its answer and its error", async () => {
+    const first = deferred<PredictResponse>();
+    const third = deferred<PredictResponse>();
+    mocked.predictFromFeatures
+      .mockReturnValueOnce(first.promise)
+      .mockReturnValueOnce(third.promise);
+    render(<WhatIf baseline={1_000_000} features={{ goals: 10 }} variant="performance_only" />);
+    const slide = (value: number) =>
+      fireEvent.change(screen.getByLabelText(/Goals/), { target: { value: String(value) } });
+
+    slide(11);
+    await waitFor(() => expect(mocked.predictFromFeatures).toHaveBeenCalledTimes(1));
+    fireEvent.click(screen.getByRole("button", { name: "Reset to actual season" }));
+    // No request follows a Reset, so nothing else would ever supersede it.
+    await act(async () => first.resolve(prediction(1_100_000)));
+    expect(screen.getByText("Actual season")).toBeInTheDocument();
+    expect(screen.queryByText("predicting…")).not.toBeInTheDocument();
+
+    // Moving again must not resurrect the abandoned answer while the new
+    // request is pending.
+    slide(12);
+    expect(screen.queryByText("€1.10M")).not.toBeInTheDocument();
+    await waitFor(() => expect(mocked.predictFromFeatures).toHaveBeenCalledTimes(2));
+    expect(screen.queryByText("€1.10M")).not.toBeInTheDocument();
+    await act(async () => third.resolve(prediction(1_200_000)));
+    expect(screen.getByText("€1.20M")).toBeInTheDocument();
+  });
+
+  it("what-if: an error from a request abandoned by Reset is not shown", async () => {
+    const first = deferred<PredictResponse>();
+    mocked.predictFromFeatures.mockReturnValueOnce(first.promise);
+    render(<WhatIf baseline={1_000_000} features={{ goals: 10 }} variant="performance_only" />);
+
+    fireEvent.change(screen.getByLabelText(/Goals/), { target: { value: "11" } });
+    await waitFor(() => expect(mocked.predictFromFeatures).toHaveBeenCalledTimes(1));
+    fireEvent.click(screen.getByRole("button", { name: "Reset to actual season" }));
+    await act(async () => first.reject(new Error("timeout")));
+
+    expect(screen.queryByText("What-if prediction failed")).not.toBeInTheDocument();
+    expect(screen.queryByText("predicting…")).not.toBeInTheDocument();
+  });
+
+  it("compare: a new selection drops the side's search still in flight", async () => {
+    const stale = deferred<{ query: string; results: SearchResult[] }>();
+    mocked.searchPlayers.mockImplementation((term: string) =>
+      term === "old" ? stale.promise : Promise.resolve({ query: term, results: [] }),
+    );
+    render(<ComparePage />);
+    const a = screen.getByLabelText("Player A");
+    const picker = within(a.parentElement as HTMLElement);
+
+    fireEvent.change(a, { target: { value: "old" } });
+    await waitFor(() => expect(mocked.searchPlayers).toHaveBeenCalledWith("old", 8));
+    fireEvent.change(a, { target: { value: "new" } });
+    await act(async () => stale.resolve({ query: "old", results: [hit(9, "Stale Result")] }));
+
+    expect(picker.queryByRole("button", { name: /Stale Result/ })).not.toBeInTheDocument();
+    await waitFor(() => expect(mocked.searchPlayers).toHaveBeenCalledWith("new", 8));
+    expect(picker.queryByRole("button", { name: /Stale Result/ })).not.toBeInTheDocument();
+  });
+});
+
 describe("compare", () => {
   it("keeps a side's numbers with the player it names after a quick re-pick", async () => {
     const slow = deferred<PredictResponse>();
