@@ -7,6 +7,7 @@ someone edits its patterns, this suite says so.
 
 from __future__ import annotations
 
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -21,7 +22,11 @@ VANSH_ENV = {
     "GIT_AUTHOR_EMAIL": "vanshwar@gmail.com",
     "GIT_COMMITTER_NAME": "Vanshcloud",
     "GIT_COMMITTER_EMAIL": "vanshwar@gmail.com",
-    "PATH": "/usr/bin:/bin:/usr/local/bin:/opt/homebrew/bin",
+    # The git this machine actually uses goes first. A fixed /usr/bin first
+    # made the suite fail on macOS whenever /usr/bin/git is the Xcode shim and
+    # its licence has not been accepted: the shim exits 69 before the hook can
+    # read a message, which the tests reported as the hook rejecting it.
+    "PATH": ":".join([str(Path(shutil.which("git") or "/usr/bin/git").parent), "/usr/bin", "/bin"]),
     "HOME": str(Path.home()),
 }
 

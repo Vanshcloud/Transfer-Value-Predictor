@@ -41,7 +41,10 @@ def artifact(request: pytest.FixtureRequest) -> ModelArtifact:
 def test_every_artifact_on_disk_is_the_one_its_manifest_serves() -> None:
     """A stray second artifact is ignored by the service, but it is still a
     file someone will open believing it is the model."""
-    listed = {entry["file"] for entry in (load_manifest(MODEL_DIR) or {}).values()}
+    manifest = load_manifest(MODEL_DIR)
+    if manifest is None and not any(MODEL_DIR.glob("*.joblib")):
+        pytest.skip("no trained models; run scripts/train_models.py")
+    listed = {entry["file"] for entry in (manifest or {}).values()}
     assert {path.name for path in MODEL_DIR.glob("*.joblib")} == listed
 
 
