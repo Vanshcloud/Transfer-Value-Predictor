@@ -59,9 +59,10 @@ Two models are served, and they answer different questions:
 * **with_prior_value** — forecasts how an already-known valuation will move.
   More accurate, and correspondingly less interesting.
 
-Metrics are reported on **held-out seasons the model never saw**, which is
-roughly 40% worse on EUR error than a random split would suggest and is the
-number that reflects deployment.
+Metrics are reported on **later seasons the model was not trained on**, which
+is roughly 40% worse on EUR error than a random split would suggest. Those
+seasons were inspected during development, so the figures are retrospective
+rather than independent; see `docs/EVALUATION.md`.
 
 SHAP contributions are additive in **log space**, not in euros — see
 `effect_multiplier` on each contribution for the exact multiplicative reading.

@@ -14,7 +14,7 @@ Everything requiring data is marked **[needs data]** and has a fallback.
 
 ```bash
 make setup                  # venv + dev deps + git hooks
-make test                   # 679 pass, 53 skip, ~15s, no credentials
+make test                   # 825 pass, 67 deselected, no credentials
 docker compose up --build   # optional; takes minutes on a cold cache
 ```
 
@@ -46,9 +46,9 @@ legal footnote.
 make test
 ```
 
-Expected: `679 passed, 53 skipped`, about fifteen seconds.
+Expected: `825 passed, 67 deselected`, about fifteen seconds.
 
-> "The 53 skips are integration tests that need a trained model. They skip
+> "The 67 skips are integration tests that need a trained model. They skip
 > rather than fail, because a suite that is only green on my laptop is not a
 > suite."
 
@@ -80,8 +80,15 @@ average. A season runs August–July, so a fixture on 20 July belongs to it whil
 falling *after* the 1 July cutoff — 5.56% of all fixtures are dated in July.
 That folded matches played after the *label* into 1,049 rows. Seven checks
 missed it because the leak lived inside a number, not a column name or a date.
-Removing it cost nothing measurable (p = 0.49). It was not buying accuracy,
-only overstating provenance.
+Removing it moved MAE by an amount the test could not distinguish from zero
+(p = 0.49, a row-level test). Say "no detectable cost", not "no cost".
+
+**The second leak story, found later and by someone else.** An independent
+audit then found two leaks the project's own audits had missed: lineups dated
+after the as-of date folded into role features, and competition strength
+averaging labels published after the cutoff. The fix was to make every windowed
+feature carry the date of its newest input, so the leakage stage checks each row
+by value rather than trusting an argument.
 
 ---
 
@@ -108,10 +115,12 @@ curl -s localhost:8000/api/v1/predict \
 > coverage numbers."
 
 **The honest-uncertainty talking point.** `level` is 0.80 — what the interval
-asks for. `measured_coverage` is ~0.77 — what it achieved on test seasons it
-had never seen. Until the final audit those were the same number, because the
-interval was calibrated on the very rows its coverage was quoted on, where 80%
-is arithmetic rather than evidence.
+asks for. `band_measured_coverage` is what intervals for predictions in this
+value band achieved on the test seasons, with the rows behind it, and the
+dashboard words it as a record for a group, not a probability for this player.
+The quantiles are widened by a rule fixed on pre-test seasons; overall coverage
+is 79.1% for this model, and that figure is retrospective, because the widening
+was motivated by an earlier 75.1% that had already been seen.
 
 **Show a rejection:**
 
@@ -139,9 +148,9 @@ coverage, then the SHAP contributions.
 
 Then drag a **what-if** slider and watch the number move.
 
-> "That round trip is 30 ms. It was 385 ms a week ago — 97% of it rebuilding a
-> SHAP explainer for a model that never changes. Inference was 1.6% of the
-> endpoint."
+> "That round trip is about 25 ms, and it is a requirement rather than an
+> accident: a model family only ships if prediction plus explanation is under
+> 100 ms on validation rows. A Random Forest once shipped at 440 ms."
 
 ---
 
@@ -151,15 +160,16 @@ Then drag a **what-if** slider and watch the number move.
 cat docs/model_comparison.md
 ```
 
-> "Eleven families. LightGBM ships, and it is *not* the lowest number — the
-> stacked ensemble is. Two rules decide: the shipped model must produce a
-> feature importance, and among families within one standard error of the best,
-> the cheapest to deploy wins."
+> "Eleven families and a written rule. To ship, a family must produce feature
+> importances and explain a prediction within 100 ms; among those within one
+> standard error of the best validation MAE, the smallest deployed footprint
+> wins. No test number is involved, and the artifact records every input, so a
+> test recomputes the choice. LightGBM wins both variants."
 
-**The point worth landing.** On the prior-value variant the top three families
-sit within €5,600 of each other, against a standard error an order of magnitude
-larger. Sorting that table to the euro invites a decision the data cannot
-support. That is Breiman's one-standard-error rule, from 1984.
+**The point worth landing.** On the prior-value variant the top six families
+sit within €18,500 of each other against a standard error of about €27,000.
+Sorting that table to the euro invites a decision the data cannot support.
+That is Breiman's one-standard-error rule, from 1984.
 
 ---
 
@@ -177,7 +187,8 @@ reproduce their recorded test MAE to the cent.
 
 ## 8 — Close (1 min)
 
-> "Six audit phases are in `plans/`. The most useful reading is the list of
+> "The audit record is in `plans/`, including an outside audit's twenty
+> findings and what was done about each. The most useful reading is the list of
 > things that were built, measured and *thrown away*: club attendance, because
 > season 2020 was played behind closed doors and the column measures a pandemic
 > for one year in fourteen; calendar re-indexing, because the apparent 10% win
@@ -186,8 +197,9 @@ reproduce their recorded test MAE to the cent.
 > allowed to try explained all of it.
 >
 > The repository's claim is not that the model is good. It is that every number
-> in it is one you can reproduce, and every rejected idea has a p-value next to
-> it."
+> in it is one you can reproduce, that it says what each number is evidence of —
+> the test figures are retrospective — and that a genuinely unseen season has
+> been frozen to check it."
 
 ---
 
@@ -203,8 +215,13 @@ reproduce their recorded test MAE to the cent.
 | Everything is broken | `plans/06-final-research-audit.md` is the strongest artefact in the repository and needs no runtime at all. |
 
 **If asked "is this actually accurate?"** — the honest answer is that test MAE
-is €2.07M on a target whose median is €1M, so relative error is large and
-stated as such. What the project defends is not the accuracy; it is that the
-number is measured on seasons the model never saw, that a random split would
-read ~30% better and answer a question nobody deploying it would ask, and that
-every limitation is quantified rather than mentioned.
+is €2.06M on a target whose median is about €1M, so relative error is large and
+stated as such, and that the figure is retrospective: the test seasons were not
+trained on but were inspected during development. What the project defends is
+that the number comes from later seasons under a checked point-in-time rule,
+that a random split would read ~30% better and answer a question nobody
+deploying it would ask, and that an independent check is set up rather than
+claimed.
+
+**If asked "can I use this commercially?"** — no. The data's rights are
+uncertain (`docs/DATASET_CARD.md`, "Data rights").

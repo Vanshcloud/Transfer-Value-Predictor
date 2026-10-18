@@ -127,9 +127,10 @@ def _image(uri: str, alt: str) -> str:
 
 TEMPORAL_NOTE = (
     "<div class='note'>Every figure on this page is measured on the "
-    "<strong>test seasons</strong> — seasons the model never saw during "
-    "training or selection. A random split would report roughly 30% better "
-    "EUR error and would not describe deployment.</div>"
+    "<strong>test seasons</strong> — seasons the model was not trained or "
+    "selected on. They were inspected during development, so the figures are "
+    "retrospective rather than independent. A random split would report "
+    "roughly 30% better EUR error and would not describe deployment.</div>"
 )
 
 

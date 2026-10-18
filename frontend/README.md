@@ -33,13 +33,15 @@ NEXT_PUBLIC_API_BASE=http://localhost:8010 npm run dev
 ## Tests
 
 ```bash
-npm test        # 96 tests, ~2s
+npm test        # 118 tests, a few seconds
 ```
 
 The suite covers the parts of the dashboard where being wrong is silent: the
 error mapping in `lib/api.ts` (every failure becomes one `ApiError` carrying
-the server's own `code`), the race guard in `useAsync` (navigate mid-request
-and the stale response must not overwrite the fresh one), the money formatting,
+the server's own `code`), the race guards (`useLatest`: only the newest request
+for a search box, a comparison side, a what-if slider or a `useAsync` fetch may
+change the screen — `src/test/races.test.tsx` resolves the earlier request last
+in each case), the season warning on `/compare`, the money formatting,
 and the state each component renders — including that a per-feature euro figure
 never appears next to a SHAP contribution, because that number would be false.
 
@@ -52,8 +54,12 @@ catches in CI.
 Charts are not only pictures. Plotly emits an SVG of positioned shapes, so a
 screen reader would otherwise get a label and no numbers — and the numbers are
 the content. `Chart.tsx` marks the SVG `aria-hidden` and renders the same
-series as a visually-hidden table, derived from the one `data` prop so the two
-cannot describe different charts.
+data as a visually-hidden table, derived from the one `data` prop so the two
+cannot describe different charts: one row per category and one column per named
+series, headed by the axis titles; per-point notes from string `customdata`
+(which seasons were held out, why a model family did not ship); and histograms
+as bin ranges and counts, from explicit bins Plotly is given too. The inline-SVG
+radar on `/compare` has its own table of each player's percentile and value.
 
 ## Checks
 

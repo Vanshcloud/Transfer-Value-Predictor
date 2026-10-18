@@ -10,20 +10,20 @@ line count below is from the working tree; regenerate with
 │   ├── ingestion/          fetch raw CSVs (requests only, never a browser)
 │   ├── validation/         schema, quality and leakage checks
 │   ├── feature_engineering/ the training table: joins, features, targets
-│   ├── models/             registry, splits, tuning, calibration, artifacts
+│   ├── models/             registry, splits, tuning, calibration, artifacts, provenance
 │   ├── pipelines/          the stages that orchestrate the above
-│   ├── evaluation/         metrics, error analysis, model cards, reports
+│   ├── evaluation/         metrics, clustered inference, prospective freeze, model cards
 │   ├── explainability/     SHAP, global and per-prediction
 │   ├── services/           the prediction service the API wraps
 │   ├── storage/            DuckDB + Parquet behind a Protocol
 │   ├── visualization/      plots for the HTML reports
 │   └── utils/              config, logging, HTTP, paths
-├── api/                    FastAPI app — routes, schemas, errors, DI
+├── api/                    FastAPI app — routes, schemas, errors, limits, `python -m api`
 ├── frontend/               Next.js dashboard (TypeScript, Tailwind, Plotly)
 ├── scripts/                the CLI entry points, one per pipeline stage
 │   └── hooks/              git hooks, version-controlled
 ├── tests/
-│   ├── unit/               31 files, no data and no credentials needed
+│   ├── unit/               33 files, no data and no credentials needed
 │   └── integration/         7 files, skip unless data and models exist
 ├── configs/config.yaml     committed defaults; .env overrides a subset
 ├── data/
@@ -71,7 +71,9 @@ proposing a feature.
 |---|---|---|
 | `data/sample/` | **yes** — the unit suite runs on it | never; it is a fixture |
 | `data/raw/`, `data/processed/` | no | `scripts/fetch_data.py`, `scripts/build_features.py` |
-| `models/` | no | `scripts/train_models.py` |
+| `models/` (artifacts and `manifest.json`) | no | `scripts/train_models.py` |
+| `reports/prospective/`, `reports/evaluation/` | no | `scripts/prospective.py freeze`, `scripts/evaluate_retrospective.py` |
+| `docs/prospective/*-freeze.json` | **yes** — committed before outcomes exist | `scripts/prospective.py freeze`, copied by hand |
 | `reports/*.html` | no | `scripts/build_reports.py` |
 | `docs/MODEL_CARD_*.md`, `docs/model_comparison.md` | **yes** | `scripts/build_reports.py` — generated, so edit the generator |
 

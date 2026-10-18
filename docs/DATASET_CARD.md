@@ -76,8 +76,8 @@ and do not redistribute the raw tables.
 | Seasons | 2011–2024 |
 | Features | 54 (+2 more in the prior-value variant) |
 | Target | `market_value_in_eur` |
-| Rows with a usable prior valuation | 61,522 (71.6%) |
-| Unlabelled current-season rows | 8,709 (season 2025, prediction only) |
+| Rows with a usable prior valuation | 84,626 (98.4%) — the latest valuation strictly before the as-of date (Phase 19, F4; was 61,522 under the previous-season definition) |
+| Unlabelled current-season rows | 9,716: 8,709 for season 2025, and 1,007 season-2024 rows whose 365-day label window is still open |
 
 The two shipped variants are a row filter and a column list over this one
 table, never a second build — see `select_variant`. Two pipelines are how
@@ -177,7 +177,9 @@ moved attendance, and plausibly more than attendance.
 
 ## Splits
 
-Chronological, three ways, and the test seasons are touched once.
+Chronological, three ways. Each training run scores the test seasons once, after
+selection, but they have been inspected throughout development, so their metrics
+are retrospective ([`EVALUATION.md`](EVALUATION.md)).
 
 | | seasons | rows |
 |---|---|---|
@@ -191,11 +193,16 @@ question nobody deploying this will ever ask.
 
 ## Audit status
 
-Re-verified from the raw CSVs — not from the pipeline's own checker — in
-`plans/06-final-research-audit.md`. Eleven properties checked; one real defect
-found and fixed (club form built from matches played after the label, 1,049
-rows), two flags cleared as artefacts of the checker.
+Re-verified from the raw CSVs in `plans/06-final-research-audit.md` (one defect
+fixed: club form built from matches played after the label, 1,049 rows). That
+audit missed two more, found by the independent Codex audit and fixed in Phase 19
+(`plans/09`): lineups dated after the as-of date folded into role features
+(6.77% of rows), and competition strength averaging labels published after the
+cutoff (9.79%). Phase 20 added per-row provenance for the momentum features and
+nulled four raw heights of 17–19 cm that had reached the table.
 
-Current state: 0 duplicate player-seasons, 0 rows where any date value
-postdates the label, 0 rows where club form postdates the as-of date, prior
-valuations traced to a real raw valuation on 61,522 of 61,522 rows.
+Current state (Phase 20 rebuild): 0 duplicate player-seasons; the leakage stage
+reports 0 errors and 0 warnings, with every windowed feature's provenance date
+checked against its row's as-of date; prior valuations traced to a raw valuation
+of the same date and amount on 84,626 of 84,626 rows; every stored value inside
+the API's definitional bounds.

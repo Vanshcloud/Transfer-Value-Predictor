@@ -54,9 +54,11 @@ export default function ModelMetadata({
         ))}
       </dl>
       <p className="mt-4 text-xs leading-relaxed text-slate-500 dark:text-slate-400">
-        Metrics are measured on <strong>seasons the model never saw</strong>. A random
-        split would report roughly 30% better error and would not describe how the
-        model behaves on a season that has not happened yet.
+        Metrics are measured on <strong>seasons the model was not trained on</strong>,
+        which were nonetheless inspected during development, so they are
+        retrospective. A random split would report roughly 30% better error and
+        would not describe how the model behaves on a season that has not happened
+        yet.
       </p>
     </Card>
   );

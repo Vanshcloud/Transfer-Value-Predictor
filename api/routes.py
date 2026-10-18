@@ -235,7 +235,9 @@ def get_model(service: ServiceDep, variant: VariantPath) -> ModelInfoResponse:
     responses=errors({404: "No such variant", 503: "No model loaded"}),
 )
 def get_metrics(service: ServiceDep, variant: VariantPath) -> ModelMetricsResponse:
-    """Test metrics come from seasons the model never saw. That is the headline."""
+    """Test metrics come from later seasons the model was not trained on: the
+    headline, and retrospective, since those seasons were inspected during
+    development (docs/EVALUATION.md)."""
     return ModelMetricsResponse(**service.metrics(variant))
 
 

@@ -76,7 +76,10 @@ export default function ModelPage() {
       )}
 
       {!loading && metrics && (
-        <Card title="Test performance" subtitle="Seasons the model never saw">
+        <Card
+          title="Test performance"
+          subtitle="Seasons the model was not trained on — retrospective, not independent"
+        >
           <div className="flex flex-wrap gap-8">
             <Stat
               label="MAE"
@@ -94,9 +97,12 @@ export default function ModelPage() {
           </div>
           <p className="mt-5 text-sm leading-relaxed text-slate-500 dark:text-slate-400">
             Validation MAE was {eur(metrics.validation.mae_eur)} over{" "}
-            {number(metrics.validation.n)} rows. Validation tunes; test is
-            touched once. A test set consulted repeatedly is a validation set
-            wearing a disguise.
+            {number(metrics.validation.n)} rows. Validation tunes and selects; the
+            test seasons are scored after selection. They were also looked at
+            repeatedly while the project was built, so these figures describe how
+            the model behaves on 2023–2024 rather than independent evidence — a
+            test set consulted repeatedly is partly a validation set. A season
+            nobody has looked at is frozen for that purpose (docs/EVALUATION.md).
           </p>
         </Card>
       )}

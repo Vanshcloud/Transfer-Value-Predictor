@@ -10,11 +10,56 @@ Phases 19 and 20: remediation of an independent Codex audit (F1–F20). Full
 workings in
 [`plans/09-codex-audit-remediation.md`](plans/09-codex-audit-remediation.md)
 and [`plans/10-codex-audit-remaining-findings.md`](plans/10-codex-audit-remaining-findings.md).
+Every model was retrained; the archived pre-remediation, first-retrain and
+Phase 19 artifacts are kept locally with checksums.
+
+### Fixed
+
+- **Point-in-time leaks** (F1, F2): lineups after the as-of date in role
+  features, and competition strength averaging labels published after the
+  cutoff. Every windowed feature now carries the date of its newest input and
+  the leakage stage checks it per row; career momentum joined that check in
+  Phase 20.
+- **One definition of the prior value** for training and serving (F4), player-
+  level label availability for current rows (F6), competition strength for
+  current-season rows (F3), and prior-value what-ifs that dropped the prior (F7).
+- **API inputs** (F8): an integer past float range was a 500; shares above 1,
+  fractional counts, impossible minutes and a log value of 10^308 were answered
+  with a 200. Definitional bounds, inclusive, never clamped.
+- **Which artifact serves** (F19): a manifest with SHA-256, verified before
+  unpickling, instead of file-name order.
+- **OpenAPI error schemas** (F17) match the envelope actually sent.
+- **Frontend races** (F13) in search, compare, what-if and `useAsync`.
+- **Compare across seasons** (F14) labels each side's season and warns.
+- **Chart text alternatives** (F18) name series, units and splits, and read
+  histograms as bins.
+- **Competition tier rank** ranked among competitions that had left the data.
+- **Four 17–19 cm heights** reached the training table.
+
+### Changed
+
+- **Model selection**: a family must explain a prediction within 100 ms, and the
+  footprint counts the artifact. LightGBM ships for both variants.
+- **Intervals** (F9): quantiles widened by a rule fixed on pre-test seasons;
+  each response quotes its value band's coverage and rows. Performance-only
+  coverage 75.1% → 79.1% (retrospective).
+- **Artifacts** (F10) are schema v3 with a provenance block.
+- **Deployment** (F16): 64 KB body limit, inference slots with load shedding,
+  cached global SHAP, container limits. `python -m api` reads `API_HOST` and
+  `API_PORT`.
+- **Evaluation** (F5, F12): every published metric is labelled retrospective;
+  player-clustered intervals; a frozen prospective test of season 2025.
 
 ### Added
 
 - `GET /ready`, a readiness probe that answers 503 until a model is loaded,
   making twelve endpoints. `/health` keeps answering 200 while degraded.
+- `docs/EVALUATION.md`, `scripts/prospective.py`,
+  `scripts/evaluate_retrospective.py`.
+
+### Removed
+
+- `data.default_horizon_days`, `data.min_age`, `data.max_age`: read by nothing.
 
 ### Corrected
 
@@ -22,6 +67,11 @@ and [`plans/10-codex-audit-remaining-findings.md`](plans/10-codex-audit-remainin
   optional `transfer_fee` target" and the methodology and dataset card said
   `--target transfer_fee` would train on it; no such flag existed. The fee
   helpers are now documented as experimental and the flag claim is removed.
+- **Data rights** (F11): the data was described as CC0-licensed, and the mirror
+  as what made the project "legally possible". A mirror's dedication cannot
+  waive Transfermarkt's rights; the status is now stated as uncertain.
+- **"No confirmed leakage remained"** after six audits, in the README: two leaks
+  were found afterwards.
 
 ## [1.3.0] — 2026-09-01
 

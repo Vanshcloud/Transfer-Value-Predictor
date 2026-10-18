@@ -316,7 +316,9 @@ class HistoryPoint(BaseModel):
     in_training_range: bool = Field(
         description="The model trained on this season. Agreement here is not evidence."
     )
-    held_out: bool = Field(description="A test season the model never saw.")
+    held_out: bool = Field(
+        description="A test season: not trained on, though inspected during development."
+    )
 
 
 class PredictionHistoryResponse(BaseModel):
@@ -383,7 +385,10 @@ class ModelMetricsResponse(BaseModel):
     variant: str
     validation: MetricsSchema
     test: MetricsSchema = Field(
-        description="Held-out seasons the model never saw. The reported headline."
+        description=(
+            "Test seasons the model was not trained on. The reported headline; "
+            "retrospective, since they were inspected during development."
+        )
     )
     leaderboard: list[dict[str, Any]] = Field(
         default_factory=list, description="Every family tried, ranked by validation MAE."
