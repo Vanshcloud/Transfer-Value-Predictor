@@ -108,10 +108,11 @@ reason.
 **The label is an appraisal, not a price.** Transfermarkt market values are a
 community consensus. The model reproduces that consensus, including wherever it
 is biased — by league visibility, by nationality, by whatever the community
-over- and under-rates. `transfers.csv` carries real fees and
-`--target transfer_fee` will train on them, but a fee exists only where a sale
-happened: 8.5% coverage against the market value's 83%, and conditioned on the
-outcome. It answers what a sold player cost, not what a player is worth.
+over- and under-rates. `transfers.csv` carries real fees, but a fee exists only
+where a sale happened: 8.5% coverage against the market value's 83%, and
+conditioned on the outcome. It answers what a sold player cost, not what a
+player is worth. Attaching it is an experimental, unit-tested helper
+(`src/feature_engineering/targets.py`); no command trains on it.
 
 **Seasons are August–July, and no single boundary is right for every league.**
 The declared and derived season labels disagree on 6.27% of fixtures —

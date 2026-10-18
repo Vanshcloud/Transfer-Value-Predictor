@@ -205,13 +205,17 @@ features stay left-censored and capped at 10 for the same reason.
 
 ### The labels are Transfermarkt's community estimates, not prices anyone paid
 
-`transfers.csv` carries real fees and `--target transfer_fee` will train on
-them, but it covers 8.5% of the table against the market value's 83%, and only
-players who were actually sold — so it learns what a sold player costs, which
-is not what a player is worth. The default target is the appraisal, and the
-model reproduces that consensus including wherever it is biased.
+`transfers.csv` carries real fees, but they cover 8.5% of the table against the
+market value's 83%, and only players who were actually sold — so a model of them
+learns what a sold player costs, which is not what a player is worth. The fee
+label is **experimental**: `src/feature_engineering/targets.py` attaches it and
+selects it, both unit-tested, but no command trains on it, no model has been
+fitted to it, and no metric for it exists. (Until Phase 20 this document said
+`--target transfer_fee` would train on it; no such flag was ever wired up —
+audit F15.) The default target is the appraisal, and the model reproduces that
+consensus including wherever it is biased.
 
-Four alternative targets were measured against it rather than reasoned about.
+Three further alternative targets were trained and measured against it.
 A **delta-value** target is the same model re-parameterised and nominally worse
 (p = 0.37). A **within-season percentile** ranks identically (Spearman 0.907 vs
 0.909) but costs 50–66% more MAE once converted back to euros, because the

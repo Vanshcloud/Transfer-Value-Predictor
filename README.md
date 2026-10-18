@@ -528,9 +528,11 @@ assumed — the working is in
 - **Coverage begins in 2012.** Extending it is possible and pointless: the
   40,339 reconstructable pre-2012 rows were built and added, and moved held-out
   MAE by 0.19% (**p = 0.73**), because only 7 of 54 features exist on such a row.
-- **The labels are community estimates, not prices anyone paid.** Four
-  alternative targets — transfer fee, delta value, within-season percentile,
-  career peak — were each measured and none is better.
+- **The labels are community estimates, not prices anyone paid.** Three
+  alternative targets — delta value, within-season percentile, career peak —
+  were trained and measured, and none is better. Real transfer fees cover 8.5%
+  of rows and only players who were sold; attaching them is an experimental
+  helper with no training command.
 - **Error grows with value.** The target spans four orders of magnitude, so a
   mid-table MAE conceals larger absolute misses at the top of the market. Read
   the per-band breakdown in `reports/error_analysis.html`.

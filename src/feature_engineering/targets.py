@@ -31,9 +31,15 @@ A fee also answers a question the market value does not. It includes contract
 length, negotiating position, add-ons and a selling club's desperation. Those
 are real and interesting, and none of them is in this feature set.
 
-So it ships as an optional mode — ``--target transfer_fee`` — for anyone who
-wants to model the price rather than the appraisal, with the coverage and the
-bias stated where the mode is selected rather than in a footnote.
+So it is an **experimental** library mode, not a supported one: these two
+functions attach the fee and select it, with the coverage and the bias stated
+where the mode is selected, for anyone who wants to model the price rather than
+the appraisal from a notebook. No command trains on it — the training CLI, the
+tuning pipeline, the calibration, the artifacts and the API are all built for
+the market-value target — and no model or metric for it exists. Earlier
+documentation advertised a ``--target transfer_fee`` flag that was never wired
+up (audit F15); the decision was to describe what exists rather than build a
+second target path for a label covering 8.5% of rows.
 """
 
 from __future__ import annotations

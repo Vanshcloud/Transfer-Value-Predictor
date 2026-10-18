@@ -16,6 +16,13 @@ and [`plans/10-codex-audit-remaining-findings.md`](plans/10-codex-audit-remainin
 - `GET /ready`, a readiness probe that answers 503 until a model is loaded,
   making twelve endpoints. `/health` keeps answering 200 while degraded.
 
+### Corrected
+
+- **The `transfer_fee` target was never trainable** (F15). 1.2.0 listed "an
+  optional `transfer_fee` target" and the methodology and dataset card said
+  `--target transfer_fee` would train on it; no such flag existed. The fee
+  helpers are now documented as experimental and the flag claim is removed.
+
 ## [1.3.0] — 2026-09-01
 
 A research-grade audit that re-verified every claim from the raw files rather

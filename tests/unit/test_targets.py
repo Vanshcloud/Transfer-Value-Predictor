@@ -98,3 +98,25 @@ class TestSelectTarget:
 
     def test_the_declared_modes_are_the_ones_accepted(self) -> None:
         assert TARGET_MODES == ("market_value", "transfer_fee")
+
+
+def test_no_document_advertises_a_training_flag_that_does_not_exist() -> None:
+    """F15: three documents said `--target transfer_fee` would train on fees,
+    and the training CLI never had the flag."""
+    import importlib.util
+    import re
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[2]
+    spec = importlib.util.spec_from_file_location(
+        "train_models", root / "scripts" / "train_models.py"
+    )
+    module = importlib.util.module_from_spec(spec)  # type: ignore[arg-type]
+    spec.loader.exec_module(module)  # type: ignore[union-attr]
+    with pytest.raises(SystemExit) as refused:
+        module.main(["--target", "transfer_fee"])
+    assert refused.value.code == 2
+
+    claim = re.compile(r"--target transfer_fee`?\s+will train", re.IGNORECASE)
+    for document in [root / "README.md", *sorted((root / "docs").glob("*.md"))]:
+        assert not claim.search(document.read_text()), document.name
