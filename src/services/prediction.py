@@ -40,7 +40,7 @@ from src.feature_engineering.build import (
     TARGET_COLUMN,
     WHOLE_NUMBER_FEATURES,
 )
-from src.models.artifact import MANIFEST_NAME, ModelArtifact, load, load_manifest, predict
+from src.models.artifact import MANIFEST_NAME, ModelArtifact, load_manifest, load_variant, predict
 from src.models.calibration import interval_for
 from src.utils.logging import get_logger
 
@@ -257,10 +257,10 @@ class PredictionService:
         file-name order and keep the last one per variant, so a stale or
         misleadingly named file — ``with_prior_value__zz.joblib`` — served
         instead of the one training selected. A file the manifest does not
-        list is ignored with a warning; one whose checksum does not match is
-        refused before it is unpickled; a directory with artifacts but no
-        manifest loads nothing, because which file is current is then a
-        guess.
+        list is ignored with a warning; one whose checksum is missing,
+        malformed or does not match is refused before it is unpickled; a
+        directory with artifacts but no manifest loads nothing, because which
+        file is current is then a guess.
         """
         artifacts: dict[str, ModelArtifact] = {}
         try:
@@ -280,20 +280,14 @@ class PredictionService:
             manifest = {}
 
         for variant, entry in sorted(manifest.items()):
-            path = model_directory / entry["file"]
             try:
-                artifact = load(path, sha256=entry["sha256"])
+                artifact = load_variant(model_directory, variant)
             except (OSError, ValueError) as exc:
                 # One bad file must not stop the variants that are fine.
                 logger.warning("skipping %s: %s", variant, exc)
                 continue
-            if artifact.variant != variant:
-                logger.warning(
-                    "skipping %s: %s holds a %s model", variant, path.name, artifact.variant
-                )
-                continue
             artifacts[variant] = artifact
-            logger.info("loaded %s (%s) from %s", variant, artifact.model_name, path.name)
+            logger.info("loaded %s (%s) from %s", variant, artifact.model_name, entry["file"])
 
         unlisted = sorted(on_disk - {entry["file"] for entry in manifest.values()})
         if unlisted:

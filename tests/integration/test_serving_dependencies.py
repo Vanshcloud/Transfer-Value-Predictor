@@ -133,5 +133,6 @@ def test_the_artifacts_actually_load_in_this_process(shipped: list[Path]) -> Non
     from src.models.artifact import load
 
     for path in shipped:
-        artifact = load(path.with_suffix(".joblib"))
-        assert artifact.model_name == json.loads(path.read_text())["model_name"]
+        sidecar = json.loads(path.read_text())
+        artifact = load(path.with_suffix(".joblib"), sha256=sidecar["sha256"])
+        assert artifact.model_name == sidecar["model_name"]

@@ -14,7 +14,7 @@ import pytest
 
 from src.evaluation.metrics import evaluate
 from src.feature_engineering.build import TARGET_COLUMN, select_variant
-from src.models.artifact import load, predict, save
+from src.models.artifact import load_variant, predict, save
 from src.models.splits import RANDOM_SEED, temporal_split
 from src.pipelines.features import TRAINING_TABLE
 from src.pipelines.tune import render_leaderboard, train_variant
@@ -91,7 +91,8 @@ def test_the_saved_artifact_reproduces_its_test_metrics_exactly(
         test_start_season=settings.split.test_start_season,
     )
 
-    reloaded = load(save(artifact, tmp_path))  # type: ignore[arg-type]
+    save(artifact, tmp_path)  # type: ignore[arg-type]
+    reloaded = load_variant(tmp_path, artifact.variant)  # type: ignore[attr-defined]
     test_rows = frame.loc[split.test]
     recomputed = evaluate(test_rows[TARGET_COLUMN], predict(reloaded, test_rows))
 

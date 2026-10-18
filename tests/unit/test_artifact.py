@@ -24,6 +24,7 @@ from src.models.artifact import (
     extract_feature_importance,
     load,
     load_manifest,
+    load_variant,
     predict,
     save,
 )
@@ -32,6 +33,10 @@ from src.models.registry import MODEL_REGISTRY, build_pipeline
 NUMERIC = ["age", "goals"]
 CATEGORICAL = ["position"]
 FEATURES = ("age", "goals", "position")
+
+
+def reload(path: Path) -> ModelArtifact:
+    return load(path, sha256=provenance.sha256_file(path))
 
 
 @pytest.fixture(scope="module")
@@ -81,7 +86,7 @@ class TestRoundTrip:
         inside the pipeline rather than beside it.
         """
         artifact = make_artifact(frame)
-        reloaded = load(save(artifact, tmp_path))
+        reloaded = reload(save(artifact, tmp_path))
 
         recomputed = evaluate(frame[TARGET_COLUMN], predict(reloaded, frame))
         assert recomputed == artifact.test
@@ -91,11 +96,11 @@ class TestRoundTrip:
     ) -> None:
         artifact = make_artifact(frame)
         before = predict(artifact, frame)
-        after = predict(load(save(artifact, tmp_path)), frame)
+        after = predict(reload(save(artifact, tmp_path)), frame)
         np.testing.assert_array_equal(before, after)
 
     def test_metadata_survives(self, frame: pd.DataFrame, tmp_path: Path) -> None:
-        reloaded = load(save(make_artifact(frame), tmp_path))
+        reloaded = reload(save(make_artifact(frame), tmp_path))
         assert reloaded.variant == "performance_only"
         assert reloaded.feature_columns == FEATURES
         assert reloaded.seed == 42
@@ -106,7 +111,7 @@ class TestRoundTrip:
     ) -> None:
         # predict() selects by the artifact's own column list, so a caller
         # handing over a differently ordered frame cannot silently shift inputs.
-        artifact = load(save(make_artifact(frame), tmp_path))
+        artifact = reload(save(make_artifact(frame), tmp_path))
         shuffled = frame[list(reversed(list(frame.columns)))]
         np.testing.assert_array_equal(predict(artifact, frame), predict(artifact, shuffled))
 
@@ -165,7 +170,7 @@ class TestVersioning:
         path = save(artifact, tmp_path)
 
         with pytest.raises(ValueError, match="artifact_version"):
-            load(path)
+            reload(path)
 
 
 class TestManifest:
@@ -223,13 +228,126 @@ class TestManifest:
         assert load_manifest(tmp_path) is None
 
 
+GOOD_HASH = "0" * 64
+
+
+class TestIntegrity:
+    """Re-audit: no manifest content may route a file around verification."""
+
+    @pytest.fixture(autouse=True)
+    def never_unpickle(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        import src.models.artifact as module
+
+        def must_not_run(*_: object) -> None:
+            raise AssertionError("unpickled a file that was never verified")
+
+        monkeypatch.setattr(module.joblib, "load", must_not_run)
+
+    @pytest.mark.parametrize(
+        "sha256", [None, "", 12345, ["a" * 64], "abc", "A" * 64, "g" * 64, "0" * 65]
+    )
+    def test_a_missing_null_or_malformed_hash_invalidates_the_manifest(
+        self, tmp_path: Path, sha256: object
+    ) -> None:
+        entry: dict[str, object] = {"file": "performance_only__ridge.joblib", "sha256": sha256}
+        (tmp_path / MANIFEST_NAME).write_text(
+            json.dumps({"variants": {"performance_only": entry}})
+        )
+        with pytest.raises(ValueError, match="sha256"):
+            load_manifest(tmp_path)
+
+    @pytest.mark.parametrize(
+        "content",
+        [
+            "[]",
+            '{"variants": null}',
+            '{"variants": []}',
+            '{"variants": {"performance_only": null}}',
+            '{"variants": {"performance_only": "x.joblib"}}',
+            f'{{"variants": {{"performance_only": {{"file": 7, "sha256": "{GOOD_HASH}"}}}}}}',
+            f'{{"variants": {{"performance_only": {{"file": null, "sha256": "{GOOD_HASH}"}}}}}}',
+            f'{{"variants": {{"performance_only": {{"file": "", "sha256": "{GOOD_HASH}"}}}}}}',
+            f'{{"variants": {{"performance_only": {{"sha256": "{GOOD_HASH}"}}}}}}',
+        ],
+    )
+    def test_a_malformed_entry_is_a_controlled_error(self, tmp_path: Path, content: str) -> None:
+        (tmp_path / MANIFEST_NAME).write_text(content)
+        with pytest.raises(ValueError):
+            load_manifest(tmp_path)
+
+    def test_a_manifest_that_is_not_utf8_is_a_controlled_error(self, tmp_path: Path) -> None:
+        (tmp_path / MANIFEST_NAME).write_bytes(b"\xff\xfe\x00garbage")
+        with pytest.raises(ValueError):
+            load_manifest(tmp_path)
+
+    @pytest.mark.parametrize("sha256", [None, "", "abc", 0])
+    def test_load_refuses_to_skip_verification(self, tmp_path: Path, sha256: object) -> None:
+        path = tmp_path / "performance_only__ridge.joblib"
+        path.write_bytes(b"anything")
+        with pytest.raises(ValueError, match="sha256"):
+            load(path, sha256=sha256)  # type: ignore[arg-type]
+
+    def test_a_corrupted_file_is_refused_before_it_is_unpickled(
+        self, frame: pd.DataFrame, tmp_path: Path
+    ) -> None:
+        path = save(make_artifact(frame), tmp_path)
+        path.write_bytes(b"\x80\x04not a pickle at all")
+        with pytest.raises(ValueError, match="checksum"):
+            load_variant(tmp_path, "performance_only")
+
+
+class TestWhatTheFileHolds:
+    """Checks that need the file unpickled, after its checksum has passed."""
+
+    def test_a_misleading_file_name_does_not_decide_the_variant(
+        self, frame: pd.DataFrame, tmp_path: Path
+    ) -> None:
+        # A performance_only model saved under the with_prior_value name, and
+        # the manifest pointed at it with a correct checksum.
+        real = save(make_artifact(frame), tmp_path)
+        disguised = real.rename(tmp_path / "with_prior_value__lightgbm.joblib")
+        (tmp_path / MANIFEST_NAME).write_text(
+            json.dumps(
+                {
+                    "variants": {
+                        "with_prior_value": {
+                            "file": disguised.name,
+                            "sha256": provenance.sha256_file(disguised),
+                            "model_name": "lightgbm",
+                        }
+                    }
+                }
+            )
+        )
+        with pytest.raises(ValueError, match="performance_only model"):
+            load_variant(tmp_path, "with_prior_value")
+
+    def test_a_file_holding_another_family_than_its_entry_is_refused(
+        self, frame: pd.DataFrame, tmp_path: Path
+    ) -> None:
+        save(make_artifact(frame, "ridge"), tmp_path)
+        manifest = json.loads((tmp_path / MANIFEST_NAME).read_text())
+        manifest["variants"]["performance_only"]["model_name"] = "lightgbm"
+        (tmp_path / MANIFEST_NAME).write_text(json.dumps(manifest))
+        with pytest.raises(ValueError, match="holds ridge"):
+            load_variant(tmp_path, "performance_only")
+
+    def test_a_verified_file_that_is_not_an_artifact_is_refused(self, tmp_path: Path) -> None:
+        import joblib
+
+        path = tmp_path / "performance_only__ridge.joblib"
+        joblib.dump({"not": "an artifact"}, path)
+        with pytest.raises(ValueError, match="not a ModelArtifact"):
+            load(path, sha256=provenance.sha256_file(path))
+
+
 class TestProvenance:
     """F10: an artifact says what it was made from."""
 
     def test_it_survives_the_round_trip(self, frame: pd.DataFrame, tmp_path: Path) -> None:
         artifact = make_artifact(frame)
         artifact.provenance = {"source_revision": {"commit": "abc", "dirty": False}}
-        assert load(save(artifact, tmp_path)).provenance == artifact.provenance
+        assert reload(save(artifact, tmp_path)).provenance == artifact.provenance
         sidecar = json.loads((tmp_path / "performance_only__ridge.json").read_text())
         assert sidecar["provenance"]["source_revision"]["commit"] == "abc"
 

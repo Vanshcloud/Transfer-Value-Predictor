@@ -443,6 +443,30 @@ class TestLoading:
         path.write_bytes(path.read_bytes() + b"\0")
         assert not PredictionService.from_directory(tmp_path).ready
 
+    @pytest.mark.parametrize("sha256", [None, 123, "not-a-hash"])
+    def test_a_manifest_without_a_valid_hash_loads_nothing(
+        self, artifact: ModelArtifact, tmp_path: Path, sha256: object
+    ) -> None:
+        """Re-audit: `"sha256": null` used to skip verification and unpickle."""
+        import json
+
+        from src.models.artifact import MANIFEST_NAME
+
+        save(artifact, tmp_path)
+        manifest = json.loads((tmp_path / MANIFEST_NAME).read_text())
+        manifest["variants"]["performance_only"]["sha256"] = sha256
+        (tmp_path / MANIFEST_NAME).write_text(json.dumps(manifest))
+        assert not PredictionService.from_directory(tmp_path).ready
+
+    @pytest.mark.parametrize("content", ["[]", '{"variants": []}', '{"variants": null}'])
+    def test_a_malformed_manifest_is_a_controlled_startup_failure(
+        self, tmp_path: Path, content: str
+    ) -> None:
+        from src.models.artifact import MANIFEST_NAME
+
+        (tmp_path / MANIFEST_NAME).write_text(content)
+        assert not PredictionService.from_directory(tmp_path).ready
+
     def test_a_manifest_entry_holding_another_variant_is_skipped(
         self, artifact: ModelArtifact, tmp_path: Path
     ) -> None:

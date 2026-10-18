@@ -15,6 +15,7 @@ answer should not require loading every model.
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -50,6 +51,16 @@ MANIFEST_NAME = "manifest.json"
 Written by :func:`save`, read by :func:`load_manifest`. It replaces "the
 lexicographically last ``*.joblib`` per variant", under which a stale or
 misleadingly named file decided what the API served."""
+
+_SHA256 = re.compile(r"[0-9a-f]{64}")
+
+
+def _require_sha256(value: object, where: str) -> str:
+    """The checksum, or ValueError. A null or malformed hash used to mean
+    "skip verification"; it now means "refuse"."""
+    if not isinstance(value, str) or not _SHA256.fullmatch(value):
+        raise ValueError(f"{where}: sha256 must be 64 lowercase hex characters, got {value!r}")
+    return value
 
 
 @dataclass
@@ -199,13 +210,17 @@ def load_manifest(directory: Path) -> dict[str, dict[str, Any]] | None:
         return None
     try:
         variants = json.loads(path.read_text(encoding="utf-8"))["variants"]
-    except (json.JSONDecodeError, KeyError, TypeError) as exc:
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError, KeyError, TypeError) as exc:
         raise ValueError(f"{path} is not a valid manifest: {exc}") from exc
+    if not isinstance(variants, dict):
+        raise ValueError(f"{path}: 'variants' must be an object")
     for variant, entry in variants.items():
-        if not isinstance(entry, dict) or {"file", "sha256"} - set(entry):
-            raise ValueError(f"{path}: entry for {variant!r} lacks file or sha256")
-        if Path(entry["file"]).name != entry["file"]:
-            raise ValueError(f"{path}: {entry['file']!r} is not a file in this directory")
+        if not isinstance(entry, dict):
+            raise ValueError(f"{path}: entry for {variant!r} is not an object")
+        name = entry.get("file")
+        if not isinstance(name, str) or not name or Path(name).name != name:
+            raise ValueError(f"{path}: {name!r} is not a file in this directory")
+        _require_sha256(entry.get("sha256"), f"{path}: {variant}")
     result: dict[str, dict[str, Any]] = variants
     return result
 
@@ -215,7 +230,8 @@ def load_variant(directory: Path, variant: str) -> ModelArtifact:
 
     Raises:
         FileNotFoundError: if the directory has no manifest entry for it.
-        ValueError: on a checksum or schema mismatch, or the wrong variant.
+        ValueError: on an invalid manifest, a checksum or schema mismatch, or
+            a file holding a different variant or model than its entry says.
     """
     entry = (load_manifest(directory) or {}).get(variant)
     if entry is None:
@@ -225,14 +241,19 @@ def load_variant(directory: Path, variant: str) -> ModelArtifact:
     artifact = load(directory / entry["file"], sha256=entry["sha256"])
     if artifact.variant != variant:
         raise ValueError(f"{entry['file']} holds a {artifact.variant} model, not {variant}")
+    # The file name is not evidence of what is inside; the manifest's record is.
+    recorded = entry.get("model_name")
+    if recorded is not None and artifact.model_name != recorded:
+        raise ValueError(f"{entry['file']} holds {artifact.model_name}, its entry says {recorded}")
     return artifact
 
 
-def load(path: Path, *, sha256: str | None = None) -> ModelArtifact:
+def load(path: Path, *, sha256: str) -> ModelArtifact:
     """Load an artifact, refusing one written by an incompatible schema.
 
-    With ``sha256``, the file is hashed and refused on a mismatch *before* it
-    is unpickled, so a file swapped in after training is never executed.
+    ``sha256`` is required: the file is hashed and refused on a mismatch
+    *before* it is unpickled, so a file swapped in after training is never
+    executed. There is no unverified path.
 
     **This unpickles.** ``joblib.load`` executes whatever the file tells it to,
     and the ``artifact_version`` check below runs *after* that has already
@@ -248,12 +269,15 @@ def load(path: Path, *, sha256: str | None = None) -> ModelArtifact:
     is a trade to make deliberately and not a bug to patch.
 
     Raises:
-        ValueError: if the checksum does not match, or the artifact's schema
-            version is not the current one.
+        ValueError: if the checksum is malformed or does not match, or the
+            artifact's schema version is not the current one.
     """
-    if sha256 is not None and sha256_file(path) != sha256:
+    expected = _require_sha256(sha256, path.name)
+    if sha256_file(path) != expected:
         raise ValueError(f"{path.name} does not match the checksum its manifest records")
-    artifact: ModelArtifact = joblib.load(path)
+    artifact = joblib.load(path)
+    if not isinstance(artifact, ModelArtifact):
+        raise ValueError(f"{path.name} holds a {type(artifact).__name__}, not a ModelArtifact")
     if artifact.artifact_version != ARTIFACT_VERSION:
         raise ValueError(
             f"{path.name} has artifact_version {artifact.artifact_version}, "
