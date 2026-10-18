@@ -63,9 +63,55 @@ and [`plans/08-staff-engineering-pass.md`](plans/08-staff-engineering-pass.md):
 CI additionally fails the build if any local filesystem path or host inventory
 appears anywhere in the commit history.
 
+## Deployment safeguards
+
+The intended deployment is a public, read-only demonstration: no accounts, no
+writes, public data. Authentication is deliberately absent, and adding it would
+protect nothing. What a public deployment needs instead is protection from
+being run out of resources. Each item is either enforced by the API, set in the
+container, or left to the reverse proxy, which is the only place it can be
+enforced correctly.
+
+| Safeguard | Where | Setting |
+|---|---|---|
+| Request body size | API, `api/limits.BodySizeLimit` | 64 KB, `413 payload_too_large`. Chunked bodies are counted, not trusted. |
+| Concurrent model work | API, `api/limits.inference_slot` | One per core, up to 8. A request waiting over 2 s gets `503 service_busy` with `Retry-After: 1`. Applies to predict, history, similar players and feature importance. |
+| Global SHAP | API, `PredictionService.global_explanation` | Computed once per loaded model and cached; the sample is seeded, so the cache is exact. |
+| Per-prediction SHAP | Selection policy | A model ships only if predict plus explanation is ≤ 100 ms p50 on validation rows (`SERVING_LATENCY_BUDGET_MS`). |
+| Open connections | Container, uvicorn | `--limit-concurrency 64` (503 beyond), `--timeout-keep-alive 5`. |
+| Memory and CPU | Container, `docker-compose.yml` | API 2 GB / 2 CPUs (≈710 MB resident at start), dashboard 512 MB / 1 CPU. |
+| Liveness | API, `GET /health` | 200 whenever the process is up, so a missing model never restart-loops it. |
+| Readiness | API, `GET /ready` | 503 until a model is loaded, for a load balancer to route on. |
+| Error reporting | API, `api/errors.py` | Every unhandled exception is logged with its traceback to stdout and returned as a fixed-message `500`. No error-tracking service is integrated; ship the logs to one. |
+| **Rate limiting** | **Reverse proxy** | Per client IP. In-process counters are wrong behind a proxy (every request comes from it) and with more than one worker. |
+| **Request timeout** | **Reverse proxy** | A Python thread running SHAP cannot be interrupted, so a timeout inside the process would only abandon the response, not the work. |
+| **TLS** | **Reverse proxy** | The containers speak plain HTTP. |
+
+A minimal nginx front for the API, as a starting point rather than a tuned
+configuration:
+
+```nginx
+limit_req_zone $binary_remote_addr zone=api:10m rate=10r/s;
+
+server {
+    listen 443 ssl;
+    client_max_body_size 64k;
+
+    location / {
+        limit_req zone=api burst=20 nodelay;
+        proxy_read_timeout 10s;
+        proxy_pass http://api:8000;
+    }
+}
+```
+
+These were tested without load testing: the body limit, load shedding, slot
+release, readiness and the SHAP cache each have a unit test
+(`tests/unit/test_api.py::TestDeploymentSafeguards`). No sustained-traffic
+measurement has been made, and none is claimed.
+
 ## Out of scope
 
-Denial of service through sheer request volume. The service is CPU-bound on
-SHAP (~30 ms per prediction) and ships no rate limiting; put a reverse proxy in
-front of it. This is a documented deployment requirement, not a defect to
-report.
+Denial of service through sheer request volume beyond the safeguards above.
+That is what the reverse proxy's rate limit is for; without one, this service
+should not be exposed directly to the internet.

@@ -25,6 +25,11 @@ services:
       # An image containing either is stale the day it is built.
       - ./data/processed:/app/data/processed:ro
       - ./models:/app/models:ro
+    # Measured: ~710 MB resident with both tables loaded, before any request.
+    # 2 GB leaves room for SHAP and the neighbour indexes without letting a
+    # runaway take the host down.
+    mem_limit: 2g
+    cpus: 2
     healthcheck:
       test:
         - CMD
@@ -60,3 +65,5 @@ services:
       timeout: 5s
       start_period: 20s
       retries: 3
+    mem_limit: 512m
+    cpus: 1

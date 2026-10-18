@@ -28,6 +28,17 @@ from src.utils.logging import get_logger
 
 logger = get_logger(__name__)
 
+
+class ServiceBusyError(ServiceError):
+    """Every inference slot stayed taken (`api.limits.inference_slot`)."""
+
+    code = "service_busy"
+
+
+RETRY_AFTER_SECONDS = 1
+"""Sent with a 503 for a busy service, so a client backs off rather than
+retrying in a tight loop."""
+
 # Which service failure becomes which status code. Kept as data so the mapping
 # can be read in one glance and matches the contract table line for line.
 STATUS_FOR: dict[type[ServiceError], int] = {
@@ -36,6 +47,7 @@ STATUS_FOR: dict[type[ServiceError], int] = {
     ModelNotFoundError: status.HTTP_404_NOT_FOUND,
     InvalidFeaturesError: status.HTTP_422_UNPROCESSABLE_CONTENT,
     ModelUnavailableError: status.HTTP_503_SERVICE_UNAVAILABLE,
+    ServiceBusyError: status.HTTP_503_SERVICE_UNAVAILABLE,
 }
 
 
@@ -62,7 +74,10 @@ def register_error_handlers(app: FastAPI) -> None:
     @app.exception_handler(ServiceError)
     async def _service_error(_: Request, exc: ServiceError) -> JSONResponse:
         status_code = STATUS_FOR.get(type(exc), status.HTTP_400_BAD_REQUEST)
-        return error_response(exc.code, exc.message, status_code, exc.detail)
+        response = error_response(exc.code, exc.message, status_code, exc.detail)
+        if isinstance(exc, ServiceBusyError):
+            response.headers["Retry-After"] = str(RETRY_AFTER_SECONDS)
+        return response
 
     @app.exception_handler(RequestValidationError)
     async def _validation_error(_: Request, exc: RequestValidationError) -> JSONResponse:

@@ -24,7 +24,8 @@ whether a process is alive.
 
 | Method | Path | Purpose |
 |---|---|---|
-| `GET` | `/health` | Liveness and readiness. Never versioned. |
+| `GET` | `/health` | Liveness: 200 whenever the process is up, with readiness in the body. Never versioned. |
+| `GET` | `/ready` | Readiness: 200 with a model loaded, 503 without. Never versioned. |
 | `POST` | `/api/v1/predict` | Predict a market value, with an explanation. |
 | `GET` | `/api/v1/players?q=` | Find players by name. |
 | `GET` | `/api/v1/players/{player_id}` | A player's record, history and feature seed. |

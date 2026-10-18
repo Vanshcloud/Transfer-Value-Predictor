@@ -17,6 +17,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from api.dependencies import club_index, get_service
+from api.limits import MAX_BODY_BYTES
 from api.main import create_app
 from api.schemas import ErrorResponse
 from src.evaluation.metrics import evaluate
@@ -341,6 +342,7 @@ class TestContract:
         paths = set(client.get("/api/v1/openapi.json").json()["paths"])
         assert paths == {
             "/health",
+            "/ready",
             "/api/v1/predict",
             "/api/v1/players",
             "/api/v1/players/{player_id}",
@@ -429,6 +431,15 @@ PROVOKE: list[tuple[str, str, int, str, str, dict[str, object] | None]] = [
     ("post", "/api/v1/predict", 404, "models", "/api/v1/predict", {"player_id": 999999}),
     ("post", "/api/v1/predict", 422, "models", "/api/v1/predict", {}),
     ("post", "/api/v1/predict", 503, "none", "/api/v1/predict", {"features": {}}),
+    (
+        "post",
+        "/api/v1/predict",
+        413,
+        "models",
+        "/api/v1/predict",
+        {"features": {"position": "x" * 70_000}},
+    ),
+    ("get", "/ready", 503, "none", "/ready", None),
     ("get", "/api/v1/players", 404, "none", "/api/v1/players?q=x", None),
     ("get", "/api/v1/players", 422, "models", "/api/v1/players", None),
     ("get", "/api/v1/players/{player_id}", 404, "models", "/api/v1/players/999999", None),
@@ -614,6 +625,102 @@ class TestErrorResponsesAreDocumented:
             )
             assert response.status_code == 500, (route, response.text)
             assert ErrorResponse.model_validate(response.json()).error.code == "internal_error"
+
+
+class TestDeploymentSafeguards:
+    """F16: what one process can enforce on itself. Rate limiting and request
+    timeouts are the reverse proxy's, and SECURITY.md says so."""
+
+    def test_an_oversized_body_is_refused_before_it_is_read(
+        self, deployed_client: TestClient
+    ) -> None:
+        response = deployed_client.post(
+            "/api/v1/predict",
+            content=b"{" + b" " * (MAX_BODY_BYTES + 1) + b"}",
+            headers={"Content-Type": "application/json"},
+        )
+        assert response.status_code == 413
+        assert response.json()["error"]["code"] == "payload_too_large"
+
+    def test_a_chunked_body_cannot_dodge_the_limit(self, deployed_client: TestClient) -> None:
+        """No Content-Length to check, so the bytes themselves are counted."""
+
+        def chunks() -> Iterator[bytes]:
+            yield b'{"features": {"position": "'
+            for _ in range(100):
+                yield b"x" * 1024
+            yield b'"}}'
+
+        response = deployed_client.post(
+            "/api/v1/predict", content=chunks(), headers={"Content-Type": "application/json"}
+        )
+        assert response.status_code == 413
+
+    def test_a_body_under_the_limit_is_unaffected(self, deployed_client: TestClient) -> None:
+        response = deployed_client.post(
+            "/api/v1/predict", json={"features": {"age": 25.0, "position": "x" * 150}}
+        )
+        assert response.status_code == 200
+
+    def test_a_saturated_service_sheds_load_with_retry_after(
+        self, deployed_client: TestClient, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import threading
+
+        import api.limits as limits
+
+        monkeypatch.setattr(limits, "_slots", threading.BoundedSemaphore(1))
+        monkeypatch.setattr(limits, "INFERENCE_WAIT_SECONDS", 0.01)
+        limits._slots.acquire()  # someone else holds the only slot
+        try:
+            response = deployed_client.post("/api/v1/predict", json={"player_id": 101})
+        finally:
+            limits._slots.release()
+        assert response.status_code == 503
+        assert response.headers["Retry-After"] == "1"
+        assert response.json()["error"]["code"] == "service_busy"
+
+    def test_every_slot_is_returned_after_use(
+        self, deployed_client: TestClient, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import threading
+
+        import api.limits as limits
+
+        monkeypatch.setattr(limits, "_slots", threading.BoundedSemaphore(2))
+        for _ in range(5):
+            deployed_client.post("/api/v1/predict", json={"player_id": 101})
+            deployed_client.post("/api/v1/predict", json={"player_id": 999999})  # a 404
+        assert limits._slots.acquire(blocking=False) and limits._slots.acquire(blocking=False)
+
+    def test_readiness_follows_the_models(
+        self, client: TestClient, empty_client: TestClient
+    ) -> None:
+        assert client.get("/ready").status_code == 200
+        assert empty_client.get("/ready").status_code == 503
+        # Liveness stays 200 either way, so a probe never restart-loops it.
+        assert empty_client.get("/health").status_code == 200
+
+    def test_global_shap_is_computed_once_per_model(
+        self, client: TestClient, service: PredictionService, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import src.services.prediction as module
+
+        service._global.clear()  # the fixture's service is shared across tests
+
+        calls = []
+        real = module.explain_global
+
+        def counting(*args: object, **kwargs: object) -> object:
+            calls.append(1)
+            return real(*args, **kwargs)  # type: ignore[arg-type]
+
+        monkeypatch.setattr(module, "explain_global", counting)
+        url = "/api/v1/models/performance_only/feature-importance?include_shap=true"
+        first = client.get(url).json()["shap"]
+        assert client.get(url + "&top_n=3").status_code == 200
+        assert client.get(url).json()["shap"] == first
+        assert len(calls) == 1
 
 
 class TestMalformedFeatureValues:

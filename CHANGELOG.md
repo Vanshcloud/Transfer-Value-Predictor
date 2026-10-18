@@ -4,6 +4,18 @@ Notable changes to this project. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+Phases 19 and 20: remediation of an independent Codex audit (F1–F20). Full
+workings in
+[`plans/09-codex-audit-remediation.md`](plans/09-codex-audit-remediation.md)
+and [`plans/10-codex-audit-remaining-findings.md`](plans/10-codex-audit-remaining-findings.md).
+
+### Added
+
+- `GET /ready`, a readiness probe that answers 503 until a model is loaded,
+  making twelve endpoints. `/health` keeps answering 200 while degraded.
+
 ## [1.3.0] — 2026-09-01
 
 A research-grade audit that re-verified every claim from the raw files rather

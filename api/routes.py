@@ -10,9 +10,10 @@ from __future__ import annotations
 
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Path, Query
+from fastapi import APIRouter, Depends, Path, Query
 
 from api.dependencies import ServiceDep
+from api.limits import inference_slot
 from api.schemas import (
     ConfidenceSchema,
     ErrorResponse,
@@ -65,10 +66,12 @@ def errors(declared: dict[int, str], *, validated: bool = True) -> dict[int | st
     responses=errors(
         {
             404: "Player, season or model not found",
+            413: "Request body larger than 64 KB",
             422: "Malformed body, an unknown feature name or an invalid feature value",
-            503: "No model artifact is loaded",
+            503: "No model artifact is loaded, or every inference slot is busy",
         }
     ),
+    dependencies=[Depends(inference_slot)],
 )
 def predict(request: PredictRequest, service: ServiceDep) -> PredictResponse:
     """Predict from a stored player-season, or from explicit features.
@@ -123,7 +126,8 @@ def search_players(
     "/players/{player_id}/similar",
     response_model=SimilarPlayersResponse,
     summary="Comparable seasons, in the model's own feature space",
-    responses=errors({404: "No such player or variant", 503: "No model loaded"}),
+    responses=errors({404: "No such player or variant", 503: "No model loaded, or busy"}),
+    dependencies=[Depends(inference_slot)],
 )
 def similar_players(
     service: ServiceDep,
@@ -146,7 +150,8 @@ def similar_players(
     "/players/{player_id}/history",
     response_model=PredictionHistoryResponse,
     summary="Predicted against actual, season by season",
-    responses=errors({404: "No such player or variant", 503: "No model loaded"}),
+    responses=errors({404: "No such player or variant", 503: "No model loaded, or busy"}),
+    dependencies=[Depends(inference_slot)],
 )
 def prediction_history(
     service: ServiceDep,
@@ -238,7 +243,8 @@ def get_metrics(service: ServiceDep, variant: VariantPath) -> ModelMetricsRespon
     "/models/{variant}/feature-importance",
     response_model=FeatureImportanceResponse,
     summary="Ranked importances, and global SHAP where available",
-    responses=errors({404: "No such variant", 503: "No model loaded"}),
+    responses=errors({404: "No such variant", 503: "No model loaded, or busy"}),
+    dependencies=[Depends(inference_slot)],
 )
 def get_feature_importance(
     service: ServiceDep,

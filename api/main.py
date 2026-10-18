@@ -14,11 +14,12 @@ from __future__ import annotations
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, status
 from fastapi.middleware.cors import CORSMiddleware
 
 from api.dependencies import ServiceDep, build_service
-from api.errors import register_error_handlers
+from api.errors import error_response, register_error_handlers
+from api.limits import BodySizeLimit
 from api.routes import errors, router
 from api.schemas import HealthResponse
 from src import __version__
@@ -116,6 +117,9 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
 
+    # Outermost, so an oversized body is refused before anything reads it.
+    app.add_middleware(BodySizeLimit)
+
     register_error_handlers(app)
     app.include_router(router)
 
@@ -139,6 +143,28 @@ def create_app() -> FastAPI:
             ready=service.ready,
             models_loaded=service.variants,
             version=VERSION,
+        )
+
+    @app.get(
+        "/ready",
+        response_model=HealthResponse,
+        summary="Readiness: 503 until a model is loaded",
+        tags=["health"],
+        responses=errors({503: "Up, but no model is loaded"}, validated=False),
+    )
+    def ready(service: ServiceDep) -> object:
+        """For a load balancer or an orchestrator's readiness probe, which act
+        on the status code. `/health` answers 200 while degraded so liveness
+        never restart-loops a process that is merely missing a model; this is
+        its counterpart, and stops traffic reaching that process."""
+        if not service.ready:
+            return error_response(
+                "model_unavailable",
+                "no model artifact is loaded; run scripts/train_models.py",
+                status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+        return HealthResponse(
+            status="ok", ready=True, models_loaded=service.variants, version=VERSION
         )
 
     return app

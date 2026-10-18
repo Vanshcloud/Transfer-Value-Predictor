@@ -27,6 +27,7 @@ import pandas as pd
 from sklearn.neighbors import NearestNeighbors
 
 from src.explainability.shap_explainer import (
+    GlobalExplanation,
     PredictionExplanation,
     explain_global,
     explain_prediction,
@@ -228,6 +229,7 @@ class PredictionService:
         # and most requests never ask for similar players.
         self._neighbours: dict[str, tuple[NearestNeighbors, pd.DataFrame]] = {}
         self._distribution: dict[str, Any] = {}
+        self._global: dict[tuple[str, int], GlobalExplanation] = {}
         self._numeric_columns: dict[str, frozenset[str]] = {}
 
     def name_for(self, player_id: int) -> str | None:
@@ -371,10 +373,16 @@ class PredictionService:
         if self._players.empty or not self._explainable.get(artifact.variant, False):
             return {}
 
-        rows = self._rows_for_variant(artifact)
-        if rows.empty:
-            return {}
-        return explain_global(artifact, rows, sample_size=sample_size).as_dict(top_n)
+        # Cached: the sample is seeded, so the result never changes for a
+        # loaded model, and recomputing it cost about a second of CPU per call
+        # on an unauthenticated endpoint.
+        key = (artifact.variant, sample_size)
+        if key not in self._global:
+            rows = self._rows_for_variant(artifact)
+            if rows.empty:
+                return {}
+            self._global[key] = explain_global(artifact, rows, sample_size=sample_size)
+        return self._global[key].as_dict(top_n)
 
     # -- player lookup ---------------------------------------------------
 

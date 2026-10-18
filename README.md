@@ -310,12 +310,13 @@ is written down first, in [`docs/API_CONTRACT.md`](docs/API_CONTRACT.md), and
 the service conforms to it — where the two disagree, the document is the defect
 report.
 
-All eleven, in full — a table that lists nine of eleven is worse than no table,
+All twelve, in full — a table that lists nine of eleven is worse than no table,
 because a reader trusts it:
 
 | Method | Path | What it answers |
 |---|---|---|
-| `GET` | `/health` | Alive, and can it predict? Unversioned, for orchestrators. |
+| `GET` | `/health` | Alive? 200 even when degraded, with readiness in the body. Unversioned. |
+| `GET` | `/ready` | Can it predict? 503 until a model is loaded, for a readiness probe. |
 | `POST` | `/api/v1/predict` | What is this player worth, and why? |
 | `GET` | `/api/v1/players` | Which players match this name? |
 | `GET` | `/api/v1/players/{player_id}` | Every season on file, plus a what-if seed. |
