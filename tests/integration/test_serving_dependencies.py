@@ -69,7 +69,15 @@ def serve_packages() -> set[str]:
 
 
 def sidecars() -> list[Path]:
-    return sorted(load_settings().paths.model_dir.glob("*.json"))
+    """The sidecar of each artifact the manifest serves — not every *.json,
+    which now includes the manifest itself."""
+    from src.models.artifact import load_manifest
+
+    directory = load_settings().paths.model_dir
+    manifest = load_manifest(directory) or {}
+    return sorted(
+        directory / Path(entry["file"]).with_suffix(".json") for entry in manifest.values()
+    )
 
 
 @pytest.fixture(scope="module")

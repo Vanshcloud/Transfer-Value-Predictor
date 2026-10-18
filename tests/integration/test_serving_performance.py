@@ -19,6 +19,7 @@ from src.feature_engineering.build import select_variant
 from src.models.artifact import ModelArtifact, load_manifest, load_variant
 from src.models.tuning import TuningResult
 from src.pipelines.features import TRAINING_TABLE
+from src.pipelines.train import VARIANTS
 from src.pipelines.tune import SERVING_LATENCY_BUDGET_MS, FamilyResult, _select_winner
 from src.storage.duckdb_store import DuckDBParquetStore
 from src.utils.paths import PROJECT_ROOT
@@ -28,15 +29,12 @@ pytestmark = pytest.mark.integration
 MODEL_DIR = PROJECT_ROOT / "models"
 
 
-def shipped() -> list[str]:
-    """The variants the manifest serves — which file is current is its call."""
-    return sorted(load_manifest(MODEL_DIR) or {})
-
-
-@pytest.fixture(scope="module", params=shipped() or ["none"])
+@pytest.fixture(scope="module", params=sorted(VARIANTS))
 def artifact(request: pytest.FixtureRequest) -> ModelArtifact:
-    if request.param == "none":
-        pytest.skip("no trained models; run scripts/train_models.py")
+    """One per variant, always — not one per file found, so the suite collects
+    the same tests on a clean clone as on a machine with models."""
+    if request.param not in (load_manifest(MODEL_DIR) or {}):
+        pytest.skip(f"no {request.param} model; run scripts/train_models.py")
     return load_variant(MODEL_DIR, request.param)
 
 

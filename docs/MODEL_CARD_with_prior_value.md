@@ -35,7 +35,9 @@ Forecast how a player's *already known* market value will move. This is the trac
 
 ## Measured performance
 
-Test seasons, in EUR. These are held-out seasons the model never saw.
+Test seasons, in EUR. The model was not fitted on them, but they were
+inspected during development, so these figures are **retrospective**
+rather than independent ([EVALUATION.md](EVALUATION.md)).
 
 | Metric | Validation | Test |
 |---|---|---|

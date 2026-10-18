@@ -35,7 +35,9 @@ Estimate a player's market value from on-pitch performance and biography alone, 
 
 ## Measured performance
 
-Test seasons, in EUR. These are held-out seasons the model never saw.
+Test seasons, in EUR. The model was not fitted on them, but they were
+inspected during development, so these figures are **retrospective**
+rather than independent ([EVALUATION.md](EVALUATION.md)).
 
 | Metric | Validation | Test |
 |---|---|---|

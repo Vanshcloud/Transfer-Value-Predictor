@@ -202,7 +202,8 @@ class TestHtmlReports:
     ) -> None:
         body = evaluation_report(artifact, analysis).body  # type: ignore[arg-type]
         assert "test seasons" in body
-        assert "never saw" in body
+        assert "not trained or selected on" in body
+        assert "retrospective" in body  # F5: inspected during development
 
     def test_the_importance_report_distinguishes_importance_from_shap(
         self, artifact: ModelArtifact
