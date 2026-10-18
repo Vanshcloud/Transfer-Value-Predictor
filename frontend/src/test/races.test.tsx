@@ -56,13 +56,13 @@ function hit(id: number, name: string): SearchResult {
   };
 }
 
-function prediction(eur: number): PredictResponse {
+function prediction(eur: number, season = 2025): PredictResponse {
   return {
     prediction_eur: eur,
     variant: "performance_only",
     model: { name: "lightgbm", variant: "performance_only", trained_at: "" },
     player_id: null,
-    season: 2025,
+    season,
     confidence: null,
     explanation: null,
   };
@@ -211,6 +211,47 @@ describe("compare", () => {
     expect(screen.getByLabelText("Player A")).toHaveValue("someone else");
     expect(screen.queryByText("€1.00M")).not.toBeInTheDocument();
     expect(screen.getByText("Choose two players to compare.")).toBeInTheDocument();
+  });
+});
+
+describe("compare across seasons (F14)", () => {
+  async function compare(seasonA: number, seasonB: number) {
+    mocked.searchPlayers.mockResolvedValue({
+      query: "p",
+      results: [hit(1, "Retired Player"), hit(2, "Active Player")],
+    });
+    mocked.player.mockImplementation((id: number) => Promise.resolve(player(id)));
+    mocked.predictForPlayer.mockImplementation((id: number) =>
+      Promise.resolve(prediction(id * 1_000_000, id === 1 ? seasonA : seasonB)),
+    );
+    render(<ComparePage />);
+    for (const [label, name] of [
+      ["Player A", /Retired Player/],
+      ["Player B", /Active Player/],
+    ] as const) {
+      const box = screen.getByLabelText(label);
+      fireEvent.change(box, { target: { value: "p" } });
+      const picker = within(box.parentElement as HTMLElement);
+      fireEvent.click(await picker.findByRole("button", { name }));
+    }
+    await screen.findByText("€2.00M");
+  }
+
+  it("labels each side's season and warns when they differ", async () => {
+    await compare(2014, 2025);
+    expect(screen.getByText("Season 2014")).toBeInTheDocument();
+    expect(screen.getByText("Season 2025")).toBeInTheDocument();
+    const note = screen.getByRole("note");
+    expect(note).toHaveTextContent("Different seasons");
+    expect(note).toHaveTextContent("season 2014");
+    expect(note).toHaveTextContent("season 2025");
+    expect(note).toHaveTextContent("11 seasons apart");
+  });
+
+  it("does not warn when both come from the same season", async () => {
+    await compare(2025, 2025);
+    expect(screen.getAllByText("Season 2025")).toHaveLength(2);
+    expect(screen.queryByRole("note")).not.toBeInTheDocument();
   });
 });
 

@@ -277,6 +277,14 @@ export default function ComparePage() {
 
   const both = left.prediction && right.prediction;
   const pending = left.loading || right.loading;
+  // Each side is predicted from that player's latest season on record, which
+  // for a retired player can be a decade before the other's. Market values
+  // inflate across seasons, so two numbers from different years are not a
+  // like-for-like comparison and must not be laid side by side unlabelled
+  // (audit F14).
+  const seasons = [left.prediction?.season ?? null, right.prediction?.season ?? null];
+  const seasonsDiffer =
+    both && seasons[0] != null && seasons[1] != null && seasons[0] !== seasons[1];
 
   return (
     <div className="space-y-6">
@@ -320,6 +328,21 @@ export default function ComparePage() {
 
       {both && (
         <>
+          {seasonsDiffer && (
+            <div
+              role="note"
+              className="rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900 dark:border-amber-700 dark:bg-amber-950 dark:text-amber-200"
+            >
+              <strong>Different seasons.</strong>{" "}
+              {`${left.chosen?.name} is predicted from season ${seasons[0]} and ` +
+                `${right.chosen?.name} from season ${seasons[1]}, each player's ` +
+                `latest on record — ${Math.abs((seasons[0] ?? 0) - (seasons[1] ?? 0))} ` +
+                "seasons apart. Market values rise across seasons, so the gap between " +
+                "these two numbers is partly the gap between the years. Compare the " +
+                "profiles, not the euro amounts."}
+            </div>
+          )}
+
           <Card title="Predicted value">
             <div className="grid gap-6 sm:grid-cols-2">
               {[left, right].map((side, index) => (
@@ -339,6 +362,15 @@ export default function ComparePage() {
                   </div>
                   <div className="mt-1 text-4xl font-semibold tabular-nums">
                     {eur(side.prediction!.prediction_eur)}
+                  </div>
+                  <div
+                    className={`mt-1 text-sm font-medium ${
+                      seasonsDiffer
+                        ? "text-amber-700 dark:text-amber-300"
+                        : "text-slate-600 dark:text-slate-300"
+                    }`}
+                  >
+                    Season {side.prediction!.season ?? "unknown"}
                   </div>
                   {side.prediction!.confidence && (
                     <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">
