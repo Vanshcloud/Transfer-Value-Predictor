@@ -22,6 +22,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useLatest } from "./useLatest";
 
 /**
  * How many refetches in one mount before we assume the fetcher is unstable.
@@ -38,23 +39,29 @@ export type AsyncState<T> =
 export function useAsync<T>(fetcher: () => Promise<T>) {
   const [state, setState] = useState<AsyncState<T>>({ status: "loading" });
   const runaway = useRef(0);
+  // One ticket for every fetch, the effect's and reload's alike. reload()
+  // used to discard the cancel function its fetch returned, so a reload
+  // still in flight when the player changed could land on the new player.
+  const begin = useLatest();
 
   const run = useCallback(() => {
-    let cancelled = false;
+    const isCurrent = begin();
     fetcher().then(
       (data) => {
         // Guarded so a slow response for a player the user has already
         // navigated away from cannot overwrite the current one.
-        if (!cancelled) setState({ status: "ready", data });
+        if (isCurrent()) setState({ status: "ready", data });
       },
       (error) => {
-        if (!cancelled) setState({ status: "error", error });
+        if (isCurrent()) setState({ status: "error", error });
       },
     );
+    // The effect's cleanup: a fetcher that changed, or an unmount, makes this
+    // fetch stale even if no newer one starts.
     return () => {
-      cancelled = true;
+      begin();
     };
-  }, [fetcher]);
+  }, [begin, fetcher]);
 
   useEffect(() => {
     if (process.env.NODE_ENV !== "production") {

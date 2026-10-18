@@ -120,4 +120,38 @@ describe("useAsync", () => {
     rerender({ f: fetcher });
     expect(fetcher).toHaveBeenCalledTimes(1);
   });
+
+  it("does not let a reload in flight land on the next player (F13)", async () => {
+    // reload() used to discard its fetch's cancel function, so this was the
+    // one path the guard did not cover.
+    const reloaded = deferred<string>();
+    const first = vi
+      .fn<() => Promise<string>>()
+      .mockResolvedValueOnce("first player")
+      .mockReturnValueOnce(reloaded.promise);
+    const second = vi.fn<() => Promise<string>>().mockResolvedValue("second player");
+
+    const { result, rerender } = renderHook(({ fetcher }) => useAsync(fetcher), {
+      initialProps: { fetcher: first },
+    });
+    await waitFor(() => expect(result.current.state.status).toBe("ready"));
+
+    act(() => result.current.reload());
+    rerender({ fetcher: second });
+    await waitFor(() =>
+      expect(result.current.state).toEqual({ status: "ready", data: "second player" }),
+    );
+    await act(async () => reloaded.resolve("first player, reloaded"));
+
+    expect(result.current.state).toEqual({ status: "ready", data: "second player" });
+  });
+
+  it("ignores a response that lands after unmount", async () => {
+    const pending = deferred<string>();
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    const { unmount } = renderHook(() => useAsync(() => pending.promise));
+    unmount();
+    await act(async () => pending.resolve("late"));
+    expect(errors).not.toHaveBeenCalled();
+  });
 });

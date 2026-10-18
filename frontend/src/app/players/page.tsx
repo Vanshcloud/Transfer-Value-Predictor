@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { api, type SearchResult } from "@/lib/api";
+import { useLatest } from "@/lib/useLatest";
 import { eur } from "@/lib/format";
 import { Avatar, Badge, Card, ClubTag, Empty, ErrorPanel, Loading } from "@/components/ui";
 
@@ -14,22 +15,33 @@ export default function PlayerSearch() {
   const [error, setError] = useState<unknown>(null);
   const [pending, setPending] = useState(false);
 
-  const search = useCallback(async (term: string) => {
-    if (!term.trim()) {
-      setResults(null);
-      return;
-    }
-    setPending(true);
-    setError(null);
-    try {
-      setResults((await api.searchPlayers(term)).results);
-    } catch (caught) {
-      setError(caught);
-      setResults(null);
-    } finally {
-      setPending(false);
-    }
-  }, []);
+  const begin = useLatest();
+
+  const search = useCallback(
+    async (term: string) => {
+      // Every call takes a ticket, the empty query included, so a slower
+      // response to an earlier query can never overwrite this one.
+      const isCurrent = begin();
+      if (!term.trim()) {
+        setResults(null);
+        setPending(false);
+        return;
+      }
+      setPending(true);
+      setError(null);
+      try {
+        const { results } = await api.searchPlayers(term);
+        if (isCurrent()) setResults(results);
+      } catch (caught) {
+        if (!isCurrent()) return;
+        setError(caught);
+        setResults(null);
+      } finally {
+        if (isCurrent()) setPending(false);
+      }
+    },
+    [begin],
+  );
 
   // Debounced so typing does not fire a request per keystroke.
   useEffect(() => {

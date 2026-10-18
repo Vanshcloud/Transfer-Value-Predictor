@@ -2,8 +2,9 @@
 
 /** Two players, side by side, on the same model and the same season basis. */
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useAsync } from "@/lib/useAsync";
+import { useLatest } from "@/lib/useLatest";
 import Link from "next/link";
 import {
   api,
@@ -35,6 +36,8 @@ interface Side {
   prediction: PredictResponse | null;
   player: Player | null;
   similar: SimilarPlayer[];
+  /** Per side: one side finishing must not clear the other's spinner. */
+  loading: boolean;
 }
 
 const EMPTY: Side = {
@@ -44,7 +47,10 @@ const EMPTY: Side = {
   prediction: null,
   player: null,
   similar: [],
+  loading: false,
 };
+
+type SideName = "left" | "right";
 
 function PlayerPicker({
   side,
@@ -118,7 +124,11 @@ export default function ComparePage() {
   const [left, setLeft] = useState<Side>(EMPTY);
   const [right, setRight] = useState<Side>(EMPTY);
   const [error, setError] = useState<unknown>(null);
-  const [pending, setPending] = useState(false);
+  // A ticket per side and per kind of request (useLatest): picking X then Y
+  // on one side used to let X's slower response overwrite Y's, leaving Y's
+  // name above X's numbers.
+  const begin = useLatest();
+  const setSide = useMemo(() => ({ left: setLeft, right: setRight }), []);
 
   // Fetched once: the population quantiles the radar normalises against do not
   // change between comparisons.
@@ -132,45 +142,56 @@ export default function ComparePage() {
     distributionState.status === "ready" ? distributionState.data : null;
 
   const runSearch = useCallback(
-    async (query: string, set: (updater: (side: Side) => Side) => void) => {
+    async (query: string, name: SideName) => {
+      const isCurrent = begin(`search:${name}`);
+      const set = setSide[name];
       if (!query.trim()) {
-        set(() => EMPTY);
+        set((side) => ({ ...side, results: [] }));
         return;
       }
       try {
         const { results } = await api.searchPlayers(query, 8);
+        if (!isCurrent()) return;
         set((side) => ({
           ...side,
           results: results.filter((r) => r.predictable),
         }));
       } catch (caught) {
-        setError(caught);
+        if (isCurrent()) setError(caught);
       }
     },
-    [],
+    [begin, setSide],
   );
 
   useEffect(() => {
-    const timer = setTimeout(() => runSearch(left.query, setLeft), 250);
+    const timer = setTimeout(() => runSearch(left.query, "left"), 250);
     return () => clearTimeout(timer);
   }, [left.query, runSearch]);
 
   useEffect(() => {
-    const timer = setTimeout(() => runSearch(right.query, setRight), 250);
+    const timer = setTimeout(() => runSearch(right.query, "right"), 250);
     return () => clearTimeout(timer);
   }, [right.query, runSearch]);
 
+  const typed = useCallback(
+    (name: SideName, value: string) => {
+      // Typing abandons whoever this side was showing, so a pick still in
+      // flight for them must not land afterwards.
+      begin(`pick:${name}`);
+      setSide[name]({ ...EMPTY, query: value });
+    },
+    [begin, setSide],
+  );
+
   const pick = useCallback(
-    async (result: Chosen, set: (updater: (side: Side) => Side) => void) => {
+    async (result: Chosen, name: SideName) => {
+      const isCurrent = begin(`pick:${name}`);
+      const set = setSide[name];
       // The query becomes the resolved name, so the field shows who was
-      // actually chosen rather than whatever was typed to find them.
-      set((side) => ({
-        ...side,
-        chosen: result,
-        results: [],
-        query: result.name,
-      }));
-      setPending(true);
+      // actually chosen rather than whatever was typed to find them. The
+      // previous player's numbers are cleared at once rather than left under
+      // the new name while the new ones load.
+      set({ ...EMPTY, chosen: result, query: result.name, loading: true });
       try {
         const [prediction, player, neighbours] = await Promise.all([
           // 25 is the API's maximum. Both players need a value for the same
@@ -182,19 +203,21 @@ export default function ComparePage() {
             .similarPlayers(result.player_id, 5, variant)
             .catch(() => ({ results: [] })),
         ]);
+        if (!isCurrent()) return;
         set((side) => ({
           ...side,
           prediction,
           player,
           similar: neighbours.results,
+          loading: false,
         }));
       } catch (caught) {
+        if (!isCurrent()) return;
         setError(caught);
-      } finally {
-        setPending(false);
+        set((side) => ({ ...side, loading: false }));
       }
     },
-    [variant],
+    [begin, setSide, variant],
   );
 
   // ---- the comparison lives in the URL ------------------------------------
@@ -215,7 +238,7 @@ export default function ComparePage() {
     restored.current = true;
 
     const pair = readPair(window.location.search);
-    const load = async (id: number | null, set: typeof setLeft) => {
+    const load = async (id: number | null, name: SideName) => {
       if (id === null) return;
       try {
         const player = await api.player(id);
@@ -229,14 +252,14 @@ export default function ComparePage() {
             league: player.league,
             league_country: player.league_country,
           },
-          set,
+          name,
         );
       } catch {
         // A stale or hand-edited link should leave an empty picker rather than
         // an error banner: there is nothing for the reader to fix.
       }
     };
-    void Promise.all([load(pair.a, setLeft), load(pair.b, setRight)]);
+    void Promise.all([load(pair.a, "left"), load(pair.b, "right")]);
   }, [pick]);
 
   useEffect(() => {
@@ -253,6 +276,7 @@ export default function ComparePage() {
   }, [left.chosen, right.chosen]);
 
   const both = left.prediction && right.prediction;
+  const pending = left.loading || right.loading;
 
   return (
     <div className="space-y-6">
@@ -270,14 +294,14 @@ export default function ComparePage() {
           <PlayerPicker
             side={left}
             label="Player A"
-            onQuery={(value) => setLeft({ ...EMPTY, query: value })}
-            onPick={(result) => pick(result, setLeft)}
+            onQuery={(value) => typed("left", value)}
+            onPick={(result) => pick(result, "left")}
           />
           <PlayerPicker
             side={right}
             label="Player B"
-            onQuery={(value) => setRight({ ...EMPTY, query: value })}
-            onPick={(result) => pick(result, setRight)}
+            onQuery={(value) => typed("right", value)}
+            onPick={(result) => pick(result, "right")}
           />
         </div>
       </Card>

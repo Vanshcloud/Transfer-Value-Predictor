@@ -19,6 +19,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { api, ApiError, type PredictResponse, type Variant } from "@/lib/api";
 import { eur, eurExact } from "@/lib/format";
+import { useLatest } from "@/lib/useLatest";
 import { Card, ErrorPanel } from "./ui";
 
 /** Editable inputs, with the bounds the training data actually spans. */
@@ -61,17 +62,24 @@ export default function WhatIf({
   const [error, setError] = useState<unknown>(null);
   const [pending, setPending] = useState(false);
 
+  // Only the newest request may show its answer (useLatest). A slider drag
+  // that outlasts the debounce sends several; a slower earlier one used to
+  // land last and display a prediction for values the user had moved past.
+  const begin = useLatest();
+
   const run = useCallback(async () => {
+    const isCurrent = begin();
     setPending(true);
     setError(null);
     try {
-      setResult(await api.predictFromFeatures({ ...features, ...values }, variant));
+      const answer = await api.predictFromFeatures({ ...features, ...values }, variant);
+      if (isCurrent()) setResult(answer);
     } catch (caught) {
-      setError(caught);
+      if (isCurrent()) setError(caught);
     } finally {
-      setPending(false);
+      if (isCurrent()) setPending(false);
     }
-  }, [features, values, variant]);
+  }, [begin, features, values, variant]);
 
   const touched = editable.some((c) => values[c.key] !== initial[c.key]);
 
