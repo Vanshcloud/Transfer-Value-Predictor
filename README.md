@@ -171,8 +171,7 @@ pytest           # everything; integration tests run when data and models exist
 
 On a clean clone with no data, `pytest` reports zero failures — verified on a fresh clone: 825
 pass and the 67 integration tests skip. With the Kaggle download and trained
-models, 892 pass apart from three environment-dependent cases described in
-[`plans/10-codex-audit-remaining-findings.md`](plans/10-codex-audit-remaining-findings.md).
+models, all 892 pass.
 
 | | Coverage | Tests |
 |---|---|---|
