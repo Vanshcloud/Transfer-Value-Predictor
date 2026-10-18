@@ -1,6 +1,6 @@
 # Model card — with_prior_value
 
-Generated 2026-10-18T08:27:42.310557+00:00 from `with_prior_value__random_forest`.
+Generated 2026-10-18T11:19:44.739410+00:00 from `with_prior_value__lightgbm`.
 This file is written from the artifact, so it cannot describe a model that
 is no longer the one on disk.
 
@@ -16,9 +16,9 @@ Forecast how a player's *already known* market value will move. This is the trac
 
 ## Model
 
-| Family | `random_forest` |
+| Family | `lightgbm` |
 |---|---|
-| Hyperparameters | `{'model__regressor__n_estimators': 200, 'model__regressor__min_samples_leaf': 5}` |
+| Hyperparameters | `{'model__regressor__n_estimators': 300, 'model__regressor__learning_rate': 0.05, 'model__regressor__num_leaves': 63, 'model__regressor__min_child_samples': 20, 'model__regressor__reg_lambda': 0.0}` |
 | Target | `market_value_in_eur`, trained on `log1p`, reported in EUR |
 | Features | 56 |
 | Seed | 42 |
@@ -36,18 +36,18 @@ Test seasons, in EUR. These are held-out seasons the model never saw.
 
 | Metric | Validation | Test |
 |---|---|---|
-| MAE | €912,164 | €930,585 |
-| RMSE | €2,358,850 | €2,436,476 |
-| R² | 0.960 | 0.962 |
-| MAPE | 21.8% | 21.0% |
+| MAE | €900,492 | €912,394 |
+| RMSE | €2,361,204 | €2,422,902 |
+| R² | 0.960 | 0.963 |
+| MAPE | 21.2% | 20.9% |
 | Rows | 6,493 | 13,315 |
 
 ## Prediction intervals
 
 | Nominal level | 80% |
 |---|---|
-| Measured coverage | 81.1% |
-| Median width | €1,022,145 |
+| Measured coverage | 80.3% |
+| Median width | €1,022,809 |
 | Measured on | 13,315 test rows |
 
 Quantiles are taken from the validation season and the coverage above
@@ -59,16 +59,16 @@ cost of predicting forward across seasons that are not exchangeable.
 
 | Feature | Importance |
 |---|---|
-| `numeric__prev_log_market_value_in_eur` | 0.9602 |
-| `numeric__age_squared` | 0.004247 |
-| `numeric__age` | 0.004247 |
-| `numeric__years_since_debut` | 0.002114 |
-| `numeric__prev_value_age_days` | 0.00168 |
-| `numeric__club_goal_difference_per_game` | 0.001563 |
-| `numeric__minutes_played` | 0.001395 |
-| `numeric__club_points_per_game` | 0.001384 |
-| `numeric__club_league_position` | 0.001373 |
-| `numeric__competition_value_level` | 0.00133 |
+| `numeric__age` | 1,833 |
+| `numeric__prev_log_market_value_in_eur` | 1,760 |
+| `numeric__prev_value_age_days` | 1,178 |
+| `numeric__years_since_debut` | 924 |
+| `numeric__competition_value_level` | 833 |
+| `numeric__club_points_per_game` | 751 |
+| `numeric__club_goal_difference_per_game` | 685 |
+| `numeric__competition_tier_rank` | 639 |
+| `numeric__club_league_position` | 594 |
+| `numeric__minutes_played` | 563 |
 
 ## Assumptions
 
@@ -103,12 +103,12 @@ Worst and best competitions by MAPE, over segments with enough rows to mean anyt
 
 | Competition | Rows | MAE | MAPE |
 |---|---|---|---|
-| `SFA` | 40 | EUR 83,259 | 40% |
-| `DKP` | 74 | EUR 153,826 | 31% |
-| `CL` | 109 | EUR 983,788 | 29% |
-| `TR1` | 826 | EUR 293,185 | 17% |
-| `GB1` | 905 | EUR 2,785,345 | 14% |
-| `GR1` | 583 | EUR 235,808 | 13% |
+| `SFA` | 40 | EUR 84,320 | 39% |
+| `DKP` | 74 | EUR 151,160 | 32% |
+| `CL` | 109 | EUR 1,066,344 | 29% |
+| `GRP` | 46 | EUR 62,605 | 16% |
+| `GB1` | 905 | EUR 2,759,558 | 14% |
+| `GR1` | 583 | EUR 230,371 | 13% |
 
 A wide spread here means the model serves some leagues better than others, which is a property of how much history the panel holds for each. Read it before quoting one number for every competition.
 

@@ -227,7 +227,8 @@ before.
 | performance-only | before | LightGBM | €1,938,817 | €2,068,081 | 0.8407 | 76.9% | €2,052,897 |
 | performance-only | after | LightGBM | €1,908,448 | €2,079,666 | 0.8362 | 75.1% | €1,985,856 |
 | with prior value | before | LightGBM | €1,656,909 | €1,637,639 (n 10,169) | 0.9141 | 79.3% | €1,862,759 |
-| with prior value | after | Random Forest | €912,164 | €930,585 (n 13,315) | 0.9625 | 81.1% | €1,022,145 |
+| with prior value | after, first retrain (superseded) | Random Forest | €912,164 | €930,585 (n 13,315) | 0.9625 | 81.1% | €1,022,145 |
+| with prior value | after, serving requirements | LightGBM | €900,492 | €912,394 (n 13,315) | 0.9629 | 80.3% | €1,022,809 |
 
 **Performance-only: no gain from removing the leaks, and slightly worse on
 test.** It uses the same 13,486 test rows, so the comparison is direct. Test
@@ -263,7 +264,7 @@ The published headline and the published interval both described a
 different input distribution from the one served. On the same rows, the
 retrained model is €280k better than the old model fed serving-built rows.
 
-### Selection changed for the prior-value variant
+### Selection changed for the prior-value variant (first retrain; superseded below)
 
 LightGBM had the lowest validation MAE (€900,492). Four families sat within
 one standard error (€27,090), and the existing tie-break, deployment
@@ -284,6 +285,91 @@ This is a product decision for the owner. Shipping LightGBM for this variant
 would need a change to the selection rule (for example, counting artifact
 size or latency in the footprint), made on its own merits and before looking
 at any test number.
+
+## Selection policy: serving requirements
+
+**Why the one-standard-error rule picked Random Forest.** The rule was
+correct as written but measured the wrong cost. Its footprint counted only
+extra packages in the serving image, which is 0 MB for every scikit-learn
+family and 9 MB for LightGBM. It ignored the artifact itself (182 MB against
+2.2 MB) and the cost of serving an explanation (437 ms against 24 ms). Within
+the band, a heavier and slower model therefore looked cheaper.
+
+**The policy** (`src/pipelines/tune._select_winner`, committed in `16def0b`
+and `f935b23` before the retrain that applied it). It names no family and
+reads only training and validation-season measurements, all recorded per
+family in the artifact's leaderboard:
+
+1. **Eligible** only if the family exposes feature importances (the existing
+   `EXPLAINABLE_FAMILIES`, unchanged) *and* explains a single prediction:
+   SHAP builds an explainer and every timed validation row explains without
+   error.
+2. **Within budget.** The median of predict plus SHAP explanation over 25
+   validation-season rows must be at most `SERVING_LATENCY_BUDGET_MS` = 100 ms.
+   The budget comes from the product, not from these models: the what-if
+   slider debounces at 300 ms, and Phase 18 rated a 385 ms response High
+   severity.
+3. **One standard error** around the best *eligible* validation MAE.
+4. **Tie-break:** the smallest deployed footprint (package megabytes plus
+   artifact megabytes), then latency, then validation MAE.
+
+If no family is eligible, training stops with an error rather than shipping
+something that fails the requirements. The same rule runs for both variants.
+
+**Applied by the retrain (exit 0, 2026-10-18 16:49):**
+
+| Variant | Family | Val MAE | SE | Explained p50 | Deployed | Outcome |
+|---|---|---|---|---|---|---|
+| with prior | LightGBM | €900,492 | €27,090 | 24.4 ms | 11.2 MB | **selected** |
+| with prior | XGBoost | €906,357 | €27,444 | 35.3 ms | 373.4 MB | in band, larger |
+| with prior | Extra Trees | €908,924 | €27,402 | 792 ms | 297.9 MB | over budget |
+| with prior | Stacked | €911,068 | €28,286 | — | 701.3 MB | no importances |
+| with prior | Random Forest | €912,164 | €26,998 | 437 ms | 182.0 MB | over budget |
+| with prior | HistGradientBoosting | €913,440 | €29,127 | 29.8 ms | 0.5 MB | no importances |
+| with prior | CatBoost | €931,292 | €28,307 | — | 328.2 MB | cannot explain |
+| perf-only | LightGBM | €1,908,448 | €54,344 | 25.7 ms | 11.2 MB | **selected** |
+| perf-only | Stacked | €1,932,039 | €54,091 | — | 701.3 MB | no importances |
+| perf-only | XGBoost | €1,956,135 | €56,764 | 33.9 ms | 373.4 MB | in band, larger |
+| perf-only | Random Forest | €2,276,732 | €70,978 | 3,939 ms | 894.5 MB | over budget |
+| perf-only | Extra Trees | €2,277,378 | €71,934 | — | 1,592.8 MB | additivity failure |
+
+Linear families fail eligibility on both variants: they expose coefficients,
+but TreeExplainer cannot explain them.
+
+HistGradientBoosting is the one family to look at closely. It would win the
+tie-break at 0.5 MB, and SHAP works on it. It is excluded by the
+`UNEXPLAINABLE_FAMILIES` entry from 2026-08-31 (`6355369`), because it has
+no `feature_importances_` and the model card and `/model` table would come
+back empty. That exclusion predates this work and was not revisited here.
+
+**Test metrics, read once after selection was frozen** (the policy chose
+nothing from them):
+
+| Variant | Model | Rows | Test MAE | R² | 80% coverage |
+|---|---|---|---|---|---|
+| with prior | LightGBM (new) | 13,315 | €912,394 ± 19,452 | 0.9629 | 80.3% |
+| with prior | Random Forest (first retrain, archived) | 13,315 | €930,585 | 0.9625 | 81.1% |
+| with prior | LightGBM (new), controlled rows | 10,169 | €1,003,418 | 0.9651 | 83.7% |
+| perf-only | LightGBM (new) | 13,486 | €2,079,666 ± 39,786 | 0.8362 | 75.1% |
+
+The performance-only model is unchanged from the first retrain (same family,
+same parameters, same metrics). The €18k test gain over Random Forest is
+inside one standard error and is not a claim of better accuracy. The reason
+for the switch is serving cost: the artifact is 2.2 MB instead of 182 MB, an
+explained prediction takes 24 ms instead of 437 ms, and the prediction is
+exactly reproducible.
+
+**Checks added.** In `tests/unit/test_model_selection.py`,
+`TestServingRequirements` covers that the budget is inclusive, that the band
+is anchored on the best eligible family, that a model with no SHAP is
+excluded, that the footprint counts the artifact, that no eligible family
+is an error, and that both variants get the same answer. In
+`tests/integration/test_serving_performance.py`, the tests run against every
+shipped artifact: it explains a prediction, it meets the budget on
+validation rows, the choice can be recomputed from its own leaderboard, and
+there is one artifact per variant. A scratch check explained every labelled
+and current-season row with both shipped models: 189,046 rows, with no
+additivity failure and a largest reconstruction error of 2e-12 in log space.
 
 ## Validation
 

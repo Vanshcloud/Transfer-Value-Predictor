@@ -17,7 +17,7 @@ contributions that produced it, compare him to the seasons nearest him in the
 model's own feature space — then change the inputs and watch the number move.
 
 Metrics are reported on **held-out seasons the model has never seen**: test MAE
-**€2.08M** (R² 0.836) for the scouting model, **€0.93M** (R² 0.962) with a prior
+**€2.08M** (R² 0.836) for the scouting model, **€0.91M** (R² 0.963) with a prior
 valuation. These are the figures after the Phase 19 leakage remediation; the
 prior-value model now answers an easier, deployment-faithful question, and the
 earlier €2.07M / €1.64M are kept with the reason in
@@ -224,12 +224,13 @@ Eleven families (Linear, Ridge, Lasso, ElasticNet, RandomForest, ExtraTrees,
 HistGradientBoosting, XGBoost, LightGBM, CatBoost, and a ridge-blended stack of
 the three boosters), each searched on expanding-window folds inside the training
 seasons, then scored once on the test seasons. LightGBM ships for the
-performance-only variant and Random Forest for the prior-value one.
+performance-only variant and, under the Phase 19 serving requirements, for the
+prior-value one too.
 
 | Variant | Winner | Test MAE | Test R² | vs. baseline |
 |---|---|---|---|---|
 | performance-only | LightGBM | €2.08M ± 0.04M | 0.836 | 0.770 |
-| with prior value | Random Forest | €0.93M ± 0.02M | 0.962 | 0.899 |
+| with prior value | LightGBM | €0.91M ± 0.02M | 0.963 | 0.899 |
 
 The baseline column predates the Phase 19 rebuild and was not re-quoted; the
 prior-value row is not comparable with it, because that variant's rows and its
@@ -241,12 +242,16 @@ prior-value definition both changed. See
 *`/model` shows the winner's held-out metrics, its full provenance, and the
 families it beat — with the spread between them stated rather than hidden.*
 
-**Selection is not `min()`.** Two rules decide what ships: the model must be
-able to explain a prediction, and among families within one standard error of
-the best, the cheapest to deploy wins (Breiman, Friedman, Olshen & Stone, 1984).
-The stacked blend scores lowest on both variants and exposes no feature
-importances at all, so it does not ship — a constraint that now costs €10,152 of
-validation MAE at **p = 0.32**, which is to say nothing measurable.
+**Selection is not `min()`.** A family can ship only if it exposes feature
+importances and explains a single validation-season prediction within
+**100 ms** (p50, prediction plus SHAP). Among eligible families within one
+standard error of the best eligible validation MAE, the smallest deployed
+footprint wins — extra packages in the serving image plus the artifact itself
+(Breiman, Friedman, Olshen & Stone, 1984). No family is named in the rule, and
+no test metric enters it. On both variants LightGBM is also the lowest
+validation MAE outright, so the requirements cost nothing in accuracy; the rule
+and why it was written are in
+[`plans/09-codex-audit-remediation.md`](plans/09-codex-audit-remediation.md#selection-policy-serving-requirements).
 
 Each run writes a versioned artifact to `models/` — the fitted preprocessing
 and estimator as one object, plus metrics, named feature importance, the full
