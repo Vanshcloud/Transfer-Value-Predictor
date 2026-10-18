@@ -1,0 +1,25 @@
+{
+  "created_at": "2026-10-18T15:09:00.973099+00:00",
+  "cutoff": "2026-06-12",
+  "label_rule": "first valuation on or after the row's as-of date, within 365 days, published after the cutoff",
+  "tolerance_days": 365,
+  "models": {
+    "performance_only": "446fd9878c3ee5b1d0f402c3846ffa97189f662a4778fd1c3ad8e23846cbc369",
+    "with_prior_value": "906a71b4e0adbe921a5f68396676c56733a00e7c57567ca89771c9033c6a7a04"
+  },
+  "inputs": {
+    "current_season": "cb29cb4488469feb7b9c58eefa668ae654bf233b8e962f17cbfb9486813a1743",
+    "training_table": "5d65c52a68dff3bd1ab8a791609d9bfadad50795daeed4d9ff5ddc947bd4b65a",
+    "player_valuations": "25447a1bb9baaea255d6e17fe69d052a2910d53c730e5672592cf9f272925377"
+  },
+  "source_revision": {
+    "commit": "43fcb81b059d9d43bc5d44745287eb4a2e073bf6",
+    "dirty": false
+  },
+  "predictions_file": "predictions.csv",
+  "predictions_sha256": "cd71dbd3988f0b5386ff197ae71681a40b49204aeeaa2057cc96025ea3f348c1",
+  "rows": {
+    "performance_only": 8709,
+    "with_prior_value": 8131
+  }
+}
