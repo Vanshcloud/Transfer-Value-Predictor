@@ -54,9 +54,15 @@ not had answered.
 no scraper, no API client, no image or page request — that prohibition is
 respected and will stay. It downloads the Kaggle mirror and **trains machine
 learning models on Transfermarkt-derived market valuations**, which is the use
-§11.1 names. It redistributes no raw data: `data/` is gitignored, and the
-published artifacts are fitted models, aggregate metrics and per-player
-predictions served by the API.
+§11.1 names. **It does redistribute a small raw extract:** `data/sample/`
+commits seven CSVs copied from the mirror (200 players, 4,424 valuations and
+the appearances, games, lineups, club games and competitions that go with
+them — about 43,000 rows, including Transfermarkt profile and image URLs) so
+the unit suite runs without a download. Everything else under `data/` is
+gitignored, and the other published outputs are fitted models, aggregate
+metrics and per-player predictions served by the API. The extract carries
+exactly the uncertainty described here; replacing it with synthetic fixtures
+is what would remove it.
 
 **Status: uncertain.** The earlier wording — that the CC0 mirror is what makes
 the project legally possible — claimed more than is established. What would
@@ -64,7 +70,7 @@ resolve it, in order of strength: written permission from Transfermarkt GmbH &
 Co. KG for training and for serving derived predictions; or advice from a
 lawyer qualified in German and EU database and copyright law. Until then,
 treat the data and anything trained on it as unsuitable for commercial use,
-and do not redistribute the raw tables.
+and do not redistribute the raw tables — the committed sample included.
 
 ## Shape
 
@@ -78,6 +84,7 @@ and do not redistribute the raw tables.
 | Target | `market_value_in_eur` |
 | Rows with a usable prior valuation | 84,626 (98.4%) — the latest valuation strictly before the as-of date (Phase 19, F4; was 61,522 under the previous-season definition) |
 | Unlabelled current-season rows | 9,716: 8,709 for season 2025, and 1,007 season-2024 rows whose 365-day label window is still open |
+| Label horizon (as-of date → label) | varies by row: median 141 days, interquartile 71–172, range 0–365 (`label_horizon_days`); not a model input |
 
 The two shipped variants are a row filter and a column list over this one
 table, never a second build — see `select_variant`. Two pipelines are how

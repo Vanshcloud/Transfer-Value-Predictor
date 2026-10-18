@@ -101,7 +101,7 @@ small subgroups (the >50M band) are measured on few rows.
 - **The future resembles the recent past.** Training seasons are weighted toward recent ones, but a structural break — a new financial-fair-play regime, another closed-doors season — is not something the model can anticipate. Season 2020 is already such a break in this data.
 - **A player's competition is a proxy for the quality he faced.** The model never sees an opponent. It sees the league's historical value level and his club's results, which is an average standing in for a specific.
 - **Minutes are earned, not assigned.** Availability is read as a signal of quality. A player kept out by injury and one kept out by his manager look the same here.
-- **The valuation being predicted is set within a year of the as-of date.** Widen that horizon and the question changes; the label window is a modelling choice, recorded per row as `label_horizon_days`.
+- **The valuation being predicted is set within a year of the as-of date.** It is the first one published in that window, so the horizon varies from row to row and the model is not told it: a prediction is the next published valuation, not the value on a fixed date. Widen the window and the question changes; it is recorded per row as `label_horizon_days`.
 
 ## Limitations
 

@@ -7,8 +7,9 @@
 [![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
 [![Typed: mypy](https://img.shields.io/badge/typed-mypy-blue.svg)](https://mypy-lang.org/)
 
-Predict a professional footballer's next market valuation from what happened on
-the pitch, explain every prediction, and say honestly how far to trust it.
+Predict the next market valuation published for a professional footballer from
+what happened on the pitch, explain every prediction, and say honestly how far to
+trust it.
 
 Search a player, get a valuation with an interval and the SHAP contributions
 that produced it, see the seasons most like theirs in the model's own feature
@@ -23,10 +24,10 @@ a Next.js dashboard over models trained on a point-in-time player-season panel.
 |---|---|
 | **Accuracy** | Test MAE **€2.06M** (R² 0.841) for the scouting model, **€0.91M** (R² 0.963) with a prior valuation, on seasons 2023–2024. **Retrospective**: the models were not fitted on those seasons, but the seasons were inspected during development ([`docs/EVALUATION.md`](docs/EVALUATION.md)). |
 | **Uncertainty** | 80% intervals covered **79.1%** and **80.1%** of test values — also retrospective, and a frequency over groups of predictions, never a probability for one player. |
-| **Independent check** | Prepared, not done: predictions for the 2025 season were [frozen and hashed](docs/prospective/2026-10-18-freeze.json) before any of their labels existed in the data. Scoring them needs a later data refresh. |
+| **Independent check** | Prepared, not done: predictions for the 2025 season were [frozen and hashed](docs/prospective/2026-10-18-freeze.json) before any of their labels were in the project's data. The freeze is a local commit, not a public or third-party timestamp, and scoring it — which needs a later data refresh — would be out-of-time validation run by the author, not external validation. |
 | **Leakage** | Every windowed feature carries the date of its newest input; a leakage stage checks each row against its as-of date and stops the build on a breach. |
 | **Data rights** | **Uncertain and not cleared.** The data is a Kaggle mirror of Transfermarkt; Transfermarkt's terms prohibit ML training on its content ([Data rights](docs/DATASET_CARD.md#data-rights)). |
-| **Deployment** | A public, read-only demonstration with request limits and load shedding. **Not production-ready**: it needs a reverse proxy for rate limits, timeouts and TLS ([`SECURITY.md`](SECURITY.md)). |
+| **Deployment** | Built for a public, read-only demonstration, with request limits and load shedding; nothing is deployed from this repository. **Not production-ready**: it needs a reverse proxy for rate limits, timeouts and TLS ([`SECURITY.md`](SECURITY.md)). |
 
 ## Results
 
@@ -48,14 +49,15 @@ the scouting model between €1.39M and €2.16M depending on the season.
 ## Quick start
 
 No account and no download needed to run the test suite against the committed
-sample data:
+sample — a few thousand rows copied from the Kaggle mirror, under the same
+uncertain rights as the rest of the data ([Data rights](docs/DATASET_CARD.md#data-rights)):
 
 ```bash
 make setup          # Python 3.13; on macOS first: brew install libomp
-make test           # 825 pass, 67 skip — no data, no credentials
+make test           # 862 pass, 70 skip — no data, no credentials
 ```
 
-That is 825 passing tests and 67 skips. The full pipeline needs a free Kaggle
+That is 862 passing tests and 70 skips. The full pipeline needs a free Kaggle
 token in `.env` (see [`.env.example`](.env.example)):
 
 ```bash
@@ -86,7 +88,9 @@ flowchart LR
 ```
 
 - **Point in time.** A row's features close at `max(1 July, last appearance)`
-  and its label is the first valuation on or after that date, within a year.
+  and its label is the first valuation on or after that date, within a year — so
+  the horizon varies by row (median 141 days) and the model is not told it. A
+  prediction is the next published valuation, not the value on a fixed date.
   Lineups, club form, competition strength, prior values and career momentum
   each carry the date of their newest input, and the leakage stage checks every
   one per row — the check that found the leaks fixed in Phase 19.
@@ -136,7 +140,7 @@ feature names, values outside what the feature's definition allows (a share abov
 1, 2.5 goals, an integer past float range) and non-text categories are refused
 with a `422` naming the feature; nothing is clamped. Every error, in OpenAPI and
 on the wire, uses one envelope. The service layer imports no web framework, which
-is why the 117 tests for prediction logic need no running server.
+is why the 123 tests for prediction logic need no running server.
 
 ## Dashboard
 
@@ -152,7 +156,7 @@ is why the 117 tests for prediction logic need no running server.
 ![Two players compared: predictions, side-by-side contributions, and a percentile radar](docs/img/compare.png)
 
 ```bash
-cd frontend && npm test        # 118 tests
+cd frontend && npm test        # 124 tests
 ```
 
 Only the newest request for a search box, a comparison side or a what-if slider
@@ -164,19 +168,19 @@ columns, axis titles as headers, histogram bins as rows. Details in
 ## Testing
 
 ```bash
-make test        # 825 pass, 67 skip — no data, no credentials
+make test        # 862 pass, 70 skip — no data, no credentials
 make test-cov    # the same, with coverage; fails under 88%
 pytest           # everything; integration tests run when data and models exist
 ```
 
-On a clean clone with no data, `pytest` reports zero failures — verified on a fresh clone: 825
-pass and the 67 integration tests skip. With the Kaggle download and trained
-models, all 892 pass.
+On a clean clone with no data, `pytest` reports zero failures — verified on a fresh clone: 862
+pass and the 70 integration tests skip. With the Kaggle download and trained
+models, all 932 pass.
 
 | | Coverage | Tests |
 |---|---|---|
-| `make test-cov` — no credentials, no data | **90%** | 825 pass, 67 deselected |
-| `make test-cov-all` — needs the download and trained models | **97%** | 892 collected |
+| `make test-cov` — no credentials, no data | **90%** | 862 pass, 70 deselected |
+| `make test-cov-all` — needs the download and trained models | **97%** | 932 collected |
 
 Tests that construct the leak they guard against, tests that recompute this
 README's numbers, a contract test that provokes every documented error status,
@@ -243,6 +247,8 @@ the mirror as CC0, Transfermarkt's own Terms of Use §11.1 prohibit automated
 access (so nothing here contacts Transfermarkt) and also prohibit ML training on
 the content, which this project does through the mirror. Whether the mirror's
 dedication covers that is not established and the project has no legal clearance
-— see [Data rights](docs/DATASET_CARD.md#data-rights). Labels are the work of
+— see [Data rights](docs/DATASET_CARD.md#data-rights). `data/sample/` commits a
+small extract of the mirror as a test fixture, so the repository does
+redistribute some raw rows under that same uncertainty. Labels are the work of
 Transfermarkt's contributor community, and the mirror is maintained by David
 Cariboo.

@@ -28,10 +28,12 @@ export default function AboutPage() {
         <h2 className="text-xl font-semibold">How it is evaluated</h2>
         <p className="mt-2 leading-relaxed text-slate-600 dark:text-slate-400">
           Every reported number comes from a <strong>temporal split</strong>: the model
-          trains on seasons up to 2021, tunes on 2022, and is measured once on 2023
-          onward. That is about 40% worse on euro error than a random split would
-          report — and it is the only arrangement that resembles being asked about a
-          season that has not happened yet.
+          trains on seasons up to 2021, tunes on 2022, and is scored on 2023 onward.
+          That is about 40% worse on euro error than a random split would report — and
+          it is the only arrangement that resembles being asked about a season that has
+          not happened yet. Those later seasons were looked at during development, so
+          their scores are retrospective, not an independent test; predictions for
+          2025 have been frozen for one, and not yet scored.
         </p>
         <p className="mt-3 leading-relaxed text-slate-600 dark:text-slate-400">
           Leakage is checked as a pipeline stage, not only in tests: feature timestamps
@@ -44,9 +46,10 @@ export default function AboutPage() {
       <section>
         <h2 className="text-xl font-semibold">Two models, on purpose</h2>
         <p className="mt-2 leading-relaxed text-slate-600 dark:text-slate-400">
-          Prior market value dominates every other feature — including it moves R² from
-          about 0.44 to about 0.78. That makes for an accurate model that mostly repeats
-          what the market already said. Both are served and labelled honestly:{" "}
+          Prior market value — the latest valuation published before the season&apos;s
+          cutoff — dominates every other feature: on the test seasons, R² is 0.84
+          without it and 0.96 with it. That makes for an accurate model that mostly
+          repeats what the market already said. Both are served and labelled honestly:{" "}
           <strong>performance only</strong> is the one that can disagree with the
           market, and <strong>with prior value</strong> is the one that tracks it.
           Publishing only the second would be technically true and practically useless.

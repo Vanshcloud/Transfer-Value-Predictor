@@ -10,7 +10,7 @@ export default function Home() {
           <span className="text-sky-600 dark:text-sky-400">and why?</span>
         </h1>
         <p className="mt-5 max-w-2xl text-lg leading-relaxed text-slate-600 dark:text-slate-300">
-          A market-value model over 36,880 player-seasons, built so that every
+          A market-value model over 85,966 player-seasons, built so that every
           prediction can be taken apart: what raised it, what lowered it, how
           wrong the model usually is, and which comparable players it is
           reasoning from.

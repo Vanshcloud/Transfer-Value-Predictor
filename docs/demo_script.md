@@ -14,7 +14,7 @@ Everything requiring data is marked **[needs data]** and has a fallback.
 
 ```bash
 make setup                  # venv + dev deps + git hooks
-make test                   # 825 pass, 67 deselected, no credentials
+make test                   # 862 pass, 70 deselected, no credentials
 docker compose up --build   # optional; takes minutes on a cold cache
 ```
 
@@ -46,9 +46,9 @@ legal footnote.
 make test
 ```
 
-Expected: `825 passed, 67 deselected`, about fifteen seconds.
+Expected: `862 passed, 70 deselected`, about fifteen seconds.
 
-> "The 67 skips are integration tests that need a trained model. They skip
+> "The 70 skips are integration tests that need a trained model. They skip
 > rather than fail, because a suite that is only green on my laptop is not a
 > suite."
 

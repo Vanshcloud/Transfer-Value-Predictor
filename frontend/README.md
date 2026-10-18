@@ -33,7 +33,7 @@ NEXT_PUBLIC_API_BASE=http://localhost:8010 npm run dev
 ## Tests
 
 ```bash
-npm test        # 118 tests, a few seconds
+npm test        # 124 tests, a few seconds
 ```
 
 The suite covers the parts of the dashboard where being wrong is silent: the

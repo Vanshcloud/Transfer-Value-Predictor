@@ -157,7 +157,11 @@ priors show *smaller* euro errors — and is not evidence either way.
 
 ## 4. A genuinely independent assessment
 
-**An independent holdout exists and has not been looked at.** The local snapshot's
+**An out-of-time holdout exists and has not been looked at.** "Independent" here
+means independent in time: the labels did not exist in the data when the
+predictions were made. It does not mean an external party — the same author
+built the models, froze the predictions and will score them, so a scored
+freeze is prospective validation, not independent replication. The local snapshot's
 newest valuation is dated 2026-06-12. The current-season rows (season 2025, 8,709
 rows) have an as-of date of 2026-07-01, so every one of their labels was published
 after the data anybody working on this project has seen.
@@ -167,8 +171,12 @@ writes the predictions with a SHA-256 of them, of each model, and of each input
 table (`reports/prospective/<date>/`). The freeze of 2026-10-18 — 8,709 performance-only and 8,131 prior-value
 predictions, SHA-256 `cd71dbd3…348c1` — is recorded in
 [`prospective/2026-10-18-freeze.json`](prospective/2026-10-18-freeze.json) and was
-committed (`250b85c`) **before** any newer data was downloaded, so the commit
-fixes the predictions in public. The predictions file is not in the repository;
+committed (`250b85c`) **before** any newer data was downloaded. That commit is
+local: the branch has not been pushed, and a git commit date is whatever its
+author's clock said, so it is not a public record or a third-party timestamp.
+It becomes evidence a reader can check once it is published to a public host
+(or timestamped externally) *before* the outcomes are downloaded; until then
+the freeze date is self-reported. The predictions file is not in the repository;
 it must be kept to be scored, and `score` refuses any file with another hash.
 
 `scripts/prospective.py score <freeze> <newer player_valuations.csv>` refuses a

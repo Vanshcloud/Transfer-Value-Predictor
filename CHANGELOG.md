@@ -28,6 +28,15 @@ Phase 19 artifacts are kept locally with checksums.
   with a 200. Definitional bounds, inclusive, never clamped.
 - **Which artifact serves** (F19): a manifest with SHA-256, verified before
   unpickling, instead of file-name order.
+- **Re-audit fixes.** A manifest entry with a null or malformed `sha256`
+  skipped verification and was unpickled; every entry is now validated and
+  `load()` has no unverified path. Search, What-if and compare took a new
+  request ticket only when the debounced request fired, so a response landing
+  inside the debounce window — or after What-if's Reset — still displayed.
+  Model selection fell back to an ineligible family when no explainable one
+  ran; it now raises. `scripts/` is type-checked. Documentation corrected on
+  the prior's definition and counts, the variable label horizon, the committed
+  data sample, and the freeze being a local, self-reported record.
 - **OpenAPI error schemas** (F17) match the envelope actually sent.
 - **Frontend races** (F13) in search, compare, what-if and `useAsync`.
 - **Compare across seasons** (F14) labels each side's season and warns.

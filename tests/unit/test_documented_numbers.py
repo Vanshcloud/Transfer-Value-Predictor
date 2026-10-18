@@ -150,3 +150,46 @@ def test_no_document_claims_the_data_is_cleared() -> None:
             "openly licensed mirror",
         ):
             assert overclaim not in text, (document.name, overclaim)
+
+
+PUBLIC_PROSE = (
+    ROOT / "README.md",
+    *sorted((ROOT / "docs").glob("*.md")),
+    ROOT / "frontend" / "src" / "app" / "page.tsx",
+    ROOT / "frontend" / "src" / "app" / "about" / "page.tsx",
+    ROOT / "frontend" / "src" / "app" / "model" / "page.tsx",
+)
+
+
+def test_the_committed_sample_is_not_denied() -> None:
+    """Re-audit: the dataset card said "it redistributes no raw data" while
+    data/sample/ committed rows copied from the mirror."""
+    if not sorted((ROOT / "data" / "sample").glob("*.csv")):  # pragma: no cover
+        pytest.skip("no committed sample")
+    card = (ROOT / "docs" / "DATASET_CARD.md").read_text()
+    assert "redistributes no raw data" not in card
+    assert "`data/sample/`" in card and "`data/sample/`" in README
+
+
+def test_the_local_freeze_is_not_called_public_or_registered() -> None:
+    """A commit on an unpushed branch is not a public record, and its date is
+    the author's own clock."""
+    for document in PUBLIC_PROSE:
+        text = document.read_text().lower()
+        for overclaim in ("in public", "publicly frozen", "pre-registered", "preregistered"):
+            assert overclaim not in text, (document.name, overclaim)
+    assert "self-reported" in (ROOT / "docs" / "EVALUATION.md").read_text()
+
+
+def test_prose_does_not_use_superseded_definitions() -> None:
+    """The prior has been the latest valuation before the as-of date since
+    Phase 19, and the 2023+ scores have never been a single untouched look."""
+    for document in PUBLIC_PROSE:
+        text = document.read_text().lower()
+        for stale in (
+            "rows with a prior-season value",
+            "the target\nfrom an earlier season",
+            "the target from an earlier season",
+            "measured once on 2023",
+        ):
+            assert stale not in text, (document.name, stale)

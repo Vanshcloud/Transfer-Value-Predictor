@@ -40,25 +40,40 @@ winter revaluation batch exists. Measured across the full panel:
 Widening cannot leak: `direction="forward"` is unchanged, so every label is
 still strictly after the features. It did expose a leak — with a year-wide
 window, season *s* can be labelled after season *s+1* has begun, making *s+1*'s
-"previous value" not previous. 22 rows in 61,555, and now a seventh leakage
+"previous value" not previous. 22 rows in 61,555 under the previous-season
+definition the prior then had (below), and now a seventh leakage
 check ([`../src/validation/leakage.py`](../src/validation/leakage.py)) that
 fails the build if it recurs.
+
+### The horizon varies, and the model is not told it
+
+Because the label is the *first* valuation inside the window, the time from
+as-of date to label differs row by row: median 141 days, interquartile range
+71–172, anywhere from 0 to 365 (`label_horizon_days` on every row). Giving the
+model the horizon was tried and dropped (Phase 15; test R² 0.760 with it, 0.762
+without — a decision taken on test, see [`EVALUATION.md`](EVALUATION.md) §1),
+so a prediction answers "what will the next published valuation be", not "what
+is the player worth on a given date". Every accuracy and coverage figure is
+over that mixture of horizons.
 
 ### The two variants
 
 Two model variants come out of the one table: *performance-only* (every row;
-the useful model, for scouting) and *with prior value* (61,522 rows; the
-accurate model, for tracking). Shipping only the second would be technically
+the useful model, for scouting) and *with prior value* (84,626 rows, 98.4%;
+the accurate model, for tracking). Shipping only the second would be technically
 true and practically useless.
 
 They differ by a row filter and two columns. Performance-only is fitted on the
 **54** declared features; with-prior-value adds
 `prev_log_market_value_in_eur` and `prev_value_age_days` for **56**, and drops
-every row that has no earlier valuation to lag. The lagged value is the target
-from an earlier season, which is why it is named with the `prev_` prefix the
-leakage detector accepts as proof a copy of the target is deliberate — and why
-`prev_value_age_days` exists beside it, since a valuation one season old and
-one four years old deserve different weight.
+every row that has no earlier valuation to lag. The prior is the **most recent
+valuation published strictly before the row's as-of date** (median 33 days
+old) — not the previous season's label, which it was until Phase 19 (F4) and
+which left it a median 242 days old at training against 34 at serving. It is
+still a copy of the target, which is why it is named with the `prev_` prefix
+the leakage detector accepts as proof a copy is deliberate — and why
+`prev_value_age_days` exists beside it, since a valuation a month old and one
+four years old deserve different weight.
 
 ### What the table grew to
 
@@ -67,9 +82,9 @@ one four years old deserve different weight.
 | rows | 36,880 | **85,966** |
 | players | 17,053 | **24,411** |
 | seasons | 2011–2024 | 2011–2024 |
-| rows with a prior-season value | 19,827 | **61,522** |
+| rows with a prior valuation | 19,827 (previous-season label) | **84,626** (latest valuation before the as-of date; 61,522 under the previous-season definition) |
 | features | 19 | **54** |
-| current-season rows, predictable | 0 | **8,709** |
+| current-season rows, predictable | 0 | **8,709** for 2025, plus 1,007 season-2024 rows awaiting a label |
 | leakage findings | 0 | 0 |
 
 ---
