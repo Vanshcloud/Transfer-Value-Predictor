@@ -50,7 +50,7 @@ format-check: ## Check formatting without writing
 	$(BIN)/black --check src tests scripts api
 
 typecheck: ## Run mypy
-	$(BIN)/mypy src api
+	$(BIN)/mypy src api scripts
 
 quality: lint format-check typecheck ## Run every quality gate
 

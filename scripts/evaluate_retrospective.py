@@ -41,7 +41,7 @@ from src.pipelines.features import TRAINING_TABLE  # noqa: E402
 from src.pipelines.train import VARIANTS  # noqa: E402
 from src.pipelines.tune import _numeric_features  # noqa: E402
 from src.storage.duckdb_store import DuckDBParquetStore  # noqa: E402
-from src.utils.config import load_settings  # noqa: E402
+from src.utils.config import Settings, load_settings  # noqa: E402
 from src.utils.paths import PROJECT_ROOT  # noqa: E402
 
 FIRST_ORIGIN = 2016
@@ -50,9 +50,9 @@ FIRST_ORIGIN = 2016
 PRIOR_AGE_BANDS = ((0, 60), (60, 180), (180, 365), (365, 100_000))
 
 
-def backtest(table: pd.DataFrame, settings: object) -> pd.DataFrame:
+def backtest(table: pd.DataFrame, settings: Settings) -> pd.DataFrame:
     """Fit the frozen family and parameters on every season before *s*, score *s*."""
-    model_dir = settings.paths.model_dir  # type: ignore[attr-defined]
+    model_dir = settings.paths.model_dir
     rows = []
     for variant, include_prior in VARIANTS.items():
         artifact = load_variant(model_dir, variant)
@@ -85,7 +85,7 @@ def backtest(table: pd.DataFrame, settings: object) -> pd.DataFrame:
 
 
 def mae_interval(group: pd.DataFrame) -> dict[str, object]:
-    errors = np.abs(group["predicted"] - group["actual"]).to_numpy()
+    errors = (group["predicted"] - group["actual"]).abs().to_numpy()
     interval = cluster_mean_interval(errors, group["player_id"].to_numpy())
     return {**interval.as_dict(), "r2": evaluate(group["actual"], group["predicted"]).r2}
 
@@ -143,8 +143,8 @@ def main() -> int:
         shipped["with_prior_value"], on=keys, suffixes=("_a", "_b")
     )
     difference = paired_difference(
-        both["predicted_a"] - both["actual_a"],
-        both["predicted_b"] - both["actual_b"],
+        (both["predicted_a"] - both["actual_a"]).to_numpy(),
+        (both["predicted_b"] - both["actual_b"]).to_numpy(),
         both["player_id"].to_numpy(),
     )
     result["paired_variants_on_shared_test_rows"] = {

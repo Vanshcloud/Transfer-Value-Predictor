@@ -55,7 +55,7 @@ jobs:
         run: black --check src tests scripts api
 
       - name: Types
-        run: mypy src api
+        run: mypy src api scripts
 
       - name: Tests
         # Integration tests are excluded by marker AND would skip anyway. Both,
