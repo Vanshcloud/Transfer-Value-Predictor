@@ -162,13 +162,19 @@ def feature_distribution(
     "/players/{player_id}",
     response_model=PlayerResponse,
     summary="A player's record and every season on file",
-    responses={404: {"description": "No such player"}},
+    responses={404: {"description": "No such player or variant"}},
 )
 def get_player(
     service: ServiceDep,
     player_id: Annotated[int, Path(ge=1, description="Transfermarkt player id")],
+    variant: Annotated[
+        str | None,
+        Query(description="Whose model inputs `features` holds; default model if omitted"),
+    ] = None,
 ) -> PlayerResponse:
-    return PlayerResponse(**service.player(player_id))
+    """`features` are the chosen variant's inputs, so they can seed a what-if
+    request for that variant unchanged — prior-value inputs included."""
+    return PlayerResponse(**service.player(player_id, variant=variant))
 
 
 @router.get("/models", response_model=ModelListResponse, summary="Loaded model variants")

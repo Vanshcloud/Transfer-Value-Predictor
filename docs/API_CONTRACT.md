@@ -170,6 +170,14 @@ reconstructing them, and so "change goals from 10 to 18" is a change from
 something true. Feeding that map straight back to `/predict` reproduces the
 stored prediction exactly, and a test asserts it.
 
+`?variant=` chooses whose inputs the map holds; omitted, it is the default
+model's. Pass the variant the what-if request will go to. The prior-value
+model needs `prev_log_market_value_in_eur` and `prev_value_age_days`, and a
+`with_prior_value` prediction that lacks either — omitted, null, or a player
+never valued before the season closed — is a `422 validation_error` naming
+them. It used to be imputed with the training median and answered with a 200,
+which is a confident number about a valuation nobody supplied.
+
 ### The season in progress
 
 A player's season list now includes the season **being played**, which has no

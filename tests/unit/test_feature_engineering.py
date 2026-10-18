@@ -24,6 +24,7 @@ from src.feature_engineering.build import (
     LABEL_TIME_COLUMN,
     MINUTES_FLOOR,
     NUMERIC_FEATURES,
+    PRIOR_VALUE_DATE_COLUMN,
     PRIOR_VALUE_FEATURES,
     TARGET_COLUMN,
     add_career_history,
@@ -33,6 +34,8 @@ from src.feature_engineering.build import (
     assign_season,
     attach_label,
     attach_player_attributes,
+    attach_prior_value,
+    build_current_season_table,
     build_training_table,
     season_boundary_dates,
     select_variant,
@@ -403,159 +406,135 @@ class TestDerivedFeatures:
 
 
 # --------------------------------------------------------------------------
-# The lagged prior value
+# The prior value, and career depth
 # --------------------------------------------------------------------------
 
 
-def career(
-    seasons: list[int],
-    values: list[int],
-    label_dates: list[str],
-    as_of_dates: list[str] | None = None,
-) -> pd.DataFrame:
-    """A player's labelled seasons.
-
-    ``as_of_date`` defaults to 1 July following each season, which is the real
-    boundary the builder computes. It is required rather than optional because
-    a prior value is only usable if it was published before this season's
-    features closed, and that comparison needs the boundary.
-    """
+def rows_at(as_of_dates: list[str], player_id: int = 1) -> pd.DataFrame:
+    """Player-season rows closing at the given as-of dates."""
     return pd.DataFrame(
         {
-            "player_id": 1,
-            "season": seasons,
-            TARGET_COLUMN: values,
-            LABEL_TIME_COLUMN: pd.to_datetime(label_dates),
-            AS_OF_COLUMN: pd.to_datetime(
-                as_of_dates
-                if as_of_dates is not None
-                else [f"{season + 1}-07-01" for season in seasons]
-            ),
+            "player_id": player_id,
+            "season": [pd.Timestamp(d).year - 1 for d in as_of_dates],
+            AS_OF_COLUMN: pd.to_datetime(as_of_dates),
         }
     )
 
 
-class TestCareerHistory:
-    def test_the_first_season_has_no_prior_value(self) -> None:
-        result = add_career_history(career([2019], [1_000_000], ["2020-07-15"]))
-        assert pd.isna(result["prev_market_value_in_eur"].iloc[0])
+def valuations_at(entries: list[tuple[str, float]], player_id: int = 1) -> pd.DataFrame:
+    return pd.DataFrame(
+        {
+            "player_id": player_id,
+            "date": [date for date, _ in entries],
+            TARGET_COLUMN: [value for _, value in entries],
+        }
+    )
 
-    def test_a_later_season_carries_the_previous_label(self) -> None:
-        result = add_career_history(
-            career([2019, 2020], [1_000_000, 4_000_000], ["2020-07-15", "2021-07-15"])
-        ).sort_values("season")
-        assert result["prev_market_value_in_eur"].iloc[1] == 1_000_000
-        # Staleness is now measured from the as-of date (2021-07-01), not from
-        # the current label: what mattered is how old the prior value was when
-        # this season's evidence closed.
-        assert result["prev_value_age_days"].iloc[1] == 351
+
+class TestPriorValue:
+    def test_it_is_the_latest_valuation_strictly_before_the_as_of_date(self) -> None:
+        out = attach_prior_value(
+            rows_at(["2021-07-01"]),
+            valuations_at([("2020-12-01", 1e6), ("2021-06-10", 2e6), ("2021-07-01", 9e6)]),
+        ).iloc[0]
+        # 2021-07-01 is the row's own label, not its prior.
+        assert out["prev_market_value_in_eur"] == 2e6
+        assert out[PRIOR_VALUE_DATE_COLUMN] == pd.Timestamp("2021-06-10")
+        assert out["prev_value_age_days"] == 21
+        assert out["prev_log_market_value_in_eur"] == pytest.approx(np.log1p(2e6))
+
+    def test_a_valuation_on_the_as_of_date_is_never_the_prior(self) -> None:
+        out = attach_prior_value(rows_at(["2021-07-01"]), valuations_at([("2021-07-01", 9e6)]))
+        assert pd.isna(out["prev_market_value_in_eur"].iloc[0])
+        assert pd.isna(out[PRIOR_VALUE_DATE_COLUMN].iloc[0])
+
+    def test_no_earlier_valuation_means_no_prior_not_a_zero(self) -> None:
+        out = attach_prior_value(rows_at(["2021-07-01"]), valuations_at([("2022-01-01", 1e6)]))
+        assert out[["prev_market_value_in_eur", *PRIOR_VALUE_FEATURES]].isna().all().all()
+
+    def test_a_first_covered_season_still_gets_a_prior_if_one_was_published(self) -> None:
+        """F4. The old training definition — the previous *labelled row's*
+        label — gave every first covered season no prior, even for a player
+        Transfermarkt had valued for years, while serving read the raw
+        valuations. One definition now, so both see the same thing."""
+        out = attach_prior_value(rows_at(["2013-07-01"]), valuations_at([("2010-02-01", 5e5)]))
+        assert out["prev_market_value_in_eur"].iloc[0] == 5e5
+
+    def test_a_revaluation_after_the_previous_label_is_used(self) -> None:
+        """F4. Previous season labelled 2020-07-15, revalued 2021-03-01: the
+        prior at 2021-07-01 is the March figure, 122 days old — not the July
+        label, 351 days old. Training used the July label and serving the
+        March one; the shipped tables disagreed by a median 208 days."""
+        out = attach_prior_value(
+            rows_at(["2021-07-01"]),
+            valuations_at([("2020-07-15", 1e6), ("2021-03-01", 3e6)]),
+        ).iloc[0]
+        assert out["prev_market_value_in_eur"] == 3e6
+        assert out["prev_value_age_days"] == 122
+
+    def test_values_do_not_leak_between_players(self) -> None:
+        out = attach_prior_value(
+            rows_at(["2021-07-01"], player_id=1), valuations_at([("2020-01-01", 1e6)], player_id=2)
+        )
+        assert out["prev_market_value_in_eur"].isna().all()
+
+    def test_input_order_does_not_change_the_result(self) -> None:
+        rows = pd.concat([rows_at(["2020-07-01", "2021-07-01"]), rows_at(["2021-07-01"], 2)])
+        vals = pd.concat(
+            [
+                valuations_at([("2019-09-01", 1e6), ("2020-09-01", 2e6)]),
+                valuations_at([("2021-01-01", 7e6)], 2),
+            ]
+        )
+        key = ["player_id", "season"]
+        forward = attach_prior_value(rows, vals).sort_values(key).reset_index(drop=True)
+        shuffled = (
+            attach_prior_value(rows.iloc[::-1], vals.iloc[::-1])
+            .sort_values(key)
+            .reset_index(drop=True)
+        )
+        pd.testing.assert_frame_equal(forward, shuffled)
+
+    def test_the_training_and_serving_builds_share_the_definition(
+        self, sample_players, sample_valuations, sample_appearances
+    ) -> None:
+        """F4, end to end. Rebuild one labelled season as if it were unlabelled
+        and its prior-value columns must come out identical."""
+        training = build_training_table(sample_players, sample_valuations, sample_appearances)
+        last = int(training["season"].max())
+        earlier = training[training["season"] < last]
+        served = build_current_season_table(
+            sample_players,
+            sample_valuations,
+            sample_appearances,
+            earlier,
+            label_tolerance_days=30_000,  # keep every unlabelled row in scope
+        )
+        columns = ["player_id", "season", "prev_market_value_in_eur", *PRIOR_VALUE_FEATURES]
+        trained = training.loc[training["season"] == last, columns]
+        both = trained.merge(served[columns], on=["player_id", "season"], suffixes=("", "_s"))
+        assert len(both) == len(trained)
+        for column in columns[2:]:
+            pd.testing.assert_series_equal(both[column], both[f"{column}_s"], check_names=False)
+
+
+class TestCareerDepth:
+    @staticmethod
+    def career(seasons: list[int], player_id: int = 1) -> pd.DataFrame:
+        return pd.DataFrame({"player_id": player_id, "season": seasons})
 
     def test_seasons_observed_counts_only_earlier_rows(self) -> None:
-        result = add_career_history(
-            career([2018, 2019, 2020], [1, 2, 3], ["2019-07-15", "2020-07-15", "2021-07-15"])
-        ).sort_values("season")
+        result = add_career_history(self.career([2018, 2019, 2020]))
         assert list(result["seasons_observed"]) == [0, 1, 2]
 
     def test_seasons_observed_is_capped_too(self) -> None:
-        seasons = list(range(2000, 2020))
-        result = add_career_history(
-            career(seasons, list(range(len(seasons))), [f"{y + 1}-07-15" for y in seasons])
-        )
+        result = add_career_history(self.career(list(range(2000, 2020))))
         assert result["seasons_observed"].max() == int(CAREER_CENSORING_CEILING)
 
     def test_seasons_observed_restarts_for_each_player(self) -> None:
-        frame = pd.DataFrame(
-            {
-                "player_id": [1, 1, 2],
-                "season": [2019, 2020, 2020],
-                TARGET_COLUMN: [1, 2, 3],
-                LABEL_TIME_COLUMN: pd.to_datetime(["2020-07-15", "2021-07-15", "2021-07-15"]),
-                AS_OF_COLUMN: pd.to_datetime(["2020-07-01", "2021-07-01", "2021-07-01"]),
-            }
-        )
+        frame = pd.concat([self.career([2019, 2020]), self.career([2020], player_id=2)])
         result = add_career_history(frame).sort_values(["player_id", "season"])
         assert list(result["seasons_observed"]) == [0, 1, 0]
-
-    def test_a_gap_year_is_carried_with_its_staleness_recorded(self) -> None:
-        # Not dropped: a three-year-old valuation still informs, as long as the
-        # model is told how old it is.
-        result = add_career_history(
-            career([2016, 2020], [1_000_000, 4_000_000], ["2017-07-15", "2021-07-15"])
-        ).sort_values("season")
-        assert result["prev_market_value_in_eur"].iloc[1] == 1_000_000
-        # 2017-07-15 to the 2020 season's as-of date, 2021-07-01.
-        assert result["prev_value_age_days"].iloc[1] == pytest.approx(1447, abs=2)
-
-    def test_the_prior_label_always_predates_the_current_one(self) -> None:
-        result = add_career_history(
-            career([2018, 2019, 2020], [1, 2, 3], ["2019-07-15", "2020-07-15", "2021-07-15"])
-        )
-        known = result["prev_value_age_days"].dropna()
-        assert (known > 0).all()
-
-    def test_values_do_not_leak_between_players(self) -> None:
-        frame = pd.DataFrame(
-            {
-                "player_id": [1, 2],
-                "season": [2020, 2021],
-                TARGET_COLUMN: [1_000_000, 9_000_000],
-                LABEL_TIME_COLUMN: pd.to_datetime(["2021-07-15", "2022-07-15"]),
-                AS_OF_COLUMN: pd.to_datetime(["2021-07-01", "2022-07-01"]),
-            }
-        )
-        result = add_career_history(frame)
-        assert result["prev_market_value_in_eur"].isna().all()
-
-    def test_a_prior_label_published_after_this_season_is_refused(self) -> None:
-        """The defect a 365-day label window created.
-
-        Ordering by season does not guarantee the previous label predates this
-        row's as-of date: season s can be labelled the June after season s+1
-        has already begun. Its value is then present information, and the row
-        must get no prior at all rather than a lagged-looking one. On the full
-        panel this was 22 rows in 61,555 — too small to move a metric, which is
-        exactly why it needs a test.
-        """
-        result = add_career_history(
-            career(
-                [2019, 2020],
-                [1_000_000, 4_000_000],
-                # 2019 is labelled very late — on 2021-07-10, which is after
-                # the 2020 season's features closed on 2021-07-01.
-                label_dates=["2021-07-10", "2021-07-15"],
-                as_of_dates=["2020-07-01", "2021-07-01"],
-            )
-        ).sort_values("season")
-        assert pd.isna(result["prev_market_value_in_eur"].iloc[1])
-        assert pd.isna(result["prev_value_age_days"].iloc[1])
-
-    def test_a_prior_label_on_the_as_of_date_itself_is_refused(self) -> None:
-        """Strictly before, not on-or-before: a valuation published the day the
-        feature window closes may already reflect that day's match."""
-        result = add_career_history(
-            career(
-                [2019, 2020],
-                [1_000_000, 4_000_000],
-                label_dates=["2021-07-01", "2021-07-15"],
-                as_of_dates=["2020-07-01", "2021-07-01"],
-            )
-        ).sort_values("season")
-        assert pd.isna(result["prev_market_value_in_eur"].iloc[1])
-
-    def test_every_surviving_prior_is_strictly_older_than_its_row(self) -> None:
-        result = add_career_history(
-            career([2018, 2019, 2020], [1, 2, 3], ["2019-07-15", "2020-07-15", "2021-07-15"])
-        )
-        ages = result["prev_value_age_days"].dropna()
-        assert (ages > 0).all()
-
-    def test_input_order_does_not_change_the_result(self) -> None:
-        rows = career([2018, 2019, 2020], [1, 2, 3], ["2019-07-15", "2020-07-15", "2021-07-15"])
-        forward = add_career_history(rows).sort_values("season")
-        shuffled = add_career_history(rows.iloc[::-1]).sort_values("season")
-        assert list(forward["prev_market_value_in_eur"].fillna(-1)) == list(
-            shuffled["prev_market_value_in_eur"].fillna(-1)
-        )
 
 
 # --------------------------------------------------------------------------
@@ -722,7 +701,7 @@ class TestFeaturePipeline:
         assert sample_store.has_table(TRAINING_TABLE)  # type: ignore[attr-defined]
         stored = sample_store.read_table(TRAINING_TABLE)  # type: ignore[attr-defined]
         assert len(stored) == report.rows
-        assert report.rows_with_prior_value < report.rows
+        assert 0 < report.rows_with_prior_value <= report.rows
         assert report.leakage.ok
 
     def test_a_missing_input_table_is_a_keyerror_not_an_empty_table(self, tmp_path: object) -> None:
@@ -811,7 +790,7 @@ class TestTheFullFeatureSetOnSampleData:
 class TestCareerMomentum:
     """The lagged-feature block, and the premise it rests on.
 
-    `add_career_momentum` has no knowability guard, unlike `add_career_history`.
+    `add_career_momentum` has no knowability guard, unlike `attach_prior_value`.
     That is safe only because a player's as-of dates are monotone in season, so
     the previous row's evidence necessarily closed earlier. The first test here
     is that premise; the rest are the lag itself.

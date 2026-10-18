@@ -30,8 +30,10 @@ label is set in the summer that follows.
 
 **Versatility** — ``positions_played``, distinct starting positions.
 
-Everything here is computed from events inside the season being described, so
-all of it is observable at the as-of date. Nothing reads a valuation.
+Everything here is computed from events inside the season being described and
+on or before the row's as-of date. Appearance-based features meet that by
+construction (the as-of date is never before the last appearance); lineups do
+not, and :func:`squad_role` cuts them explicitly. Nothing reads a valuation.
 
 ``game_lineups.csv`` begins 2013-07-02, so role and versatility features are
 null for seasons 2011 and 2012. They are left null rather than zero-filled:
@@ -111,8 +113,31 @@ def match_level_features(appearances: pd.DataFrame, *, start_month: int = 8) -> 
     return out.drop(columns=["full_matches", "scoring_matches"])
 
 
-def squad_role(lineups: pd.DataFrame, *, start_month: int = 8) -> pd.DataFrame:
+LINEUP_RECORD_DATE_COLUMN = "lineup_record_date"
+"""Date of the most recent lineup folded into this row's role features.
+
+Kept on the row for the same reason as ``club_record_date``: it turns "the
+lineups were cut at the as-of date" from an argument into a value the leakage
+stage can check.
+"""
+
+
+def squad_role(
+    lineups: pd.DataFrame,
+    as_of: pd.DataFrame,
+    *,
+    start_month: int = 8,
+    as_of_column: str = "as_of_date",
+) -> pd.DataFrame:
     """Starts, substitute appearances, captaincy and positional versatility.
+
+    Counted **up to each row's as-of date**, which ``as_of`` supplies per
+    player-season. A lineup is not an appearance: an unused substitute is
+    listed for a match they never played, so a player's lineups run past the
+    last appearance — and so past the as-of date — after any July spent on
+    the bench. The season-wide count this replaced folded those future
+    matches into 5,816 training rows (6.77%), 307 of them past the label date.
+    The newest lineup used is returned as :data:`LINEUP_RECORD_DATE_COLUMN`.
 
     ``game_lineups.csv`` begins in 2013, so earlier seasons produce no rows and
     join to null downstream. That is the honest representation: the role is not
@@ -121,7 +146,11 @@ def squad_role(lineups: pd.DataFrame, *, start_month: int = 8) -> pd.DataFrame:
     frame = lineups.loc[:, ["date", "player_id", "type", "position", "team_captain"]].copy()
     frame["date"] = pd.to_datetime(frame["date"], errors="coerce")
     frame["season"] = _season_of(frame["date"], start_month)
-    frame = frame.dropna(subset=["season"]).astype({"season": "int64"})
+    frame = frame.dropna(subset=["season", "date"]).astype({"season": "int64"})
+
+    cut = as_of.loc[:, ["player_id", "season", as_of_column]]
+    frame = frame.merge(cut, on=["player_id", "season"], how="inner")
+    frame = frame[frame["date"] <= frame[as_of_column]]
 
     frame["is_start"] = frame["type"].eq("starting_lineup")
     frame["is_sub"] = frame["type"].eq("substitutes")
@@ -131,6 +160,7 @@ def squad_role(lineups: pd.DataFrame, *, start_month: int = 8) -> pd.DataFrame:
         substitute_appearances=("is_sub", "sum"),
         captain_matches=("team_captain", "sum"),
         positions_played=("position", "nunique"),
+        **{LINEUP_RECORD_DATE_COLUMN: ("date", "max")},
     )
     listed = out["starts"] + out["substitute_appearances"]
     out["start_share"] = out["starts"] / listed.clip(lower=1)
@@ -173,6 +203,7 @@ def attach_performance(
 
 __all__ = [
     "FULL_MATCH_MINUTES",
+    "LINEUP_RECORD_DATE_COLUMN",
     "PERFORMANCE_NUMERIC",
     "attach_performance",
     "match_level_features",

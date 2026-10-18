@@ -66,7 +66,7 @@ export default function PlayerPage({
   const fetcher = useCallback(async (): Promise<PageData> => {
     // The player record is what the page cannot render without, so it is
     // awaited first: a 404 here should not wait on four other requests.
-    const player = await api.player(playerId);
+    const player = await api.player(playerId, variant);
 
     const [prediction, neighbours, info, metrics, history] = await Promise.all([
       api.predictForPlayer(playerId, variant),

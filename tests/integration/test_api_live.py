@@ -149,12 +149,23 @@ class TestNothingImportantIsSilentlyEmpty:
     """
 
     def _some_player_with_a_current_season(self, client: TestClient) -> int:
-        """A player whose latest row is the season being played — the exact
-        population both bugs silently excluded."""
+        """A player whose latest row is the season being played *and* who has
+        a labelled season behind it — the exact population both bugs silently
+        excluded.
+
+        The labelled season is required, not incidental. Comparables anchor on
+        the latest labelled season and history plots predicted against
+        actual, so a player with no valuation yet correctly gets neither.
+        Since current rows are chosen per player-season (Phase 19, F6), the
+        first current row is a 2024 debutant still awaiting a first valuation,
+        and picking by row order picked one."""
         service = client.app.state.service
-        current = service._players[~service._players["has_label"].fillna(True)]
+        panel = service._players
+        current = panel[~panel["has_label"].fillna(True)]
+        valued = set(panel.loc[panel["has_label"].fillna(True), "player_id"])
+        current = current[current["player_id"].isin(valued)]
         if current.empty:
-            pytest.skip("no current-season rows in this build")
+            pytest.skip("no current-season rows with a labelled history in this build")
         return int(current.iloc[0]["player_id"])
 
     def test_an_active_player_gets_comparables(self, client: TestClient) -> None:

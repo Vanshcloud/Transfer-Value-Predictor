@@ -326,11 +326,18 @@ class PredictionService:
 
     # -- player lookup ---------------------------------------------------
 
-    def player(self, player_id: int) -> dict[str, Any]:
+    def player(self, player_id: int, *, variant: str | None = None) -> dict[str, Any]:
         """A player's record and every season on file.
+
+        ``features`` are the inputs of ``variant``'s model, so a client that
+        seeds a what-if request from them sends that model what it needs —
+        the prior-value inputs included. They were always the default
+        variant's, which made every prior-value what-if a request with its
+        prior valuation omitted.
 
         Raises:
             PlayerNotFoundError: if the id is not in the dataset.
+            ModelNotFoundError: if ``variant`` is not loaded.
         """
         rows = self._player_rows(player_id)
         latest = rows.iloc[-1]
@@ -364,7 +371,7 @@ class PredictionService:
                 }
                 for _, row in rows.iterrows()
             ],
-            "features": self.features_for(player_id),
+            "features": self.features_for(player_id, variant=variant),
         }
 
     def features_for(
@@ -837,6 +844,38 @@ class PredictionService:
                 f"invalid feature value(s): {'; '.join(problems)}", detail=problems
             )
 
+    @staticmethod
+    def _require_prior_value(artifact: ModelArtifact, row: pd.DataFrame) -> None:
+        """Refuse a prior-value prediction that has no prior value.
+
+        The prior-value variant is trained only on rows that have one
+        (`select_variant` drops the rest), so a missing prior is not an
+        ordinary gap for the imputer — it asks the model about a population it
+        never saw, and the answer is anchored on the training *median* prior.
+        That is what a what-if request seeded from the performance-only
+        feature set used to receive, with a 200 and a confident number.
+
+        Here rather than in either caller because both reach it: an explicit
+        feature mapping that omits the inputs, and a stored row whose player
+        had never been valued before the as-of date.
+
+        Raises:
+            InvalidFeaturesError: naming the missing prior-value inputs.
+        """
+        required = [column for column in PRIOR_VALUE_FEATURES if column in artifact.feature_columns]
+        missing = [
+            column
+            for column in required
+            if column not in row.columns or pd.isna(row.iloc[0][column])
+        ]
+        if missing:
+            raise InvalidFeaturesError(
+                f"the {artifact.variant} model needs a prior valuation; missing "
+                f"{', '.join(missing)}. Use the performance_only variant for a player "
+                "with no earlier valuation",
+                detail=missing,
+            )
+
     def _predict(
         self,
         artifact: ModelArtifact,
@@ -845,6 +884,7 @@ class PredictionService:
         player_id: int | None,
         season: int | None,
     ) -> PredictionResult:
+        self._require_prior_value(artifact, row)
         prediction = float(predict(artifact, row)[0])
 
         explanation = None

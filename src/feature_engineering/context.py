@@ -40,13 +40,15 @@ it, and that is the target. Computing it from the current season would be
 textbook target leakage: the label would be encoded into a feature under
 another name.
 
-So it is computed with a **strictly expanding window**: the value level for
-competition *c* in season *s* uses only seasons *< s*. Season *s* itself never
-contributes to its own feature. A competition appearing for the first time has
-no history and gets a null, which the fitted imputer fills exactly as it does
-for any other missing value. :func:`competition_strength` asserts the shift
-rather than describing it, and ``tests/unit/test_context.py`` asserts it again
-on a frame built to fail if the shift is dropped.
+So it is computed with a **strictly expanding window** bounded by publication
+date: the value level for competition *c* in season *s* uses only labels from
+seasons *< s* that were published before season *s* closed. Season *s* itself
+never contributes to its own feature. A competition appearing for the first
+time has no history and gets a null, which the fitted imputer fills exactly as
+it does for any other missing value. The newest label used is kept on the row
+as ``competition_level_source_date`` so the leakage stage can audit the bound
+by value, and ``tests/unit/test_context.py`` asserts it on frames built to fail
+if either bound is dropped.
 """
 
 from __future__ import annotations
@@ -227,53 +229,106 @@ def club_season_strength(club_games: pd.DataFrame, games: pd.DataFrame) -> pd.Da
     return running
 
 
-def competition_strength(labelled: pd.DataFrame, *, target_column: str) -> pd.DataFrame:
-    """Value level per competition-season, from **strictly earlier** seasons only.
+COMPETITION_LEVEL_DATE_COLUMN = "competition_level_source_date"
+"""Publication date of the newest label folded into ``competition_value_level``.
+
+The encoding's provenance, carried into the table so the leakage stage can
+check by value that every label it averages was public before the row's as-of
+date. "Earlier season" is not the same thing: see :func:`competition_strength`.
+"""
+
+
+def competition_strength(
+    labelled: pd.DataFrame,
+    *,
+    target_column: str,
+    cutoffs: pd.Series,
+    label_time_column: str = "label_date",
+) -> pd.DataFrame:
+    """Value level per competition-season, from labels **published before the season closed**.
 
     This is a target encoding, which is the most reliable way to leak a label
-    into a feature. The defence is arithmetic rather than careful: the
-    per-season mean is computed, then ``shift(1)`` moves it one season forward
-    and ``expanding().mean()`` accumulates only what came before. Season *s*
-    contributes to *s+1* and never to itself, so a row's own label is not in
-    its own feature by construction.
+    into a feature. Two conditions bound what season *s* may see:
 
-    Returns one row per (competition, season) with the level to attach to that
-    season. Competitions in their first observed season get NaN, which the
-    fitted imputer handles like any other missing value.
+    * the label belongs to a season strictly before *s*, so a row's own label
+      is never in its own feature; and
+    * the label was published strictly before ``cutoffs[s]``.
+
+    The second condition is the one an earlier version lacked. It used every
+    label of every earlier season, but with a 365-day label window season
+    *s-1* can be labelled after season *s*'s features have closed: measured on
+    the full panel, 8,413 training rows (9.79%) encoded at least one label
+    published on or after their own as-of date. "Earlier season" is a claim
+    about the calendar; publication date is the fact.
+
+    ``cutoffs`` maps each season to compute to its cutoff. The caller passes
+    the season boundary, which is never later than any as-of date in that
+    season (``as_of = max(boundary, last appearance)``), so one value per
+    competition-season is safe for every row in it. Taking the seasons from the
+    caller rather than from ``labelled`` is also what lets a season with no
+    labels yet — the one being played — receive a level: it is computed from
+    history, so it does not need a label of its own.
+
+    Each earlier season contributes its mean log value, seasons with fewer than
+    :data:`MIN_ROWS_FOR_STRENGTH` published labels contribute nothing, and the
+    level is the mean of those season means. A competition with no qualifying
+    history is absent from the result and joins as null.
     """
-    frame = labelled.loc[:, ["primary_competition_id", "season", target_column]].dropna()
-    per_season = (
-        frame.groupby(["primary_competition_id", "season"], as_index=False)
-        .agg(
-            level=(target_column, lambda s: float(np.log1p(s).mean())), rows=(target_column, "size")
+    columns = ["primary_competition_id", "season", target_column, label_time_column]
+    frame = labelled.loc[:, columns].dropna()
+    frame = frame.assign(_log_value=np.log1p(frame[target_column]))
+
+    levels = []
+    for season, cutoff in zip(cutoffs.index.to_numpy(dtype="int64"), cutoffs, strict=True):
+        known = frame[(frame["season"] < season) & (frame[label_time_column] < cutoff)]
+        per_season = known.groupby(["primary_competition_id", "season"]).agg(
+            level=("_log_value", "mean"),
+            rows=("_log_value", "size"),
+            published=(label_time_column, "max"),
         )
-        .sort_values(["primary_competition_id", "season"])
-    )
-    # Seasons too thin to mean anything still count toward history; they just
-    # do not get to define a level on their own.
-    per_season.loc[per_season["rows"] < MIN_ROWS_FOR_STRENGTH, "level"] = np.nan
+        # Seasons too thin to mean anything do not get to define a level.
+        per_season = per_season[per_season["rows"] >= MIN_ROWS_FOR_STRENGTH]
+        level = per_season.groupby("primary_competition_id").agg(
+            competition_value_level=("level", "mean"),
+            **{COMPETITION_LEVEL_DATE_COLUMN: ("published", "max")},
+        )
+        levels.append(level.reset_index().assign(season=int(season)))
 
-    grouped = per_season.groupby("primary_competition_id", sort=False)["level"]
-    per_season["competition_value_level"] = grouped.transform(
-        lambda s: s.shift(1).expanding().mean()
+    out = (
+        pd.concat(levels, ignore_index=True)
+        if levels
+        else pd.DataFrame(
+            columns=[
+                "primary_competition_id",
+                "competition_value_level",
+                COMPETITION_LEVEL_DATE_COLUMN,
+                "season",
+            ]
+        )
     )
-
-    out = per_season.loc[
-        :, ["primary_competition_id", "season", "competition_value_level"]
-    ].reset_index(drop=True)
 
     # Rank within season, so the feature is "how strong relative to the rest of
     # the panel this year" rather than an absolute figure that drifts with
-    # football's general inflation.
+    # football's general inflation. Ranked among every competition with a
+    # level at that cutoff, which is itself knowable at the cutoff.
     out["competition_tier_rank"] = out.groupby("season")["competition_value_level"].rank(
         pct=True, ascending=True
     )
     logger.info(
-        "competition strength for %d competition-seasons (%d with history)",
+        "competition strength for %d competition-seasons over %d season(s)",
         len(out),
-        int(out["competition_value_level"].notna().sum()),
+        len(cutoffs),
     )
-    return out
+    return out.loc[
+        :,
+        [
+            "primary_competition_id",
+            "season",
+            "competition_value_level",
+            "competition_tier_rank",
+            COMPETITION_LEVEL_DATE_COLUMN,
+        ],
+    ]
 
 
 CLUB_RECORD_DATE_COLUMN = "club_record_date"
@@ -355,6 +410,7 @@ def _attach_club_record(
 __all__ = [
     "CLUB_RECORD_DATE_COLUMN",
     "CLUB_RUNNING_COLUMNS",
+    "COMPETITION_LEVEL_DATE_COLUMN",
     "CONTEXT_CATEGORICAL",
     "CONTEXT_NUMERIC",
     "MIN_ROWS_FOR_STRENGTH",

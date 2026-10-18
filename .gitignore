@@ -30,6 +30,12 @@ data/processed/*
 models/*
 !models/.gitkeep
 
+# Superseded tables, artifacts and reports, kept locally as evidence when a
+# remediation changes what they were built from. Binary and large, like the
+# models/ and data/ they were copied from; the numbers they produced are
+# recorded in plans/ and committed.
+archive/
+
 # ---- Tooling ----
 .pytest_cache/
 .mypy_cache/

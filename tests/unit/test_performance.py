@@ -6,11 +6,17 @@ import pandas as pd
 import pytest
 
 from src.feature_engineering.performance import (
+    LINEUP_RECORD_DATE_COLUMN,
     PERFORMANCE_NUMERIC,
     attach_performance,
     match_level_features,
     squad_role,
 )
+
+AS_OF_2020 = pd.DataFrame(
+    {"player_id": [1], "season": [2020], "as_of_date": pd.to_datetime(["2021-07-01"])}
+)
+"""Player 1's 2020 season closes on the boundary, 1 July 2021."""
 
 
 @pytest.fixture
@@ -91,7 +97,7 @@ class TestSquadRole:
                 },
             ]
         )
-        out = squad_role(lineups).iloc[0]
+        out = squad_role(lineups, AS_OF_2020).iloc[0]
         assert out["starts"] == 2
         assert out["substitute_appearances"] == 1
         assert out["start_share"] == pytest.approx(2 / 3)
@@ -102,8 +108,61 @@ class TestSquadRole:
         """game_lineups.csv starts in 2013. Earlier seasons must join to null,
         never to zero: 'did not start' and 'unknown' are different claims."""
         assert squad_role(
-            pd.DataFrame(columns=["date", "player_id", "type", "position", "team_captain"])
+            pd.DataFrame(columns=["date", "player_id", "type", "position", "team_captain"]),
+            AS_OF_2020,
         ).empty
+
+    def test_a_lineup_after_the_as_of_date_is_not_counted(self) -> None:
+        """F1. A lineup is not an appearance: an unused substitute is listed for
+        matches they never played, so lineups run past the last appearance and so
+        past the as-of date. Counted season-wide, a bench spot on 20 July told a
+        row closed on 1 July about a match that had not happened — 5,816
+        training rows on the full panel, 307 of them past their label."""
+        lineups = pd.DataFrame(
+            [
+                {
+                    "date": date,
+                    "player_id": 1,
+                    "type": kind,
+                    "position": "Centre-Back",
+                    "team_captain": 0,
+                }
+                for date, kind in (
+                    ("2021-05-01", "starting_lineup"),
+                    ("2021-07-01", "starting_lineup"),  # on the as-of date: observed
+                    ("2021-07-20", "substitutes"),  # after it: the future
+                )
+            ]
+        )
+        out = squad_role(lineups, AS_OF_2020).iloc[0]
+        assert out["starts"] == 2
+        assert out["substitute_appearances"] == 0
+        assert out[LINEUP_RECORD_DATE_COLUMN] == pd.Timestamp("2021-07-01")
+
+    def test_the_cutoff_is_per_player_season(self) -> None:
+        """Two players in one season close at different dates — a July
+        tournament keeps one window open — and each is cut at its own."""
+        lineups = pd.DataFrame(
+            [
+                {
+                    "date": "2021-07-10",
+                    "player_id": pid,
+                    "type": "starting_lineup",
+                    "position": "Centre-Back",
+                    "team_captain": 0,
+                }
+                for pid in (1, 2)
+            ]
+        )
+        as_of = pd.DataFrame(
+            {
+                "player_id": [1, 2],
+                "season": [2020, 2020],
+                "as_of_date": pd.to_datetime(["2021-07-01", "2021-07-12"]),
+            }
+        )
+        out = squad_role(lineups, as_of).set_index("player_id")
+        assert list(out.index) == [2]
 
 
 class TestAvailability:

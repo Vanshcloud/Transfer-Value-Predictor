@@ -229,7 +229,13 @@ export const api = {
       `/api/v1/players?q=${encodeURIComponent(query)}&limit=${limit}`,
     ),
 
-  player: (id: number) => request<Player>(`/api/v1/players/${id}`),
+  /**
+   * `features` are the inputs of `variant`'s model, so the what-if panel can
+   * send them back unchanged. Without it they are the default model's, and a
+   * prior-value what-if would go out with its prior valuation missing.
+   */
+  player: (id: number, variant?: Variant) =>
+    request<Player>(`/api/v1/players/${id}${variant ? `?variant=${variant}` : ""}`),
 
   similarPlayers: (id: number, k = 8, variant?: Variant) =>
     request<{

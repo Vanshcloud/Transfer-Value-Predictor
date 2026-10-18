@@ -83,11 +83,12 @@ def current(sources: dict[str, pd.DataFrame], training: pd.DataFrame) -> pd.Data
 
 
 class TestCurrentSeasonTable:
-    def test_it_holds_only_seasons_after_the_last_labelled_one(
+    def test_it_holds_only_player_seasons_with_no_label(
         self, current: pd.DataFrame, training: pd.DataFrame
     ) -> None:
         assert not current.empty
-        assert current["season"].min() > training["season"].max()
+        keys = ["player_id", "season"]
+        assert training[keys].merge(current[keys]).empty
 
     def test_the_target_is_absent_not_zero(self, current: pd.DataFrame) -> None:
         """A fit on these rows must fail loudly, not learn that they are free."""
@@ -126,12 +127,20 @@ class TestCurrentSeasonTable:
         """Two labelled seasons behind each player in this fixture."""
         assert (current["seasons_observed"] == 2).all()
 
-    def test_it_is_empty_when_every_season_is_already_labelled(
+    def test_it_is_empty_once_every_open_window_has_closed(
         self, sources: dict[str, pd.DataFrame], training: pd.DataFrame
     ) -> None:
-        ahead = training.assign(season=training["season"] + 100)
+        """A valuation published years later (for anyone) closes every window
+        in the fixture: a player-season unlabelled by then never will be, and
+        is a gap in the source rather than the season being played."""
+        later = pd.concat(
+            [
+                sources["valuations"],
+                pd.DataFrame([{"player_id": 99, "date": "2030-01-01", "market_value_in_eur": 1.0}]),
+            ]
+        )
         out = build_current_season_table(
-            sources["players"], sources["valuations"], sources["appearances"], ahead
+            sources["players"], later, sources["appearances"], training
         )
         assert out.empty
 
@@ -142,3 +151,59 @@ class TestCurrentSeasonTable:
         features fall, which is the honest signal, and nothing errors."""
         assert (current["appearances"] > 0).all()
         assert np.isfinite(current["minutes_played"]).all()
+
+
+@pytest.fixture(scope="module")
+def one_revalued(sources: dict[str, pd.DataFrame]) -> dict[str, pd.DataFrame]:
+    """Player 1's 2024 season is valued on 2025-08-01; player 2's is not yet."""
+    valuations = pd.concat(
+        [
+            sources["valuations"],
+            pd.DataFrame(
+                [{"player_id": 1, "date": "2025-08-01", "market_value_in_eur": 2_000_000.0}]
+            ),
+        ],
+        ignore_index=True,
+    )
+    training = build_training_table(sources["players"], valuations, sources["appearances"])
+    current = build_current_season_table(
+        sources["players"], valuations, sources["appearances"], training
+    )
+    return {"training": training, "current": current}
+
+
+class TestPlayerLevelLabelAvailability:
+    """F6. Which rows are "current" is decided per player-season.
+
+    The rule this replaced was ``season > max(training season)``. The moment
+    one player's 2024 season was revalued, 2024 became "labelled" for
+    everyone, and every other 2024 row — still waiting for its valuation —
+    fell out of both tables.
+    """
+
+    def test_a_player_season_still_awaiting_its_label_is_current(
+        self, one_revalued: dict[str, pd.DataFrame]
+    ) -> None:
+        current = one_revalued["current"]
+        assert set(zip(current["player_id"], current["season"], strict=True)) == {(2, 2024)}
+
+    def test_a_labelled_player_season_is_never_current(
+        self, one_revalued: dict[str, pd.DataFrame]
+    ) -> None:
+        training, current = one_revalued["training"], one_revalued["current"]
+        assert ((training["player_id"] == 1) & (training["season"] == 2024)).any()
+        keys = ["player_id", "season"]
+        assert training[keys].merge(current[keys]).empty
+
+    def test_every_player_season_lands_in_exactly_one_table_while_its_window_is_open(
+        self, one_revalued: dict[str, pd.DataFrame], sources: dict[str, pd.DataFrame]
+    ) -> None:
+        keys = ["player_id", "season"]
+        both = pd.concat([one_revalued["training"][keys], one_revalued["current"][keys]])
+        assert not both.duplicated().any()
+        played = sources["appearances"].assign(
+            season=lambda f: (
+                pd.to_datetime(f["date"]).dt.year - (pd.to_datetime(f["date"]).dt.month < 8)
+            )
+        )
+        assert len(both) == played[keys].drop_duplicates().shape[0]

@@ -15,11 +15,13 @@ import pytest
 from src.validation.leakage import (
     CURRENT_STATE_COLUMNS,
     LeakageValidator,
+    Provenance,
     check_feature_time_precedes_label,
     check_lagged_values_precede_features,
     check_no_current_state_columns,
     check_no_duplicate_entities,
     check_no_future_dates,
+    check_provenance_within_cutoff,
     check_splits_are_disjoint,
     check_target_absent_from_features,
     detect_leakage,
@@ -442,3 +444,138 @@ class TestLaggedValuesPrecedeFeatures:
         )
         report = validator.validate(frame)
         assert any(f.check == "leakage_lagged_value_not_lagged" for f in report.errors)
+
+
+class TestProvenanceWithinCutoff:
+    """F1/F2. A windowed feature's inputs must predate the *as-of* date.
+
+    ``check_no_future_dates`` compares with the label, which is too late a
+    bound: a lineup dated between the as-of date and the label is still a fact
+    from after the features closed, and passed it. A target encoding has no
+    date column of its own at all. Both are caught here by the provenance
+    dates the builder leaves on each row.
+    """
+
+    LINEUPS = Provenance("lineup_record_date", ("starts",), strict=False)
+    LEVELS = Provenance("competition_level_source_date", ("competition_value_level",), strict=True)
+
+    @staticmethod
+    def frame(**columns: object) -> pd.DataFrame:
+        base = {
+            "as_of_date": pd.to_datetime(["2021-07-01", "2021-07-01"]),
+            "label_date": pd.to_datetime(["2021-09-01", "2021-09-01"]),
+        }
+        return pd.DataFrame({**base, **columns})
+
+    def test_inputs_on_or_before_the_cutoff_pass(self) -> None:
+        frame = self.frame(
+            lineup_record_date=pd.to_datetime(["2021-06-01", "2021-07-01"]),
+            starts=[10, 12],
+            competition_level_source_date=pd.to_datetime(["2021-06-30", "2020-07-15"]),
+            competition_value_level=[14.0, 15.0],
+        )
+        assert (
+            check_provenance_within_cutoff(
+                frame, cutoff_column="as_of_date", provenance=(self.LINEUPS, self.LEVELS)
+            )
+            == []
+        )
+
+    def test_an_event_after_the_cutoff_but_before_the_label_is_caught(self) -> None:
+        """The F1 shape, which `check_no_future_dates` let through."""
+        frame = self.frame(
+            lineup_record_date=pd.to_datetime(["2021-06-01", "2021-07-20"]), starts=[10, 12]
+        )
+        assert check_no_future_dates(frame, label_time_column="label_date") == []
+        findings = check_provenance_within_cutoff(
+            frame, cutoff_column="as_of_date", provenance=(self.LINEUPS,)
+        )
+        assert len(findings) == 1
+        assert findings[0].severity is Severity.ERROR
+        assert findings[0].count == 1
+
+    def test_a_label_published_on_the_cutoff_is_caught(self) -> None:
+        """Strict for labels: a valuation published on the as-of date is the
+        row's own label, not history."""
+        frame = self.frame(
+            competition_level_source_date=pd.to_datetime(["2021-06-30", "2021-07-01"]),
+            competition_value_level=[14.0, 15.0],
+        )
+        findings = check_provenance_within_cutoff(
+            frame, cutoff_column="as_of_date", provenance=(self.LEVELS,)
+        )
+        assert [f.count for f in findings] == [1]
+
+    def test_a_feature_value_with_no_provenance_is_an_error(self) -> None:
+        """An undated value cannot be audited; dropping the date column must
+        not quietly turn the check off."""
+        frame = self.frame(
+            competition_level_source_date=pd.to_datetime([None, None]),
+            competition_value_level=[14.0, np.nan],
+        )
+        findings = check_provenance_within_cutoff(
+            frame, cutoff_column="as_of_date", provenance=(self.LEVELS,)
+        )
+        assert [f.count for f in findings] == [1]
+
+    def test_an_absent_provenance_column_is_an_error_not_a_skip(self) -> None:
+        findings = check_provenance_within_cutoff(
+            self.frame(starts=[1, 2]), cutoff_column="as_of_date", provenance=(self.LINEUPS,)
+        )
+        assert findings and findings[0].severity is Severity.ERROR
+
+    def test_the_validator_runs_it(self) -> None:
+        validator = LeakageValidator(
+            feature_columns=("starts",),
+            target_column="market_value_in_eur",
+            cutoff_column="as_of_date",
+            provenance=(self.LINEUPS,),
+        )
+        frame = self.frame(
+            lineup_record_date=pd.to_datetime(["2021-06-01", "2021-07-20"]),
+            starts=[10, 12],
+            market_value_in_eur=[1e6, 2e6],
+        )
+        assert any(f.check == "leakage_provenance" for f in validator.validate(frame).errors)
+
+
+@pytest.fixture(scope="module")
+def built(sample_players, sample_valuations, sample_appearances, sample_context) -> pd.DataFrame:
+    from src.feature_engineering.build import build_training_table
+
+    return build_training_table(
+        sample_players, sample_valuations, sample_appearances, **sample_context
+    )
+
+
+class TestTheShippedContract:
+    """The pipeline's validator, run on a real built table and then on one
+    deliberately broken in each of the ways F1, F2 and F4 broke it."""
+
+    @staticmethod
+    def errors(frame: pd.DataFrame) -> list[str]:
+        from src.feature_engineering.build import FEATURE_COLUMNS
+        from src.pipelines.features import leakage_validator
+
+        return [f.check for f in leakage_validator(FEATURE_COLUMNS).validate(frame).errors]
+
+    def test_the_built_table_is_clean(self, built: pd.DataFrame) -> None:
+        assert self.errors(built) == []
+
+    @pytest.mark.parametrize(
+        ("column", "offset_days"),
+        [
+            ("lineup_record_date", 1),  # F1: a lineup after the as-of date
+            ("competition_level_source_date", 0),  # F2: a label published on it
+            ("prev_value_date", 0),  # F4: a "prior" published on it
+            ("club_record_date", 1),
+        ],
+    )
+    def test_each_provenance_breach_is_caught(
+        self, built: pd.DataFrame, column: str, offset_days: int
+    ) -> None:
+        broken = built.copy()
+        row = broken[column].first_valid_index()
+        assert row is not None, f"sample has no dated {column}"
+        broken.loc[row, column] = broken.loc[row, "as_of_date"] + pd.Timedelta(offset_days, "D")
+        assert "leakage_provenance" in self.errors(broken)

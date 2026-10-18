@@ -13,6 +13,8 @@ from dataclasses import dataclass
 import pandas as pd
 
 from src.feature_engineering.build import (
+    AS_OF_COLUMN,
+    FEATURE_PROVENANCE,
     FEATURE_TIME_COLUMN,
     LABEL_TIME_COLUMN,
     TARGET_COLUMN,
@@ -56,6 +58,11 @@ def leakage_validator(feature_columns: tuple[str, ...]) -> LeakageValidator:
         label_time_column=LABEL_TIME_COLUMN,
         entity_keys=ENTITY_KEYS,
         table=TRAINING_TABLE,
+        # The information boundary for every windowed feature. The label is
+        # later and is checked separately; a feature may not use anything
+        # after the as-of date even when it precedes the label.
+        cutoff_column=AS_OF_COLUMN,
+        provenance=FEATURE_PROVENANCE,
     )
 
 
@@ -159,9 +166,9 @@ def build_features(
 
     store.write_table(TRAINING_TABLE, table)
 
-    # Rows for the season(s) after the last labelled one. They cannot be
-    # trained on — they have no target — but every feature they need is already
-    # known, so there is no reason the service cannot price them.
+    # Player-seasons still awaiting their label. They cannot be trained on —
+    # they have no target — but every feature they need is already known, so
+    # there is no reason the service cannot price them.
     current = build_current_season_table(
         frames["players"],
         frames["player_valuations"],
@@ -172,14 +179,15 @@ def build_features(
         club_games=context.get("club_games"),
         lineups=context.get("game_lineups"),
         season_start_month=season_start_month,
+        label_tolerance_days=tolerance_days,
     )
     if not current.empty:
         # The serving table gets the same contract as the training table.
         # It had none: these rows are what `/api/v1/predict` answers from, and
         # nothing checked that a feature on them predates the moment they claim
         # to describe. They have no label, so the label-ordering checks skip
-        # themselves; the duplicate, current-state and lagged-value checks all
-        # still apply and are the ones that would catch a bad join here.
+        # themselves; the duplicate, current-state, lagged-value and provenance
+        # checks all still apply and are the ones that would catch a bad join.
         current_leakage = leakage_validator(all_columns).validate(current)
         for finding in current_leakage.warnings:
             logger.warning("current_season: %s", finding.render())

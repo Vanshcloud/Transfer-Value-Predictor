@@ -746,3 +746,99 @@ class TestImplausibleValuesAreRejected:
         """15 and 45 are ages a player can be, not ones he cannot."""
         assert service.predict_from_features({"age": 15.0}).prediction_eur > 0
         assert service.predict_from_features({"age": 45.0}).prediction_eur > 0
+
+
+# --------------------------------------------------------------------------
+# F7 — the prior-value variant must be handed its prior value
+# --------------------------------------------------------------------------
+
+PRIOR_FEATURES = FEATURES + ("prev_log_market_value_in_eur", "prev_value_age_days")
+
+
+@pytest.fixture(scope="module")
+def priced_players(players: pd.DataFrame) -> pd.DataFrame:
+    """The panel with a prior valuation on every row except player 3's latest."""
+    out = players.assign(
+        prev_log_market_value_in_eur=np.log1p(players[TARGET_COLUMN] * 0.8),
+        prev_value_age_days=60.0,
+    )
+    gap = (out["player_id"] == 3) & (out["season"] == 2024)
+    out.loc[gap, ["prev_log_market_value_in_eur", "prev_value_age_days"]] = np.nan
+    return out
+
+
+@pytest.fixture(scope="module")
+def prior_artifact(priced_players: pd.DataFrame) -> ModelArtifact:
+    rows = priced_players.dropna(subset=["prev_log_market_value_in_eur"])
+    numeric = [*NUMERIC, "prev_log_market_value_in_eur", "prev_value_age_days"]
+    pipeline = build_pipeline(MODEL_REGISTRY["lightgbm"], numeric, CATEGORICAL)
+    pipeline.fit(rows[list(PRIOR_FEATURES)], rows[TARGET_COLUMN])
+    metrics = evaluate(rows[TARGET_COLUMN], pipeline.predict(rows[list(PRIOR_FEATURES)]))
+    return ModelArtifact(
+        variant="with_prior_value",
+        model_name="lightgbm",
+        params={},
+        pipeline=pipeline,
+        validation=metrics,
+        test=metrics,
+        feature_columns=PRIOR_FEATURES,
+        target_column=TARGET_COLUMN,
+        feature_importance=extract_feature_importance(pipeline),
+        dataset={"rows": len(rows)},
+        split={"strategy": "temporal"},
+        seed=42,
+    )
+
+
+@pytest.fixture
+def two_variants(
+    artifact: ModelArtifact, prior_artifact: ModelArtifact, priced_players: pd.DataFrame
+) -> PredictionService:
+    return PredictionService(
+        {"performance_only": artifact, "with_prior_value": prior_artifact}, priced_players, NAMES
+    )
+
+
+class TestPriorValueInputs:
+    """F7. A what-if request seeded from the default (performance-only) feature
+    set and sent to the prior-value model carried no prior valuation; the
+    pipeline imputed the training median and answered with a 200."""
+
+    def test_omitting_the_prior_value_is_rejected_not_imputed(
+        self, two_variants: PredictionService
+    ) -> None:
+        seed = two_variants.features_for(1, variant="performance_only")
+        with pytest.raises(InvalidFeaturesError) as caught:
+            two_variants.predict_from_features(seed, variant="with_prior_value")
+        assert caught.value.code == "validation_error"
+        assert set(caught.value.detail) == {"prev_log_market_value_in_eur", "prev_value_age_days"}
+
+    def test_an_explicit_null_prior_is_rejected_too(self, two_variants: PredictionService) -> None:
+        seed = two_variants.features_for(1, variant="with_prior_value")
+        seed["prev_value_age_days"] = None
+        with pytest.raises(InvalidFeaturesError):
+            two_variants.predict_from_features(seed, variant="with_prior_value")
+
+    def test_a_stored_row_with_no_prior_is_refused_by_that_variant_only(
+        self, two_variants: PredictionService
+    ) -> None:
+        """A NaN prior passed the old `is None` check and was imputed."""
+        with pytest.raises(InvalidFeaturesError):
+            two_variants.predict_for_player(3, variant="with_prior_value")
+        assert two_variants.predict_for_player(3, variant="performance_only").prediction_eur > 0
+
+    def test_the_player_payload_seeds_the_requested_variant(
+        self, two_variants: PredictionService
+    ) -> None:
+        """The fix for the what-if panel: it asks for the variant it will send to."""
+        features = two_variants.player(1, variant="with_prior_value")["features"]
+        assert set(features) == set(PRIOR_FEATURES)
+        assert set(two_variants.player(1)["features"]) == set(FEATURES)
+
+    def test_a_seed_for_the_variant_reproduces_its_stored_prediction(
+        self, two_variants: PredictionService
+    ) -> None:
+        features = two_variants.player(1, variant="with_prior_value")["features"]
+        stored = two_variants.predict_for_player(1, variant="with_prior_value")
+        replayed = two_variants.predict_from_features(features, variant="with_prior_value")
+        assert replayed.prediction_eur == pytest.approx(stored.prediction_eur)

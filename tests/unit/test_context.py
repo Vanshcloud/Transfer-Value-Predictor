@@ -14,6 +14,7 @@ import pandas as pd
 import pytest
 
 from src.feature_engineering.context import (
+    COMPETITION_LEVEL_DATE_COLUMN,
     CONTEXT_CATEGORICAL,
     CONTEXT_NUMERIC,
     attach_context,
@@ -67,18 +68,25 @@ class TestCompetitionStrength:
                         "primary_competition_id": comp,
                         "season": season,
                         "market_value_in_eur": value * float(rng.uniform(0.9, 1.1)),
+                        # Published a fortnight after the season closed.
+                        "label_date": pd.Timestamp(f"{season + 1}-07-15"),
                     }
                     for _ in range(50)
                 )
         return pd.DataFrame(rows)
 
+    @staticmethod
+    def _levels(panel: pd.DataFrame, seasons: range = range(2015, 2023)) -> pd.DataFrame:
+        """What the builder passes: each season cut at its 1 July boundary."""
+        cutoffs = pd.Series(
+            [pd.Timestamp(f"{season + 1}-07-01") for season in seasons], index=list(seasons)
+        )
+        return competition_strength(panel, target_column="market_value_in_eur", cutoffs=cutoffs)
+
     def test_a_seasons_own_label_is_not_in_its_own_feature(self) -> None:
         """The whole point. HOT's values explode in 2020; its 2020 *feature*
         must still show the pre-explosion level."""
-        out = competition_strength(
-            self._panel(hot_from=2020, hot_value=90_000_000.0),
-            target_column="market_value_in_eur",
-        )
+        out = self._levels(self._panel(hot_from=2020, hot_value=90_000_000.0))
         hot = out[out["primary_competition_id"] == "HOT"].set_index("season")
         level = hot["competition_value_level"]
 
@@ -86,25 +94,22 @@ class TestCompetitionStrength:
         assert level[2021] > level[2020], "2021 should have absorbed 2020"
 
     def test_the_first_observed_season_has_no_history(self) -> None:
-        out = competition_strength(
-            self._panel(hot_from=2020, hot_value=90_000_000.0),
-            target_column="market_value_in_eur",
-        )
-        first = out.sort_values("season").groupby("primary_competition_id").head(1)
-        assert first["competition_value_level"].isna().all()
+        out = self._levels(self._panel(hot_from=2020, hot_value=90_000_000.0))
+        # Absent rather than present-and-null: a competition with no published
+        # history has no level to report, and joins as null downstream.
+        assert out.loc[out["season"] == 2015, "competition_value_level"].notna().sum() == 0
 
     def test_changing_only_the_last_season_cannot_change_earlier_features(self) -> None:
         """A direct causality check: perturb 2022 and nothing before it moves."""
-        base = competition_strength(
-            self._panel(hot_from=2020, hot_value=90_000_000.0),
-            target_column="market_value_in_eur",
-        ).set_index(["primary_competition_id", "season"])["competition_value_level"]
+        base = self._levels(self._panel(hot_from=2020, hot_value=90_000_000.0)).set_index(
+            ["primary_competition_id", "season"]
+        )["competition_value_level"]
 
         panel = self._panel(hot_from=2020, hot_value=90_000_000.0)
         panel.loc[panel["season"] == 2022, "market_value_in_eur"] *= 50
-        perturbed = competition_strength(panel, target_column="market_value_in_eur").set_index(
-            ["primary_competition_id", "season"]
-        )["competition_value_level"]
+        perturbed = self._levels(panel).set_index(["primary_competition_id", "season"])[
+            "competition_value_level"
+        ]
 
         earlier = base.index.get_level_values("season") <= 2022
         pd.testing.assert_series_equal(base[earlier], perturbed[earlier])
@@ -113,18 +118,70 @@ class TestCompetitionStrength:
         """Fewer rows than MIN_ROWS_FOR_STRENGTH is noise, not a measurement."""
         thin = pd.DataFrame(
             [
-                {"primary_competition_id": "TINY", "season": s, "market_value_in_eur": 1e6}
+                {
+                    "primary_competition_id": "TINY",
+                    "season": s,
+                    "market_value_in_eur": 1e6,
+                    "label_date": pd.Timestamp(f"{s + 1}-07-15"),
+                }
                 for s in (2018, 2019)
             ]
         )
-        out = competition_strength(thin, target_column="market_value_in_eur")
+        out = self._levels(thin, range(2018, 2021))
         assert out["competition_value_level"].isna().all()
 
-    def test_the_rank_is_within_season(self) -> None:
-        out = competition_strength(
-            self._panel(hot_from=2016, hot_value=90_000_000.0),
-            target_column="market_value_in_eur",
+    def test_a_label_published_after_the_cutoff_is_not_used(self) -> None:
+        """F2. "Earlier season" is not "already published". With a 365-day
+        label window, season s-1 can be labelled after season s has closed;
+        on the full panel 8,413 training rows (9.79%) encoded such a label.
+
+        Here HOT's 2019 labels are published on 2020-07-15 except a late batch
+        of huge ones published 2021-08-01 — after the 2020 season's cutoff of
+        2021-07-01. The 2020 level must not see that batch, and 2021 must."""
+        panel = self._panel(hot_from=2100, hot_value=0.0)
+        late = (panel["primary_competition_id"] == "HOT") & (panel["season"] == 2019)
+        late_rows = panel[late].head(25).index
+        panel.loc[late_rows, "market_value_in_eur"] = 500_000_000.0
+        panel.loc[late_rows, "label_date"] = pd.Timestamp("2021-08-01")
+
+        hot = self._levels(panel).query("primary_competition_id == 'HOT'").set_index("season")
+        # Exactly the mean of season means over what was public on 2021-07-01.
+        public = panel[
+            (panel["primary_competition_id"] == "HOT")
+            & (panel["season"] < 2020)
+            & (panel["label_date"] < pd.Timestamp("2021-07-01"))
+        ]
+        expected = public.groupby("season")["market_value_in_eur"].apply(
+            lambda v: np.log1p(v).mean()
         )
+        assert hot.loc[2020, "competition_value_level"] == pytest.approx(expected.mean())
+        assert hot.loc[2020, COMPETITION_LEVEL_DATE_COLUMN] < pd.Timestamp("2021-07-01")
+        assert hot.loc[2021, "competition_value_level"] > hot.loc[2020, "competition_value_level"]
+
+    def test_the_source_date_is_strictly_before_every_cutoff(self) -> None:
+        out = self._levels(self._panel(hot_from=2018, hot_value=9_000_000.0))
+        dated = out.dropna(subset=["competition_value_level"])
+        cutoff = pd.to_datetime((dated["season"] + 1).astype(str) + "-07-01")
+        assert (dated[COMPETITION_LEVEL_DATE_COLUMN] < cutoff).all()
+
+    def test_a_season_with_no_labels_of_its_own_still_gets_a_level(self) -> None:
+        """F3. The season being played has no labels yet, and the old encoding
+        only produced levels for seasons present in the labelled frame — so
+        all 8,709 current-season rows carried a null level and rank. A level is
+        a function of history, so a season needs no label to receive one."""
+        panel = self._panel(hot_from=2020, hot_value=90_000_000.0)
+        out = self._levels(panel, range(2015, 2024))  # 2023 has no labelled rows
+        current = out[out["season"] == 2023].set_index("primary_competition_id")
+        assert set(current.index) == {"CALM", "HOT"}
+        assert current["competition_value_level"].notna().all()
+        assert current["competition_tier_rank"].notna().all()
+        assert (
+            current.loc["HOT", "competition_tier_rank"]
+            > current.loc["CALM", "competition_tier_rank"]
+        )
+
+    def test_the_rank_is_within_season(self) -> None:
+        out = self._levels(self._panel(hot_from=2016, hot_value=90_000_000.0))
         ranked = out.dropna(subset=["competition_tier_rank"])
         assert ranked["competition_tier_rank"].between(0, 1).all()
 

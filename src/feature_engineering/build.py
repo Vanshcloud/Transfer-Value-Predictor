@@ -30,6 +30,8 @@ import numpy as np
 import pandas as pd
 
 from src.feature_engineering.context import (
+    CLUB_RECORD_DATE_COLUMN,
+    COMPETITION_LEVEL_DATE_COLUMN,
     CONTEXT_CATEGORICAL,
     CONTEXT_NUMERIC,
     attach_context,
@@ -38,12 +40,14 @@ from src.feature_engineering.context import (
     player_competition_mix,
 )
 from src.feature_engineering.performance import (
+    LINEUP_RECORD_DATE_COLUMN,
     PERFORMANCE_NUMERIC,
     attach_performance,
     match_level_features,
     squad_role,
 )
 from src.utils.logging import get_logger
+from src.validation.leakage import Provenance
 
 logger = get_logger(__name__)
 
@@ -251,8 +255,14 @@ rejects malformed input and nothing else.
 """
 
 PRIOR_VALUE_FEATURES = ("prev_log_market_value_in_eur", "prev_value_age_days")
-"""The lagged label in log space, and how stale it was when the current label
-was set.
+"""The most recent valuation published before the as-of date, in log space, and
+how stale it was at that date.
+
+One definition, used by the labelled and the unlabelled build alike — see
+:func:`attach_prior_value`. It used to be two: training took the *previous
+season's label* (median 242 days old at the as-of date) while serving took the
+latest raw valuation (median 34 days), so the prior-value model was scored in
+production on a feature distribution it had never been fitted on.
 
 Log, not EUR, because the *target* is modelled as log1p: relating log(value_t)
 to a raw-EUR value_(t-1) is a misspecified linear model. Raw, the column has
@@ -270,10 +280,54 @@ accepts as proof a value is lagged on purpose
 column is not decoration: a prior value can be one season old or four, and a
 four-year-old valuation deserves less weight than last summer's."""
 
+PRIOR_VALUE_DATE_COLUMN = "prev_value_date"
+"""When the prior valuation was published. Provenance, not a feature."""
+
 # `season` is deliberately not a feature. It is the split key, and a model that
 # learns "later season -> higher value" extrapolates a trend straight off the
 # end of its training range the moment it meets the test years.
 FEATURE_COLUMNS = NUMERIC_FEATURES + CATEGORICAL_FEATURES
+
+FEATURE_PROVENANCE = (
+    Provenance(FEATURE_TIME_COLUMN, (), strict=False),
+    Provenance(
+        CLUB_RECORD_DATE_COLUMN,
+        (
+            "club_points_per_game",
+            "club_goal_difference_per_game",
+            "club_league_position",
+            "squad_match_share",
+        ),
+        strict=False,
+    ),
+    Provenance(
+        LINEUP_RECORD_DATE_COLUMN,
+        ("starts", "substitute_appearances", "start_share", "captain_share", "positions_played"),
+        strict=False,
+    ),
+    Provenance(
+        COMPETITION_LEVEL_DATE_COLUMN,
+        ("competition_value_level", "competition_tier_rank"),
+        strict=True,
+    ),
+    Provenance(
+        PRIOR_VALUE_DATE_COLUMN,
+        ("prev_market_value_in_eur", *PRIOR_VALUE_FEATURES),
+        strict=True,
+    ),
+)
+"""When each windowed feature's information became available.
+
+Every feature built from dated events or published labels leaves the date of
+its newest input on the row, and the leakage stage checks it against
+``as_of_date``: events must be observed by it, labels published strictly
+before it. A feature value with no date is also an error — a provenance column
+that was dropped is a check that stopped running.
+
+``season`` alone is not a cutoff. Both leaks this was added for — lineups
+dated after the as-of date, and competition levels averaging labels published
+after it — respected the season and broke the date.
+"""
 
 
 def assign_season(dates: pd.Series, start_month: int = 8) -> pd.Series:
@@ -445,59 +499,75 @@ def add_derived_features(frame: pd.DataFrame) -> pd.DataFrame:
     )
 
 
+def attach_prior_value(frame: pd.DataFrame, valuations: pd.DataFrame) -> pd.DataFrame:
+    """The last valuation published **strictly before** each row's as-of date.
+
+    The one definition of the prior value, shared by the labelled and the
+    unlabelled build. Training previously took the previous *labelled season's*
+    label instead, which is a different quantity: it skips every revaluation
+    published between that label and this row's as-of date, and it is absent
+    for a player's first covered season even after years of valuations. Serving took the raw valuation. The model was therefore fitted on a
+    prior with a median age of 242 days and asked about one with a median age
+    of 34, and nothing compared the two.
+
+    Strictly before, not on-or-before: the label is the first valuation *at or
+    after* the as-of date, so the two can never be the same record, and a
+    valuation published the day the feature window closes may already reflect
+    that day's match. ``direction="backward"`` with exact matches excluded is
+    what makes it past information; the publication date is kept as
+    :data:`PRIOR_VALUE_DATE_COLUMN` so the leakage stage can check that by
+    value rather than trusting the join.
+
+    "Most recent" may be years old — an injury, a spell outside the covered
+    leagues — and is still informative as long as the model is told how old
+    it is. That is what ``prev_value_age_days`` carries.
+    """
+    prior = (
+        valuations.loc[:, ["player_id", "date", TARGET_COLUMN]]
+        .assign(date=pd.to_datetime(valuations["date"], errors="coerce"))
+        .dropna(subset=["date", TARGET_COLUMN])
+        .sort_values("date")
+        .rename(
+            columns={"date": PRIOR_VALUE_DATE_COLUMN, TARGET_COLUMN: "prev_market_value_in_eur"}
+        )
+    )
+    out = pd.merge_asof(
+        frame.drop(
+            columns=["prev_market_value_in_eur", PRIOR_VALUE_DATE_COLUMN, *PRIOR_VALUE_FEATURES],
+            errors="ignore",
+        ).sort_values(AS_OF_COLUMN),
+        prior,
+        left_on=AS_OF_COLUMN,
+        right_on=PRIOR_VALUE_DATE_COLUMN,
+        by="player_id",
+        direction="backward",
+        allow_exact_matches=False,
+    )
+    out["prev_log_market_value_in_eur"] = np.log1p(out["prev_market_value_in_eur"])
+    out["prev_value_age_days"] = (out[AS_OF_COLUMN] - out[PRIOR_VALUE_DATE_COLUMN]).dt.days.astype(
+        "float64"
+    )
+    return out.reset_index(drop=True)
+
+
 def add_career_history(frame: pd.DataFrame) -> pd.DataFrame:
-    """Attach everything that depends on the player's earlier rows.
+    """How many earlier seasons this player already has in the table.
 
-    The lagged prior value, how stale it is, and how many earlier seasons this
-    player already has in the table. All three look strictly backwards.
+    Counts only the rows before this one, so it is a running career depth
+    rather than a total that would need the player's whole future to compute.
+    Capped for the same censoring reason as years_since_debut: the count a
+    season can reach is bounded by how long the dataset has existed.
 
-    "Previous" means the most recent earlier season in this table, not
-    necessarily the season before: an injury year or a spell outside the
-    covered leagues leaves a gap, and a three-year-old valuation is still
-    informative as long as the model is told how old it is. That is what
-    ``prev_value_age_days`` carries.
-
-    The lag is genuine, and is enforced rather than argued. Ordering by season
-    does not by itself guarantee that the previous label predates this row's
-    as-of date — with a 365-day label window, season s can be labelled after
-    season s+1 has begun. Those rows get no prior value at all.
+    The prior value used to be computed here too, as the previous row's label.
+    It is :func:`attach_prior_value` now, so training and serving share one
+    definition.
     """
     ordered = frame.sort_values(["player_id", "season"])
-    by_player = ordered.groupby("player_id", sort=False)
-
-    prev_label_date = by_player[LABEL_TIME_COLUMN].shift(1)
-
-    # A previous season's label is only usable if it had actually been
-    # published by the time this season's evidence closed. Ordering by season
-    # is not enough to guarantee that once the label window is a year wide:
-    # season s can be labelled in the June after season s+1 has already begun,
-    # in which case s+1's "prior" value is not prior at all.
-    #
-    # Measured on the full panel when the window moved from 120 to 365 days,
-    # this affected 22 rows of 61,555 — 0.03%. Small enough to miss by eye and
-    # exactly the kind of thing that survives because it is small, so it is
-    # nulled here and asserted by
-    # `src.validation.leakage.check_lagged_values_precede_features`.
-    # Strictly before, not on-or-before. A valuation published the same day the
-    # feature window closes may already reflect that day's match, and "prior"
-    # should not need an argument about intraday ordering to be true.
-    knowable = prev_label_date.notna() & (prev_label_date < ordered[AS_OF_COLUMN])
-
-    ordered["prev_market_value_in_eur"] = by_player[TARGET_COLUMN].shift(1).where(knowable)
-    ordered["prev_log_market_value_in_eur"] = np.log1p(ordered["prev_market_value_in_eur"])
-    # Measured from the as-of date, not from the current label: staleness is a
-    # property of what was known when the features closed, and the label date
-    # is not known then.
-    ordered["prev_value_age_days"] = (
-        (ordered[AS_OF_COLUMN] - prev_label_date).dt.days.where(knowable).astype("float64")
+    ordered["seasons_observed"] = (
+        ordered.groupby("player_id", sort=False)
+        .cumcount()
+        .clip(upper=int(CAREER_CENSORING_CEILING))
     )
-
-    # Counts only the rows before this one, so it is a running career depth
-    # rather than a total that would need the player's whole future to compute.
-    # Capped for the same censoring reason as years_since_debut: the count a
-    # season can reach is bounded by how long the dataset has existed.
-    ordered["seasons_observed"] = by_player.cumcount().clip(upper=int(CAREER_CENSORING_CEILING))
-
     return ordered.reset_index(drop=True)
 
 
@@ -614,6 +684,13 @@ def _ensure_feature_columns(table: pd.DataFrame) -> pd.DataFrame:
     is missing data, which the fitted imputer already knows how to handle, so it
     is represented as exactly that.
     """
+    # Provenance columns too, as NaT: a build without the context tables has
+    # nothing to date, and the leakage stage treats an *absent* provenance
+    # column as a check that silently stopped running.
+    for provenance in FEATURE_PROVENANCE:
+        if provenance.column not in table.columns:
+            table[provenance.column] = pd.Series(pd.NaT, index=table.index, dtype="datetime64[ns]")
+
     missing = [column for column in FEATURE_COLUMNS if column not in table.columns]
     if missing:
         logger.info(
@@ -659,13 +736,21 @@ def _enrich(
 
     ``levels_from`` supplies the labelled history used to compute competition
     strength. The unlabelled build passes the *training* table here: a season
-    with no labels can contribute nothing to a value level, and must instead
-    inherit the level accumulated from every season before it.
+    with no labels can contribute nothing to a value level, and instead gets
+    the level computed from the labels published before it closed — the same
+    rule, at the same cutoff, that every training row gets.
     """
     if competitions is None or games is None or club_games is None:
         return table
 
     history = table if levels_from is None else levels_from
+    # The season boundary is the latest moment no row in that season has yet
+    # closed (as_of = max(boundary, last appearance)), so a label published
+    # before it is known to every row of the season.
+    seasons = pd.Series(sorted(table["season"].unique()), dtype="int64")
+    cutoffs = pd.Series(
+        season_boundary_dates(seasons, season_start_month).to_numpy(), index=seasons.to_numpy()
+    )
     enriched = attach_context(
         table,
         competition_mix=player_competition_mix(
@@ -675,13 +760,20 @@ def _enrich(
         competition_levels=competition_strength(
             _mix_for_levels(history, appearances, competitions, season_start_month),
             target_column=TARGET_COLUMN,
+            cutoffs=cutoffs,
+            label_time_column=LABEL_TIME_COLUMN,
         ),
     )
     return attach_performance(
         enriched,
         match_features=match_level_features(appearances, start_month=season_start_month),
         role=(
-            squad_role(lineups, start_month=season_start_month)
+            squad_role(
+                lineups,
+                table.loc[:, ["player_id", "season", AS_OF_COLUMN]],
+                start_month=season_start_month,
+                as_of_column=AS_OF_COLUMN,
+            )
             if lineups is not None
             else pd.DataFrame(columns=["player_id", "season"])
         ),
@@ -702,8 +794,8 @@ def build_training_table(
 ) -> pd.DataFrame:
     """Build the full player-season table, prior-value column included.
 
-    One table is built, not two. ``prev_market_value_in_eur`` is null for a
-    player's first covered season and populated afterwards, so the two model
+    One table is built, not two. ``prev_market_value_in_eur`` is null when no
+    valuation had been published before the row's as-of date, so the two model
     variants are a row filter and a column list away — see
     :func:`select_variant` — rather than a second pipeline free to drift from
     this one.
@@ -711,7 +803,9 @@ def build_training_table(
     player_seasons = aggregate_appearances(appearances, start_month=season_start_month)
     labelled = attach_label(player_seasons, valuations, tolerance_days=label_tolerance_days)
     with_attributes = attach_player_attributes(labelled, players)
-    table = add_career_history(add_derived_features(with_attributes))
+    table = add_career_history(
+        attach_prior_value(add_derived_features(with_attributes), valuations)
+    )
 
     table = _enrich(
         table,
@@ -747,8 +841,9 @@ def build_current_season_table(
     club_games: pd.DataFrame | None = None,
     lineups: pd.DataFrame | None = None,
     season_start_month: int = 8,
+    label_tolerance_days: int = 365,
 ) -> pd.DataFrame:
-    """Feature rows for seasons that have no label yet.
+    """Feature rows for player-seasons whose label has not been published yet.
 
     The audit's sixth limitation: the freshest predictable season was already
     a year old, because a row cannot enter the training table until a valuation
@@ -765,22 +860,38 @@ def build_current_season_table(
 
     * These rows are never returned to the training pipeline. They carry no
       target, so a fit would fail rather than quietly learn from a null.
-    * ``prev_market_value_in_eur`` comes from the *labelled* history, which is
-      strictly earlier, so the prior-value variant works here on genuinely past
-      information.
+    * Every feature is built by the code that built the training rows, at the
+      same as-of cutoff — the prior value by :func:`attach_prior_value`, the
+      competition level from labels published before the season closed.
 
     A partially-played season is not a defect either. Half a season of matches
     is half a season of evidence, and the model prices it as such —
     ``appearances``, ``squad_match_share`` and ``months_active`` all fall,
     which is the honest signal that there is less to go on.
 
-    Returns rows for every season strictly after the last labelled one.
+    **Which rows.** A player-season belongs here when it has no label in
+    ``training_table`` *and its label window is still open*: a valuation could
+    yet arrive within ``label_tolerance_days`` of its as-of date, given the
+    newest valuation in ``valuations``. That is decided per player-season.
+    The rule it replaced was global — every season after the newest labelled
+    one — so once *any* player of a season was revalued, every player of that
+    season still awaiting a valuation fell out of both tables. A row whose
+    window has closed without a label is not current; it is a season the
+    source never valued, and pricing it as "now" would be wrong.
     """
     player_seasons = aggregate_appearances(appearances, start_month=season_start_month)
-    last_labelled = int(training_table["season"].max())
-    current = player_seasons[player_seasons["season"] > last_labelled].copy()
+    keyed = player_seasons.merge(
+        training_table.loc[:, ["player_id", "season"]],
+        on=["player_id", "season"],
+        how="left",
+        indicator=True,
+    )
+    unlabelled = keyed["_merge"].eq("left_only")
+    horizon = pd.to_datetime(valuations["date"], errors="coerce").max()
+    window_open = keyed[AS_OF_COLUMN] + pd.Timedelta(label_tolerance_days, "D") > horizon
+    current = keyed[unlabelled & window_open].drop(columns="_merge").copy()
     if current.empty:
-        logger.info("no unlabelled seasons after %d", last_labelled)
+        logger.info("no player-season is awaiting a label as of %s", horizon)
         return current
 
     # The label window is what these rows lack, so the columns it would have
@@ -790,39 +901,27 @@ def build_current_season_table(
     current[LABEL_HORIZON_COLUMN] = np.nan
 
     with_attributes = attach_player_attributes(current, players)
-    table = add_derived_features(with_attributes)
+    table = attach_prior_value(add_derived_features(with_attributes), valuations)
 
-    # The prior value is the last valuation published *strictly before* this
-    # season's as-of date. Taken from the raw valuations rather than from the
-    # previous labelled row, because a player may have been revalued since —
-    # and a fresher prior is a better one, as `prev_value_age_days` records.
-    # ``direction="backward"`` is what makes it strictly past information.
-    prior = (
-        valuations.loc[:, ["player_id", "date", TARGET_COLUMN]]
-        .assign(date=pd.to_datetime(valuations["date"], errors="coerce"))
-        .dropna(subset=["date"])
-        .sort_values("date")
-        .rename(columns={"date": "_prev_label_date", TARGET_COLUMN: "prev_market_value_in_eur"})
+    # Career depth is how many labelled seasons this player has *before* this
+    # one, which is what `add_career_history` counts during training.
+    earlier = table.loc[:, ["player_id", "season"]].merge(
+        training_table.loc[:, ["player_id", "season"]].rename(columns={"season": "_labelled"}),
+        on="player_id",
     )
-    table = pd.merge_asof(
-        table.sort_values(AS_OF_COLUMN),
-        prior,
-        left_on=AS_OF_COLUMN,
-        right_on="_prev_label_date",
-        by="player_id",
-        direction="backward",
-        allow_exact_matches=False,
+    depth = (
+        earlier[earlier["_labelled"] < earlier["season"]]
+        .groupby(["player_id", "season"])
+        .size()
+        .rename("seasons_observed")
+        .reset_index()
     )
-    table["prev_log_market_value_in_eur"] = np.log1p(table["prev_market_value_in_eur"])
-    table["prev_value_age_days"] = (table[AS_OF_COLUMN] - table["_prev_label_date"]).dt.days.astype(
-        "float64"
-    )
-
-    # Career depth is how many labelled seasons this player already has, which
-    # is what the same column counts during training.
-    depth = training_table.groupby("player_id").size()
+    table = table.merge(depth, on=["player_id", "season"], how="left")
     table["seasons_observed"] = (
-        table["player_id"].map(depth).fillna(0).clip(upper=CAREER_CENSORING_CEILING)
+        table["seasons_observed"]
+        .fillna(0)
+        .clip(upper=int(CAREER_CENSORING_CEILING))
+        .astype("int64")
     )
 
     table = _enrich(
@@ -837,7 +936,6 @@ def build_current_season_table(
     )
     table = add_career_momentum(table, history=training_table)
     table = _ensure_feature_columns(table)
-    table = table.drop(columns=["_prev_label_date"], errors="ignore")
 
     logger.info(
         "current-season table: %d rows, %d players, seasons %d-%d (unlabelled)",
@@ -886,12 +984,15 @@ __all__ = [
     "PLAUSIBLE_RANGES",
     "PRIOR_VALUE_FEATURES",
     "TARGET_COLUMN",
+    "FEATURE_PROVENANCE",
+    "PRIOR_VALUE_DATE_COLUMN",
     "add_career_history",
     "add_career_momentum",
     "add_derived_features",
     "aggregate_appearances",
     "assign_season",
     "attach_label",
+    "attach_prior_value",
     "attach_player_attributes",
     "build_training_table",
     "null_rates",

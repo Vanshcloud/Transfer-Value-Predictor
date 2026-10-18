@@ -287,6 +287,16 @@ class TestPlayers:
     def test_a_non_numeric_id_is_422(self, client: TestClient) -> None:
         assert client.get("/api/v1/players/abc").status_code == 422
 
+    def test_the_feature_seed_follows_the_variant(self, client: TestClient) -> None:
+        """F7: the what-if panel asks for the variant it will predict with."""
+        body = client.get("/api/v1/players/101?variant=performance_only").json()
+        assert set(body["features"]) == set(client.get("/api/v1/players/101").json()["features"])
+
+    def test_an_unknown_variant_for_the_seed_is_404(self, client: TestClient) -> None:
+        response = client.get("/api/v1/players/101?variant=with_prior_value")
+        assert response.status_code == 404
+        assert response.json()["error"]["code"] == "model_not_found"
+
 
 class TestModels:
     def test_listing_models(self, client: TestClient) -> None:

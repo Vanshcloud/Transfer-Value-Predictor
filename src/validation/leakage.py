@@ -42,7 +42,14 @@ Four failure modes, each observed or specifically anticipated in this dataset:
    matrix that falls after the label date describes something that had not
    happened yet.
 
-:class:`LeakageValidator` bundles all seven behind one configured object, so a
+8. **A windowed feature built from information after its cutoff.** The label
+   is the wrong bound for a feature; the as-of date is the right one. A lineup
+   dated after the as-of date, or a competition level averaging labels
+   published after it, respects the season and still describes the future.
+   Each such feature leaves a provenance date on the row (:class:`Provenance`)
+   and the dates are checked against the cutoff by value.
+
+:class:`LeakageValidator` bundles all eight behind one configured object, so a
 pipeline stage states its column contract once and every later stage re-runs
 the identical checks rather than a hand-copied subset of them.
 """
@@ -376,6 +383,104 @@ def check_lagged_values_precede_features(
 
 
 @dataclass(frozen=True)
+class Provenance:
+    """A date column recording when the inputs to some features became known.
+
+    ``strict`` distinguishes the two kinds of input. An *event* — a match, a
+    lineup — observed on the as-of date itself is inside the window, so the
+    date may equal the cutoff. A *published label* used as a feature must
+    predate it strictly: the row's own label is the first valuation on or
+    after the as-of date, and a value published that day is that label.
+    """
+
+    column: str
+    features: tuple[str, ...] = ()
+    strict: bool = False
+
+
+def check_provenance_within_cutoff(
+    frame: pd.DataFrame,
+    *,
+    cutoff_column: str,
+    provenance: Sequence[Provenance],
+    table: str = "training_table",
+) -> list[Finding]:
+    """Every windowed feature's inputs must have been available at the row's cutoff.
+
+    :func:`check_no_future_dates` compares dates with the *label*. That is the
+    wrong bound for a feature: the information boundary is the as-of date, and
+    a lineup dated between the as-of date and the label is still a fact from
+    after the features closed. It also cannot see a target encoding at all, a
+    numeric column with no date of its own. This check reads the provenance
+    dates each windowed feature leaves behind and compares them with the
+    cutoff, and it refuses a feature value whose provenance is missing, since
+    an undated value is one nobody can audit.
+    """
+    if cutoff_column not in frame.columns:
+        return [
+            Finding(
+                "leakage_provenance",
+                Severity.ERROR,
+                table,
+                f"cannot check feature provenance: {cutoff_column} is absent",
+            )
+        ]
+
+    cutoff = pd.to_datetime(frame[cutoff_column], errors="coerce")
+    findings: list[Finding] = []
+    for source in provenance:
+        if source.column not in frame.columns:
+            findings.append(
+                Finding(
+                    "leakage_provenance",
+                    Severity.ERROR,
+                    table,
+                    f"provenance column {source.column} is absent: the features it dates "
+                    f"({', '.join(source.features) or 'none'}) cannot be audited",
+                )
+            )
+            continue
+
+        dates = pd.to_datetime(frame[source.column], errors="coerce")
+        late = dates > cutoff if not source.strict else dates >= cutoff
+        late = late & dates.notna() & cutoff.notna()
+        if late.any():
+            relation = "on or after" if source.strict else "after"
+            findings.append(
+                Finding(
+                    check="leakage_provenance",
+                    severity=Severity.ERROR,
+                    table=table,
+                    message=(
+                        f"{source.column} falls {relation} {cutoff_column}: "
+                        f"{', '.join(source.features) or 'these rows'} used information "
+                        "that was not available when the features closed"
+                    ),
+                    count=int(late.sum()),
+                    examples=tuple(frame.loc[late].index[:3]),
+                )
+            )
+
+        dated = [c for c in source.features if c in frame.columns]
+        undated = frame[dated].notna().any(axis=1) & dates.isna() if dated else None
+        if undated is not None and undated.any():
+            findings.append(
+                Finding(
+                    check="leakage_provenance",
+                    severity=Severity.ERROR,
+                    table=table,
+                    message=(
+                        f"{', '.join(dated)} hold values with no {source.column}: "
+                        "a feature whose inputs are undated cannot be shown to precede the cutoff"
+                    ),
+                    count=int(undated.sum()),
+                    examples=tuple(frame.loc[undated].index[:3]),
+                )
+            )
+    return findings
+
+
+@dataclass(frozen=True)
 class LeakageValidator:
     """Every leakage check this project knows about, behind one configured object.
 
@@ -399,6 +504,8 @@ class LeakageValidator:
     entity_keys: Sequence[str] = ()
     banned_columns: frozenset[str] = CURRENT_STATE_COLUMNS
     table: str = "training_table"
+    cutoff_column: str | None = None
+    provenance: Sequence[Provenance] = ()
 
     def validate(
         self,
@@ -449,6 +556,16 @@ class LeakageValidator:
                 )
             )
         report.extend(check_lagged_values_precede_features(frame, table=self.table))
+
+        if self.cutoff_column and self.provenance:
+            report.extend(
+                check_provenance_within_cutoff(
+                    frame,
+                    cutoff_column=self.cutoff_column,
+                    provenance=self.provenance,
+                    table=self.table,
+                )
+            )
 
         if self.label_time_column:
             # The whole frame, not just the feature columns. A feature can be a

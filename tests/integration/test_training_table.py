@@ -38,9 +38,14 @@ pytestmark = pytest.mark.integration
 # window closed before Transfermarkt's winter revaluation batch and discarded
 # 61% of the panel. At 365 days the same three source files yield the figures
 # below. See plans/05-limitation-remediation.md.
+#
+# The prior-value count moved from 61,522 to 84,626 when training adopted the
+# serving definition of the prior value (the latest valuation before the as-of
+# date, not the previous labelled season's label). See
+# plans/09-codex-audit-remediation.md, F4.
 EXPECTED_ROWS = 85_966
 EXPECTED_PLAYERS = 24_411
-EXPECTED_ROWS_WITH_PRIOR = 61_522
+EXPECTED_ROWS_WITH_PRIOR = 84_626
 DRIFT = 0.05
 
 
@@ -86,9 +91,10 @@ def test_seasons_span_2011_to_2024(full_table: pd.DataFrame) -> None:
 
 
 def test_the_prior_value_variant_covers_most_of_the_rows(full_table: pd.DataFrame) -> None:
-    """Was "about half" at 19,827 of 36,880. The wider label window lifted it to
-    61,522 of 85,966 — 72% — because a player needs a labelled *previous*
-    season to have a prior value, and there are far more of those now."""
+    """Was "about half" at 19,827 of 36,880, then 61,522 of 85,966 (72%) after
+    the wider label window, when a prior required a labelled *previous* season.
+    It is 84,626 (98.4%) now that a prior is any valuation published before the
+    as-of date — the definition serving always used."""
     with_prior, _ = select_variant(full_table, include_prior_value=True)
     assert within_drift(len(with_prior), EXPECTED_ROWS_WITH_PRIOR), len(with_prior)
 
