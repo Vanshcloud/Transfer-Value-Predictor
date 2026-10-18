@@ -218,8 +218,11 @@ def build_model_card(
         f"{artifact.split.get('train_end_season')}, "
         f"validation {artifact.split.get('validation_season')}, "
         f"test ≥{artifact.split.get('test_start_season')}",
-        "- Source: Kaggle `davidcariboo/player-scores` (CC0). Transfermarkt is",
-        "  never scraped; its terms prohibit both the method and this purpose.",
+        "- Source: Kaggle `davidcariboo/player-scores`, a mirror of Transfermarkt",
+        "  data its publisher dedicates as CC0. Transfermarkt is never scraped, but",
+        "  its terms also prohibit training machine learning on the content, which",
+        "  this model is; the usage rights are uncertain and not cleared",
+        "  ([Data rights](DATASET_CARD.md#data-rights)).",
         "",
         "## Measured performance",
         "",

@@ -1,6 +1,7 @@
 """Kaggle ``davidcariboo/player-scores`` — the project's primary source.
 
-This is a CC0 Public Domain mirror of Transfermarkt data, refreshed weekly. It
+This is a mirror of Transfermarkt data, refreshed weekly, that its publisher
+dedicates as CC0; what that does not settle is in docs/DATASET_CARD.md, "Data rights". It
 is used *instead of* scraping Transfermarkt directly, whose Terms of Use §11.1
 prohibit automated access and separately prohibit using the content to train
 machine-learning models (plans/00-discovery.md §1.1).

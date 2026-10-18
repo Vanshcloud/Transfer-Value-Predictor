@@ -13,8 +13,10 @@ paths:
   model_dir: models
 
 kaggle:
-  # CC0 Public Domain. See plans/00-discovery.md §1.2 for why this is the
-  # source rather than scraping Transfermarkt directly.
+  # Published as CC0 by its maintainer, built from Transfermarkt data. See
+  # plans/00-discovery.md §1.2 for why this is the source rather than scraping
+  # Transfermarkt, and docs/DATASET_CARD.md "Data rights" for what the CC0
+  # dedication does not settle.
   dataset: davidcariboo/player-scores
   files:
     # Phase 15: the project used three of the ten files this dataset ships.

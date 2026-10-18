@@ -5,7 +5,7 @@
 [![Coverage 90%](https://img.shields.io/badge/coverage-90%25-brightgreen.svg)](#testing)
 [![Tests 741](https://img.shields.io/badge/tests-741-brightgreen.svg)](#testing)
 [![Licence MIT](https://img.shields.io/badge/licence-MIT-green.svg)](LICENSE)
-[![Data CC0](https://img.shields.io/badge/data-CC0-lightgrey.svg)](docs/DATASET_CARD.md)
+[![Data rights: uncertain](https://img.shields.io/badge/data_rights-uncertain-orange.svg)](docs/DATASET_CARD.md#data-rights)
 [![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
 [![Typed: mypy](https://img.shields.io/badge/typed-mypy-blue.svg)](https://mypy-lang.org/)
 
@@ -42,10 +42,13 @@ findings shaped it, all recorded with evidence in
 
 - **Transfermarkt is never scraped.** Its Terms of Use §11.1 prohibit automated
   access *and* separately prohibit using the content to train machine-learning
-  models. Labels come from the CC0-licensed Kaggle mirror
-  `davidcariboo/player-scores` instead.
+  models. Labels come from the Kaggle mirror `davidcariboo/player-scores`, which
+  its publisher dedicates as CC0 — but a mirror's licence cannot waive
+  Transfermarkt's rights, and training on these valuations is the use §11.1
+  names. The legal position is **uncertain and not cleared**; see
+  [Data rights](docs/DATASET_CARD.md#data-rights).
 - **There is no entity-resolution problem.** `appearances.csv` ships in the same
-  CC0 download as the labels and shares its `player_id`, so features and labels
+  download as the labels and shares its `player_id`, so features and labels
   join on an integer key. FBref was spiked as optional enrichment and declined —
   it is 403-Cloudflared to `requests`, reachable only via banned Selenium, and
   the columns it returns duplicate `appearances.csv` on a worse (name-based) key
@@ -77,7 +80,7 @@ manylinux wheels bundle libgomp and no action is needed.
 
 ```mermaid
 flowchart TD
-    K["Kaggle CC0 mirror<br/>davidcariboo/player-scores<br/>9 of 10 files"] --> F
+    K["Kaggle mirror<br/>davidcariboo/player-scores<br/>8 of 10 files"] --> F
 
     subgraph OFF ["Offline — scripts/, run on demand"]
         F["fetch_data.py<br/>requests only, never a browser"] --> V["validate_data.py<br/>schema + quality contracts"]
@@ -119,7 +122,7 @@ Full directory map and the reasoning behind each boundary:
 
 ## Pipeline
 
-**First, data access.** `fetch_data.py` downloads the CC0 Kaggle mirror
+**First, data access.** `fetch_data.py` downloads the Kaggle mirror
 `davidcariboo/player-scores`, which needs a free Kaggle account. Create a token
 at [kaggle.com/settings](https://www.kaggle.com/settings), then either:
 
@@ -649,7 +652,7 @@ are somebody else's work.
   author       = {Cariboo, David},
   title        = {Football Data from Transfermarkt},
   howpublished = {Kaggle dataset \texttt{davidcariboo/player-scores}},
-  note         = {CC0 1.0 Universal},
+  note         = {Published as CC0 1.0 by its maintainer; built from Transfermarkt data},
   url          = {https://www.kaggle.com/datasets/davidcariboo/player-scores}
 }
 ```
@@ -667,8 +670,7 @@ Methods this project leans on directly:
 
 ## Acknowledgements
 
-- **David Cariboo**, for maintaining the CC0 mirror that makes this project
-  legally possible at all.
+- **David Cariboo**, for maintaining the mirror this project is built on.
 - **Transfermarkt's contributor community**, whose valuations are the labels.
   The model reproduces their consensus, including wherever it is biased — it
   does not independently observe what anyone would pay.
@@ -680,9 +682,12 @@ Methods this project leans on directly:
 MIT — full text in [`LICENSE`](LICENSE).
 
 The data carries its own terms and they are not MIT. Labels and appearances come
-from `davidcariboo/player-scores`, which is CC0. Transfermarkt's own Terms of Use
-§11.1 prohibit both automated access and ML training on the content, which is why
-nothing here fetches it.
+from `davidcariboo/player-scores`, which its publisher dedicates as CC0.
+Transfermarkt's own Terms of Use §11.1 prohibit automated access, which is why
+nothing here fetches it, and also prohibit ML training on the content, which this
+project does through the mirror. Whether a mirror's CC0 dedication covers that is
+**not established**; the project has no legal clearance, and the open questions
+and what would settle them are in [Data rights](docs/DATASET_CARD.md#data-rights).
 
 ---
 

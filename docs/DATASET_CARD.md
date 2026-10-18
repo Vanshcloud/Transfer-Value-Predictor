@@ -14,16 +14,57 @@ generate its own explanation. Every count is reproducible with
 | | |
 |---|---|
 | Source | Kaggle `davidcariboo/player-scores` |
-| Licence | CC0 1.0 (public domain dedication) |
-| Upstream | A mirror of Transfermarkt, refreshed weekly |
+| Licence declared by the publisher | CC0 1.0 (public domain dedication) — see "Data rights" below for what that does and does not settle |
+| Upstream | Built by the publisher from Transfermarkt, refreshed weekly |
 | Retrieved by | `scripts/fetch_data.py`, re-downloading when older than 7 days |
-| Files used | 9 of 10 |
+| Files downloaded | 8 of the 10 (`configs/config.yaml`); 7 feed the model, and `transfers.csv` only the experimental fee helper |
 
-**Transfermarkt is never scraped.** Its Terms of Use §11.1 prohibit both
-automated access and machine-learning training on the content. The Kaggle
-mirror is CC0 and is the only route this project uses. This is a legal
-constraint, not a technical preference, and it is why there is no scraper in
-this repository and no plan to add one.
+## Data rights
+
+Reviewed in Phase 20 (audit F11). Four things that are easy to run together,
+kept apart. **None of this is legal advice, and the project has no legal
+clearance for its use of the data.**
+
+**1. What the dataset's publisher claims.** `davidcariboo/player-scores` is
+published on Kaggle as CC0 1.0, and its build repository
+(`github.com/dcaribou/transfermarkt-datasets`) carries a CC0-1.0 licence
+(checked 2026-10-18; the Kaggle page itself did not render to an automated
+fetch, so its licence field was last read in Phase 0, 2026-08-28). A CC0
+dedication waives whatever rights *the publisher* holds.
+
+**2. What is verified about ownership and redistribution rights.** Nothing
+beyond the above. The repository says the data is "built from Transfermarkt
+data" and does not state that Transfermarkt granted permission. A dedication
+cannot waive rights the publisher never had, so CC0 here is the publisher's
+statement about their own contribution, not evidence that Transfermarkt's
+content is free to reuse.
+
+**3. Transfermarkt's own terms.** Its Terms of Use §11.1, quoted verbatim in
+[`plans/00-discovery.md`](../plans/00-discovery.md) §1.1 (fetched 2026-08-28;
+the site refused an automated fetch on 2026-10-18, so the current wording is
+not re-verified), prohibit access by automated processes **and** using the
+content "for the training or development of artificial intelligence (AI),
+including … machine learning", and expressly reserve text and data mining under
+§44b UrhG. Whether those terms bind someone who never used Transfermarkt's
+site, and whether the reservation or the EU database right reaches valuations
+obtained through a third party's mirror, is a legal question this project has
+not had answered.
+
+**4. What this repository actually does.** It never contacts Transfermarkt:
+no scraper, no API client, no image or page request — that prohibition is
+respected and will stay. It downloads the Kaggle mirror and **trains machine
+learning models on Transfermarkt-derived market valuations**, which is the use
+§11.1 names. It redistributes no raw data: `data/` is gitignored, and the
+published artifacts are fitted models, aggregate metrics and per-player
+predictions served by the API.
+
+**Status: uncertain.** The earlier wording — that the CC0 mirror is what makes
+the project legally possible — claimed more than is established. What would
+resolve it, in order of strength: written permission from Transfermarkt GmbH &
+Co. KG for training and for serving derived predictions; or advice from a
+lawyer qualified in German and EU database and copyright law. Until then,
+treat the data and anything trained on it as unsuitable for commercial use,
+and do not redistribute the raw tables.
 
 ## Shape
 

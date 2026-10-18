@@ -14,11 +14,13 @@ export default function AboutPage() {
       <section>
         <h2 className="text-xl font-semibold">Where the data comes from</h2>
         <p className="mt-2 leading-relaxed text-slate-600 dark:text-slate-400">
-          Labels and appearances come from the CC0-licensed Kaggle mirror of
-          Transfermarkt data. Transfermarkt itself is <strong>never scraped</strong>:
-          its terms prohibit automated access and, separately, prohibit using the
-          content to train machine-learning models. Respecting those terms means not
-          doing it, so the project uses the openly licensed mirror instead.
+          Labels and appearances come from a Kaggle mirror of Transfermarkt data,
+          which its publisher dedicates as CC0. Transfermarkt itself is{" "}
+          <strong>never scraped</strong>: its terms prohibit automated access. They
+          also prohibit using the content to train machine-learning models, which
+          this project does through the mirror — and a mirror&apos;s licence cannot
+          waive Transfermarkt&apos;s rights. The legal position is uncertain and has
+          not been cleared; the dataset card sets out why and what would settle it.
         </p>
       </section>
 

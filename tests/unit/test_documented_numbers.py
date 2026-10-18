@@ -134,3 +134,19 @@ def test_the_readme_coverage_table_matches_the_enforced_floors() -> None:
         assert (
             percentage >= floor
         ), f"README claims {percentage}% but the enforced floor is only {floor}%"
+
+
+def test_no_document_claims_the_data_is_cleared() -> None:
+    """F11: a mirror's CC0 dedication cannot waive Transfermarkt's rights, and
+    the project trains on exactly what Transfermarkt's terms prohibit training
+    on. The README once said the mirror made the project "legally possible"."""
+    card = (ROOT / "docs" / "DATASET_CARD.md").read_text()
+    assert "## Data rights" in card and "**Status: uncertain.**" in card
+    for document in (ROOT / "README.md", ROOT / "docs" / "demo_script.md", ROOT / "SECURITY.md"):
+        text = document.read_text().lower()
+        for overclaim in (
+            "legally possible",
+            "cc0-licensed football dataset",
+            "openly licensed mirror",
+        ):
+            assert overclaim not in text, (document.name, overclaim)

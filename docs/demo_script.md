@@ -32,7 +32,9 @@ Have open: a terminal, the dashboard at `http://localhost:3000`, and
 
 **Talking point — the constraint that shaped everything.** Transfermarkt's
 Terms of Use §11.1 prohibit automated access *and* separately prohibit training
-on the content. So nothing is scraped: labels come from a CC0 Kaggle mirror.
+on the content. So nothing is scraped: labels come from a Kaggle mirror its
+publisher dedicates as CC0. That avoids the scraping; it does not settle the
+training question, and the dataset card says so (audit F11).
 That is the first slide because it explains an architecture decision, not a
 legal footnote.
 

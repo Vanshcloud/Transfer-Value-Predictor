@@ -43,8 +43,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           {children}
         </main>
         <footer className="mx-auto max-w-6xl px-4 py-10 text-xs text-slate-500 dark:text-slate-400">
-          Labels from the CC0 Kaggle mirror of Transfermarkt data. Transfermarkt is
-          never scraped. Metrics are measured on held-out seasons.
+          Labels from a Kaggle mirror of Transfermarkt data; Transfermarkt is never
+          scraped, and the data&apos;s usage rights are not cleared. Metrics are
+          retrospective, on held-out seasons.
         </footer>
       </body>
     </html>

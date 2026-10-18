@@ -12,7 +12,9 @@ read and answered, not that a patch will ship on a schedule.
 
 ## What this project is, for threat-modelling purposes
 
-A read-only inference service over a public, CC0-licensed football dataset.
+A read-only inference service over a public football dataset (a Kaggle mirror of
+Transfermarkt data; its usage rights are discussed in
+[`docs/DATASET_CARD.md`](docs/DATASET_CARD.md#data-rights), not here).
 
 - **No authentication, and none intended.** Every endpoint is public and every
   response is derived from public data. There is no session, no cookie and no
