@@ -205,3 +205,54 @@ class TestNothingImportantIsSilentlyEmpty:
         assert (
             covered == labelled_players
         ), f"only {covered:,} of {labelled_players:,} labelled players are servable"
+
+
+class TestThePriorValueVariantEndToEnd:
+    """Whichever family the selection policy ships for the prior-value variant,
+    the four things the dashboard does with it must keep working: predict with
+    an explanation, seed a what-if from the player record, replay that seed,
+    and draw a career history."""
+
+    VARIANT = "with_prior_value"
+
+    def _priced_player(self, client: TestClient) -> int:
+        panel = client.app.state.service._players
+        current = panel[~panel["has_label"].fillna(True)].dropna(subset=["prev_value_age_days"])
+        valued = set(panel.loc[panel["has_label"].fillna(True), "player_id"])
+        current = current[current["player_id"].isin(valued)]
+        if current.empty:
+            pytest.skip("no priced current-season player in this build")
+        return int(current.iloc[0]["player_id"])
+
+    def test_a_prediction_carries_an_explanation(self, client: TestClient) -> None:
+        body = client.post(
+            "/api/v1/predict",
+            json={"player_id": self._priced_player(client), "variant": self.VARIANT},
+        ).json()
+        assert body["prediction_eur"] > 0
+        assert (
+            body["explanation"]["top_positive_features"]
+            or body["explanation"]["top_negative_features"]
+        )
+
+    def test_the_what_if_seed_replays_the_stored_prediction(self, client: TestClient) -> None:
+        player_id = self._priced_player(client)
+        seed = client.get(f"/api/v1/players/{player_id}?variant={self.VARIANT}").json()["features"]
+        assert seed["prev_log_market_value_in_eur"] is not None
+        stored = client.post(
+            "/api/v1/predict", json={"player_id": player_id, "variant": self.VARIANT}
+        ).json()
+        replayed = client.post("/api/v1/predict", json={"features": seed, "variant": self.VARIANT})
+        assert replayed.status_code == 200, replayed.json()
+        assert replayed.json()["prediction_eur"] == pytest.approx(stored["prediction_eur"])
+
+    def test_a_what_if_without_the_prior_is_refused(self, client: TestClient) -> None:
+        player_id = self._priced_player(client)
+        seed = client.get(f"/api/v1/players/{player_id}").json()["features"]
+        response = client.post("/api/v1/predict", json={"features": seed, "variant": self.VARIANT})
+        assert response.status_code == 422
+
+    def test_the_career_history_is_drawn(self, client: TestClient) -> None:
+        player_id = self._priced_player(client)
+        points = client.get(f"/api/v1/players/{player_id}/history?variant={self.VARIANT}").json()
+        assert points["points"]

@@ -24,6 +24,7 @@ from src.explainability.shap_explainer import (
     _tree_explainer,
     explain_global,
     explain_prediction,
+    explained_prediction_latency_ms,
     supports_shap,
 )
 from src.feature_engineering.build import TARGET_COLUMN
@@ -87,6 +88,23 @@ class TestSupportsShap:
         # A KernelExplainer fallback nobody would wait for is worse than
         # saying so and showing coefficients.
         assert not supports_shap(build(frame, "ridge"))
+
+
+class TestExplainedLatency:
+    """What the selection policy's latency budget is measured with."""
+
+    def test_a_tree_model_reports_a_positive_median(
+        self, artifact: ModelArtifact, frame: pd.DataFrame
+    ) -> None:
+        latency = explained_prediction_latency_ms(artifact, frame, samples=5)
+        assert latency is not None and latency > 0
+
+    def test_a_model_that_cannot_explain_reports_none_not_zero(self, frame: pd.DataFrame) -> None:
+        """None disqualifies; 0 would make it the fastest family on the board."""
+        assert explained_prediction_latency_ms(build(frame, "ridge"), frame) is None
+
+    def test_no_rows_reports_none(self, artifact: ModelArtifact, frame: pd.DataFrame) -> None:
+        assert explained_prediction_latency_ms(artifact, frame.iloc[0:0]) is None
 
 
 class TestGlobalExplanation:

@@ -132,7 +132,7 @@ those, `fetch_data.py` stops with a message naming both options rather than
 failing obscurely.
 
 **You do not need an account to run the project.** `data/sample/` is committed,
-so `make test` gives you 713 passing tests and 53 skips with no credentials at
+so `make test` gives you 724 passing tests and 66 skips with no credentials at
 all — the 53 are the integration tests that need the full panel. `make test`
 deselects them by marker; a bare `pytest` on that same clone *skips* them and
 still reports zero failures, which is the stronger property and the one CI
@@ -451,8 +451,8 @@ push and pull request:
   imported inside `src/storage/`, and Plotly only inside `Chart.tsx`.
 
 CI runs on a clean checkout, where `data/` and `models/` are empty. Every test
-that needs them **skips** rather than fails — verified on a fresh clone: 713
-pass, the 53 integration tests skip, nothing fails. A suite that is only green on a machine with a trained
+that needs them **skips** rather than fails — verified on a fresh clone: 724
+pass, the 66 integration tests skip, nothing fails. A suite that is only green on a machine with a trained
 model is not a suite anyone can trust.
 
 ## Development
@@ -474,7 +474,7 @@ in `requirements-lock.txt`, which is what CI, Docker and `make setup` install.
 ## Testing
 
 ```bash
-make test        # 713 pass, 53 skip — no data, no credentials, ~15s
+make test        # 724 pass, 66 skip — no data, no credentials, ~15s
 make test-cov    # the same suite with coverage, fails under 88%
 pytest           # everything; integration tests run if data and models exist
 ```
@@ -591,8 +591,8 @@ Backend test coverage, with the command that prints each number:
 
 | | Coverage | Tests |
 |---|---|---|
-| `make test-cov` — no credentials, no data | **90%** | 713 pass, 53 deselected |
-| `make test-cov-all` — needs the Kaggle download and a trained model | **97%** | 766 pass |
+| `make test-cov` — no credentials, no data | **90%** | 724 pass, 66 deselected |
+| `make test-cov-all` — needs the Kaggle download and a trained model | **97%** | 790 pass |
 
 The gap is the pipeline orchestration in `src/pipelines/`, which is what the
 integration tests exercise. Both targets fail below their floor, so neither

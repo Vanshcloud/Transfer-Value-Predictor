@@ -20,6 +20,7 @@ unit for a log-target model, and it is the one the API should surface.
 
 from __future__ import annotations
 
+import time
 from collections.abc import MutableMapping
 from contextlib import suppress
 from dataclasses import dataclass, field
@@ -31,7 +32,7 @@ import pandas as pd
 import shap
 from sklearn.pipeline import Pipeline
 
-from src.models.artifact import ModelArtifact
+from src.models.artifact import ModelArtifact, predict
 from src.utils.logging import get_logger
 
 logger = get_logger(__name__)
@@ -306,3 +307,32 @@ def explain_prediction(artifact: ModelArtifact, row: pd.DataFrame) -> Prediction
         base_value_eur=float(np.expm1(base)),
         contributions=contributions,
     )
+
+
+def explained_prediction_latency_ms(
+    artifact: ModelArtifact, rows: pd.DataFrame, *, samples: int = 25
+) -> float | None:
+    """Median wall time of one explained prediction, in milliseconds.
+
+    Times exactly what ``POST /predict`` does per request: ``predict`` on one
+    row, then ``explain_prediction`` on it. The explainer is built once first
+    and not timed, because the service memoises it per process (Phase 18)
+    and pays that cost at the first request, not at every one.
+
+    Single-row calls over the first ``samples`` rows, in order, so the same
+    rows are timed on every run. The median, because one scheduler hiccup
+    should not decide which model ships.
+
+    Returns None when the model cannot produce a per-prediction explanation
+    at all, which is not a latency but a disqualification.
+    """
+    if not supports_shap(artifact) or rows.empty:
+        return None
+    timings = []
+    for position in range(min(samples, len(rows))):
+        row = rows.iloc[[position]]
+        started = time.perf_counter()
+        predict(artifact, row)
+        explain_prediction(artifact, row)
+        timings.append((time.perf_counter() - started) * 1000.0)
+    return float(np.median(timings))

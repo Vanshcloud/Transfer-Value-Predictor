@@ -23,10 +23,17 @@ from src.models.registry import (
     build_pipeline,
 )
 from src.models.tuning import TuningResult
-from src.pipelines.tune import FamilyResult, _select_winner
+from src.pipelines.tune import SERVING_LATENCY_BUDGET_MS, FamilyResult, _select_winner
 
 
-def result(name: str, mae: float, *, se: float = 0.0, size: int = 1000) -> FamilyResult:
+def result(
+    name: str,
+    mae: float,
+    *,
+    se: float = 0.0,
+    size: int = 1000,
+    latency: float | None = 10.0,
+) -> FamilyResult:
     metrics = Metrics(mae=mae, rmse=mae * 2, r2=0.8, mape=0.5, n=100, mae_standard_error=se)
     return FamilyResult(
         tuning=TuningResult(model_name=name, best_params={}, cv_mae=mae, n_candidates=1),
@@ -34,6 +41,7 @@ def result(name: str, mae: float, *, se: float = 0.0, size: int = 1000) -> Famil
         fit_seconds=1.0,
         predict_seconds=0.1,
         size_bytes=size,
+        explained_latency_ms=latency,
     )
 
 
@@ -91,9 +99,9 @@ class TestOneStandardErrorRule:
         )
         assert winner.name == "lightgbm"
 
-    def test_the_tiebreak_is_deployment_cost_not_artifact_size(self) -> None:
+    def test_a_small_artifact_does_not_hide_a_large_package(self) -> None:
         """CatBoost serialises to a fifth of LightGBM's size and costs 328 MB of
-        package. Artifact size would pick it; the image is what actually costs."""
+        package. The footprint counts both, so the package still decides."""
         winner = _select_winner(
             [
                 result("catboost", 2_067_628, se=58_508, size=370_000),
@@ -240,3 +248,83 @@ class TestTheClassificationMatchesReality:
         assert not hasattr(estimator, "feature_importances_")
         assert not hasattr(estimator, "coef_")
         assert "gradient_boosting" in UNEXPLAINABLE_FAMILIES
+
+
+class TestServingRequirements:
+    """The Phase 19 policy: eligibility before accuracy, and the whole deployed
+    footprint as the tie-break — applied the same way to every variant."""
+
+    def test_artifact_bytes_count_toward_the_footprint(self) -> None:
+        """The measured case. Random Forest costs 0 MB of package and 182 MB of
+        artifact; LightGBM 9 MB of package and 2.2 MB of artifact. Ranking by
+        package alone shipped the forest."""
+        winner = _select_winner(
+            [
+                result("random_forest", 912_164, se=27_090, size=182_000_000, latency=60.0),
+                result("lightgbm", 900_492, se=27_090, size=2_200_000, latency=30.0),
+            ],
+            "with_prior_value",
+        )
+        assert winner.name == "lightgbm"
+
+    def test_the_rule_names_no_family(self) -> None:
+        """No exception for LightGBM: give it the forest's artifact and it loses."""
+        winner = _select_winner(
+            [
+                result("random_forest", 912_164, se=27_090, size=2_200_000, latency=30.0),
+                result("lightgbm", 900_492, se=27_090, size=182_000_000, latency=30.0),
+            ],
+            "with_prior_value",
+        )
+        assert winner.name == "random_forest"
+
+    def test_a_family_over_the_latency_budget_is_ineligible_at_any_accuracy(self) -> None:
+        slow = result("extra_trees", 800_000, latency=SERVING_LATENCY_BUDGET_MS + 1)
+        winner = _select_winner([slow, result("lightgbm", 900_000)], "with_prior_value")
+        assert winner.name == "lightgbm"
+        assert "budget" in (slow.ineligible_because or "")
+
+    def test_the_budget_boundary_is_inclusive(self) -> None:
+        edge = result("lightgbm", 900_000, latency=SERVING_LATENCY_BUDGET_MS)
+        assert edge.ineligible_because is None
+
+    def test_a_family_that_cannot_explain_one_prediction_is_ineligible(self) -> None:
+        """Ridge exposes coefficients but has no per-prediction SHAP here, so a
+        prediction response would carry no explanation."""
+        winner = _select_winner(
+            [result("ridge", 800_000, latency=None), result("lightgbm", 900_000)],
+            "performance_only",
+        )
+        assert winner.name == "lightgbm"
+
+    def test_the_standard_error_is_anchored_on_the_best_eligible_family(self) -> None:
+        """An ineligible leader must not widen the tie: here it would have
+        pulled the free, clearly worse forest into the tie."""
+        winner = _select_winner(
+            [
+                result("xgboost", 500_000, se=600_000, latency=SERVING_LATENCY_BUDGET_MS * 3),
+                result("lightgbm", 1_000_000, se=10_000, size=2_000_000),
+                result("random_forest", 1_050_000, se=10_000, size=1_000),
+            ],
+            "performance_only",
+        )
+        assert winner.name == "lightgbm"
+
+    def test_nothing_eligible_is_an_error_not_a_silent_ship(self) -> None:
+        with pytest.raises(ValueError, match="no family meets"):
+            _select_winner(
+                [result("lightgbm", 900_000, latency=SERVING_LATENCY_BUDGET_MS * 2)],
+                "with_prior_value",
+            )
+
+    def test_both_variants_get_the_same_answer_from_the_same_evidence(self) -> None:
+        board = [
+            result("random_forest", 912_164, se=27_090, size=182_000_000, latency=439.0),
+            result("lightgbm", 900_492, se=27_090, size=2_200_000, latency=29.0),
+            result("xgboost", 906_357, se=27_090, size=1_300_000, latency=25.0),
+        ]
+        assert (
+            _select_winner(board, "performance_only").name
+            == _select_winner(board, "with_prior_value").name
+            == "lightgbm"
+        )

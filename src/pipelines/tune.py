@@ -25,6 +25,7 @@ import pandas as pd
 from sklearn.pipeline import Pipeline
 
 from src.evaluation.metrics import Metrics, evaluate
+from src.explainability.shap_explainer import explained_prediction_latency_ms
 from src.feature_engineering.build import CATEGORICAL_FEATURES, TARGET_COLUMN, select_variant
 from src.models.artifact import ModelArtifact, extract_feature_importance, save
 from src.models.calibration import calibrate, measured_coverage
@@ -63,10 +64,33 @@ class FamilyResult:
     fit_seconds: float
     predict_seconds: float
     size_bytes: int
+    explained_latency_ms: float | None = None
+    """Median ms for one explained prediction on validation rows; None when the
+    family cannot explain a single prediction. See :data:`SERVING_LATENCY_BUDGET_MS`."""
 
     @property
     def name(self) -> str:
         return self.tuning.model_name
+
+    @property
+    def deployed_megabytes(self) -> float:
+        """Everything a deployment of this family ships and loads: the packages
+        it needs beyond scikit-learn, plus the serialised pipeline itself."""
+        return DEPLOYMENT_MEGABYTES.get(self.name, 0) + self.size_bytes / 1_000_000
+
+    @property
+    def ineligible_because(self) -> str | None:
+        """Why this family cannot ship, or None if it can. See :func:`_select_winner`."""
+        if self.name not in EXPLAINABLE_FAMILIES:
+            return "exposes no feature importances"
+        if self.explained_latency_ms is None:
+            return "cannot explain a single prediction"
+        if self.explained_latency_ms > SERVING_LATENCY_BUDGET_MS:
+            return (
+                f"explained prediction {self.explained_latency_ms:.0f} ms exceeds the "
+                f"{SERVING_LATENCY_BUDGET_MS:.0f} ms budget"
+            )
+        return None
 
 
 def _serialised_size(pipeline: Pipeline) -> int:
@@ -176,80 +200,97 @@ knows exactly what it costs.
 """
 
 
+SERVING_LATENCY_BUDGET_MS = 100.0
+"""The most one explained prediction may take for a family to be eligible.
+
+Declared before the Phase 19 selection re-run, from requirements already in
+the repository rather than from any model's score:
+
+* the dashboard's what-if panel debounces slider input at 300 ms and fires a
+  `POST /predict` per settled drag, so a prediction slower than the debounce
+  queues behind the next one;
+* Phase 18 treated 385 ms for that endpoint as a High-severity defect and
+  brought it to 29.8 ms.
+
+100 ms is a third of the debounce, and about three times the latency the
+service already achieves. It is measured on validation rows by
+:func:`~src.explainability.shap_explainer.explained_prediction_latency_ms`, the
+same path the API takes.
+"""
+
+
 def _select_winner(results: list[FamilyResult], variant: str) -> FamilyResult:
-    """The cheapest explainable family that is not measurably worse than the best.
+    """The selection policy, applied identically to every variant.
 
-    Two rules, in order.
+    Validation data and deployment measurements only; the test seasons are
+    scored after this returns and never feed back into it.
 
-    **Explainable only.** `docs/API_CONTRACT.md` documents an `explanation` on
-    every prediction; a family that cannot produce one is excluded regardless of
-    score. See :data:`EXPLAINABLE_REQUIRED`.
+    1. **Eligibility.** A family can ship only if it exposes feature
+       importances (:data:`EXPLAINABLE_REQUIRED`), can explain a single
+       prediction, and does so within :data:`SERVING_LATENCY_BUDGET_MS`.
+       ``docs/API_CONTRACT.md`` documents an explanation on every prediction,
+       so these are requirements rather than preferences.
+    2. **Accuracy, by the one-standard-error rule.** Among eligible families,
+       take the lowest validation MAE and accept every family within one
+       standard error of it (Breiman, Friedman, Olshen and Stone, 1984). A
+       leaderboard sorted to the euro invites decisions the data cannot
+       support: on the run that introduced this, XGBoost led LightGBM by EUR
+       7,917 against a standard error of EUR 58,508.
+    3. **Deployment footprint.** Among those, the fewest deployed megabytes
+       (:attr:`FamilyResult.deployed_megabytes`: extra packages plus the
+       serialised pipeline), then the lower latency, then the lower MAE.
 
-    **Then the one-standard-error rule.** Among the explainable families, take
-    the lowest validation MAE, and accept any family within one standard error
-    of it — then choose the smallest of those. This is Breiman, Friedman,
-    Olshen and Stone (1984), and it exists because a leaderboard sorted to the
-    euro invites decisions the data cannot support.
+    Step 3 used to rank by package megabytes alone, with artifact size only as
+    a tie-break between equal package costs. Both are bytes a deployment
+    ships and loads, and the old ordering assumed artifacts were all a couple
+    of megabytes. That held for the boosters and failed for the forests, which
+    cost nothing in packages and serialise to hundreds of megabytes: Phase 19's
+    first retrain shipped a 182 MB Random Forest for the prior-value variant
+    over a 2.2 MB LightGBM, at 439 ms per explained prediction against 29 ms.
 
-    It is not academic here. On the run that introduced it, XGBoost beat
-    LightGBM by EUR 7,917 of validation MAE, which reads as a clean win in a
-    sorted table. The standard error of that MAE is EUR 58,508; the paired
-    difference between the two models has t = 0.37. They are the same model as
-    far as this data can tell, and picking the nominal winner would have added
-    xgboost to the serving image — 700 MB, mostly CUDA libraries a CPU
-    inference path never opens — to chase a seventh of one standard error.
-
-    The tiebreak is deployment footprint, not artifact size, and the difference
-    matters. CatBoost serialises to 0.37 MB against LightGBM's 2.08, so artifact
-    size would pick CatBoost — while dragging 328 MB of package into every
-    image pull. See :data:`~src.models.registry.DEPLOYMENT_MEGABYTES`, whose
-    numbers are measured inside the built image rather than estimated.
+    Raises:
+        ValueError: if explainable families ran but none meets the
+            requirements. Shipping an over-budget model would make the budget
+            a comment.
     """
     explainable = [r for r in results if r.name in EXPLAINABLE_FAMILIES]
     if not EXPLAINABLE_REQUIRED or not explainable:
         return min(results, key=lambda result: result.validation.mae)
 
-    best_overall = min(results, key=lambda result: result.validation.mae)
-    best_explainable = min(explainable, key=lambda result: result.validation.mae)
+    eligible = [r for r in explainable if r.ineligible_because is None]
+    for result in results:
+        if result.ineligible_because is not None:
+            logger.info("%s: %s is ineligible: %s", variant, result.name, result.ineligible_because)
+    if not eligible:
+        raise ValueError(
+            f"{variant}: no family meets the selection requirements; "
+            + "; ".join(f"{r.name}: {r.ineligible_because}" for r in explainable)
+        )
 
-    # Anything this close is not distinguishable from the best on this data.
-    threshold = best_explainable.validation.mae + best_explainable.validation.mae_standard_error
-    tied = [r for r in explainable if r.validation.mae <= threshold]
+    best = min(eligible, key=lambda result: result.validation.mae)
+    threshold = best.validation.mae + best.validation.mae_standard_error
+    tied = [r for r in eligible if r.validation.mae <= threshold]
     winner = min(
         tied,
         key=lambda result: (
-            DEPLOYMENT_MEGABYTES.get(result.name, 0),
-            result.size_bytes,
+            result.deployed_megabytes,
+            result.explained_latency_ms,
             result.validation.mae,
         ),
     )
 
-    if winner.name != best_explainable.name:
+    if winner.name != best.name:
         logger.info(
-            "%s: %s had the lowest validation MAE (EUR %s) but %d famil(ies) sit within "
-            "one standard error (EUR %s); shipping %s, which costs %d MB of image "
-            "against %d MB",
+            "%s: %s had the lowest eligible validation MAE (EUR %s) but %d famil(ies) sit "
+            "within one standard error (EUR %s); shipping %s at %.1f deployed MB against %.1f",
             variant,
-            best_explainable.name,
-            f"{best_explainable.validation.mae:,.0f}",
+            best.name,
+            f"{best.validation.mae:,.0f}",
             len(tied),
-            f"{best_explainable.validation.mae_standard_error:,.0f}",
+            f"{best.validation.mae_standard_error:,.0f}",
             winner.name,
-            DEPLOYMENT_MEGABYTES.get(winner.name, 0),
-            DEPLOYMENT_MEGABYTES.get(best_explainable.name, 0),
-        )
-    if best_overall.name != winner.name and best_overall.name not in EXPLAINABLE_FAMILIES:
-        logger.info(
-            "%s: %s scored best (val MAE EUR %s) but cannot explain a prediction; "
-            "shipping %s at EUR %s, %.2f%% worse — see EXPLAINABLE_REQUIRED",
-            variant,
-            best_overall.name,
-            f"{best_overall.validation.mae:,.0f}",
-            winner.name,
-            f"{winner.validation.mae:,.0f}",
-            100.0
-            * (winner.validation.mae - best_overall.validation.mae)
-            / best_overall.validation.mae,
+            winner.deployed_megabytes,
+            best.deployed_megabytes,
         )
     return winner
 
@@ -290,12 +331,39 @@ def _tune_and_validate(
     predictions = pipeline.predict(validation[features])
     predict_seconds = time.perf_counter() - started
 
+    validation_metrics = evaluate(validation[TARGET_COLUMN], predictions)
     return FamilyResult(
         tuning=tuning,
-        validation=evaluate(validation[TARGET_COLUMN], predictions),
+        validation=validation_metrics,
         fit_seconds=fit_seconds,
         predict_seconds=predict_seconds,
         size_bytes=_serialised_size(pipeline),
+        explained_latency_ms=explained_prediction_latency_ms(
+            _candidate_artifact(spec.name, pipeline, feature_columns, validation_metrics),
+            validation,
+        ),
+    )
+
+
+def _candidate_artifact(
+    name: str, pipeline: Pipeline, feature_columns: tuple[str, ...], validation: Metrics
+) -> ModelArtifact:
+    """A throwaway artifact around a candidate, so its latency is measured
+    through the exact functions the service calls. Never saved; it carries the
+    validation metrics in both slots because no test score exists yet."""
+    return ModelArtifact(
+        variant="candidate",
+        model_name=name,
+        params={},
+        pipeline=pipeline,
+        validation=validation,
+        test=validation,
+        feature_columns=feature_columns,
+        target_column=TARGET_COLUMN,
+        feature_importance={},
+        dataset={},
+        split={},
+        seed=RANDOM_SEED,
     )
 
 
@@ -367,6 +435,12 @@ def _fit_winner(
                 "predict_rows": result.validation.n,
                 "size_bytes": result.size_bytes,
                 "params": result.tuning.best_params,
+                # Every input the selection policy reads, so the choice can be
+                # recomputed from the artifact alone (tests/integration).
+                "validation_mae_standard_error": result.validation.mae_standard_error,
+                "explained_latency_ms": result.explained_latency_ms,
+                "deployed_megabytes": result.deployed_megabytes,
+                "ineligible_because": result.ineligible_because,
             }
             for result in sorted(results, key=lambda r: r.validation.mae)
         ],
