@@ -152,6 +152,16 @@ export default function ModelPage() {
                   .map((row) => Number(row.validation_mae_eur))
                   .reverse(),
                 y: leaderboard.map((row) => String(row.model)).reverse(),
+                // The colour marks the shipped family; this says so in words
+                // for the chart's text alternative, with each other family's
+                // reason for not shipping.
+                customdata: leaderboard
+                  .map((row) =>
+                    row.model === info?.model_name
+                      ? "selected"
+                      : String(row.ineligible_because ?? "eligible; not selected"),
+                  )
+                  .reverse(),
                 marker: {
                   color: leaderboard
                     .map((row) =>

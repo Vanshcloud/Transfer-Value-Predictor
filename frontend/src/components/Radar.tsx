@@ -171,6 +171,45 @@ export default function Radar({
         })}
       </svg>
 
+      {/* The numbers the polygons encode, for anyone who cannot see them
+          (audit F18): the SVG alone said only how many metrics there were. */}
+      <table className="sr-only">
+        <caption>
+          Percentile across all player-seasons, per metric and player. Higher is
+          further out on the chart.
+        </caption>
+        <thead>
+          <tr>
+            <th scope="col">Metric</th>
+            {series.map((entry) => (
+              <th scope="col" key={entry.label}>
+                {entry.label}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {axes.map((name) => (
+            <tr key={name}>
+              <th scope="row">{featureLabel(name)}</th>
+              {series.map((entry) => {
+                const raw = Number(entry.features[name]);
+                const feature = distribution.features[name];
+                return (
+                  <td key={entry.label}>
+                    {Number.isFinite(raw)
+                      ? `${Math.round(
+                          100 * percentileOf(raw, feature.quantiles, distribution.grid),
+                        )}th percentile (${Number(raw.toPrecision(4))})`
+                      : "not recorded"}
+                  </td>
+                );
+              })}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+
       <div className="mt-2 flex flex-wrap justify-center gap-4">
         {series.map((entry) => (
           <span key={entry.label} className="flex items-center gap-2 text-sm">
