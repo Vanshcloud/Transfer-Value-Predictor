@@ -18,7 +18,7 @@ WORKDIR /build
 # editing source does not reinstall the whole ML stack.
 # The SERVE lock, not the full one, and the lock rather than the declaration.
 #
-# Serving loads one model; the full set trains nine. xgboost brings 291 MB of
+# Serving loads one model per variant; the full set trains eleven families. xgboost brings 291 MB of
 # CUDA libraries that a CPU inference path never opens, and catboost 269 MB of
 # itself plus plotly — roughly 700 MB of a 1.6 GB site-packages, carried by an
 # image whose only command is `uvicorn`. requirements-serve.txt states the
@@ -78,9 +78,8 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=40s --retries=3 \
     CMD python -c "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/health', timeout=4).status == 200 else 1)"
 
 # One worker: the player tables take ~700 MB and every worker holds its own
-# copy. --limit-concurrency answers 503 past 64 open connections rather than
-# queueing without bound; inference itself is capped lower, per core, in
-# api/limits.py. --timeout-keep-alive closes idle connections after 5 s.
-# Request timeouts and rate limiting belong to the reverse proxy (SECURITY.md).
-CMD ["uvicorn", "api.main:app", "--host", "0.0.0.0", "--port", "8000", \
-     "--limit-concurrency", "64", "--timeout-keep-alive", "5"]
+# copy. `python -m api` binds API_HOST:API_PORT (default 0.0.0.0:8000) and
+# sets uvicorn's connection limits (api/__main__.py); inference itself is
+# capped lower, per core, in api/limits.py. Request timeouts and rate limiting
+# belong to the reverse proxy (SECURITY.md).
+CMD ["python", "-m", "api"]

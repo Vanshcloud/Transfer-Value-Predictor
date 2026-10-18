@@ -363,7 +363,8 @@ API would answer for a 1,000,000,000,000-year-old with a confident number and a
 players table. Both are restated here rather than imported from the config
 because the service is constructed without one in tests, in the CLI and in a
 notebook, and a guard that only exists when a config was loaded is a guard that
-is absent exactly when someone is experimenting.
+is absent exactly when someone is experimenting. (The two config keys were removed in Phase 20: a
+copy of a bound that nothing reads only invites an edit that changes nothing.)
 
 The rest were added in Phase 20 (audit F8), when shares of 7, 10^9 minutes and
 a log prior value of 10^308 were all answered with a 200. Each bound is a

@@ -24,7 +24,6 @@ def test_committed_config_is_valid() -> None:
     # 365, not 120: a 120-day window closes on 29 October and misses
     # Transfermarkt's winter revaluation batch, which cost 61% of the panel.
     assert settings.data.label_tolerance_days == 365
-    assert settings.data.default_horizon_days <= settings.data.label_tolerance_days
 
 
 def test_relative_paths_resolve_against_project_root() -> None:
@@ -82,7 +81,7 @@ def test_settings_are_immutable() -> None:
 @pytest.mark.parametrize(
     ("section", "key", "value"),
     [
-        ("data", "max_age", 10),  # not greater than min_age (15)
+        ("data", "label_tolerance_days", 0),  # not a window
         ("data", "season_start_month", 13),  # not a month
         ("split", "validation_season", 2020),  # not after train_end_season (2021)
         ("split", "test_start_season", 2021),  # not after validation_season (2022)
@@ -117,16 +116,22 @@ def test_settings_sections_are_all_present() -> None:
     assert set(tree) == set(Settings.model_fields)
 
 
-def test_the_age_bounds_in_config_match_the_ones_the_service_enforces() -> None:
-    """`data.min_age` and `data.max_age` were declared, cross-validated, and
-    read by nothing at all until the final audit — so the API answered for a
-    1,000,000,000,000-year-old with a 200 while the config said 15 to 45.
+def test_no_setting_is_declared_that_nothing_reads() -> None:
+    """F20: `default_horizon_days`, `min_age` and `max_age` were parsed,
+    validated and read by nothing; a reader editing them changed nothing."""
+    from src.utils.config import DataConfig
 
-    They are enforced now, from `PLAUSIBLE_RANGES`, because the service is
-    built without a config in tests, in the CLI and in a notebook. Two copies
-    of one bound need something comparing them, which is this.
-    """
-    from src.feature_engineering.build import PLAUSIBLE_RANGES
+    assert not {"default_horizon_days", "min_age", "max_age"} & set(DataConfig.model_fields)
 
-    data = load_settings().data
-    assert PLAUSIBLE_RANGES["age"] == (float(data.min_age), float(data.max_age))
+
+def test_the_api_entry_point_binds_the_configured_address(monkeypatch: pytest.MonkeyPatch) -> None:
+    """API_HOST and API_PORT were documented in .env.example and read by
+    nothing; `python -m api` is what reads them now."""
+    import api.__main__ as entry
+
+    seen: dict[str, object] = {}
+    monkeypatch.setattr(entry.uvicorn, "run", lambda _app, **options: seen.update(options))
+    monkeypatch.setenv("API_PORT", "9123")
+    entry.main([])
+    assert seen["port"] == 9123
+    assert seen["limit_concurrency"] == entry.LIMIT_CONCURRENCY

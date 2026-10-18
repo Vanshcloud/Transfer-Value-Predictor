@@ -80,7 +80,7 @@ enforced correctly.
 | Concurrent model work | API, `api/limits.inference_slot` | One per core, up to 8. A request waiting over 2 s gets `503 service_busy` with `Retry-After: 1`. Applies to predict, history, similar players and feature importance. |
 | Global SHAP | API, `PredictionService.global_explanation` | Computed once per loaded model and cached; the sample is seeded, so the cache is exact. |
 | Per-prediction SHAP | Selection policy | A model ships only if predict plus explanation is ≤ 100 ms p50 on validation rows (`SERVING_LATENCY_BUDGET_MS`). |
-| Open connections | Container, uvicorn | `--limit-concurrency 64` (503 beyond), `--timeout-keep-alive 5`. |
+| Open connections | API entry point, `api/__main__.py` | uvicorn `limit_concurrency=64` (503 beyond), `timeout_keep_alive=5`. |
 | Memory and CPU | Container, `docker-compose.yml` | API 2 GB / 2 CPUs (≈710 MB resident at start), dashboard 512 MB / 1 CPU. |
 | Liveness | API, `GET /health` | 200 whenever the process is up, so a missing model never restart-loops it. |
 | Readiness | API, `GET /ready` | 503 until a model is loaded, for a load balancer to route on. |

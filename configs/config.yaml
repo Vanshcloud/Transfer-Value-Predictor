@@ -57,19 +57,9 @@ data:
   # revaluation batch entirely, which is what discarded 61% of the data. Every
   # label is still strictly forward of the as-of date, so widening the window
   # cannot introduce leakage — it changes how far ahead the label sits, and
-  # that distance is now carried as `label_horizon_days`, a feature the caller
-  # supplies at prediction time rather than noise the model averages over.
+  # that distance is carried as `label_horizon_days`, a diagnostic column (not
+  # a model feature: it earned nothing as one, plans/05).
   label_tolerance_days: 365
-  # Horizon used when a caller does not name one: the median training lag,
-  # so the default prediction answers the question the model saw most often.
-  default_horizon_days: 120
-  # The age interval outside which a value is a caller bug rather than a
-  # player. Enforced by the prediction service via
-  # `src.feature_engineering.build.PLAUSIBLE_RANGES`; it sat here unread until
-  # the final audit, which is why the API used to answer for a
-  # 1,000,000,000,000-year-old with a 200.
-  min_age: 15
-  max_age: 45
 
 split:
   # Three-way temporal split. Validation tunes; test is touched once.
@@ -95,6 +85,8 @@ http:
   min_request_interval_seconds: 0.0
 
 api:
+  # Read by `python -m api` (the Docker image and `make serve`), so API_HOST
+  # and API_PORT in the environment take effect.
   host: 0.0.0.0
   port: 8000
 

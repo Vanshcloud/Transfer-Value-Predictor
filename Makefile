@@ -37,7 +37,7 @@ test-cov-all: ## Coverage including integration tests (needs data + models)
 	$(BIN)/pytest --cov=src --cov-report=term-missing --cov-fail-under=96
 
 serve: ## Run the API locally with reload
-	$(BIN)/uvicorn api.main:app --reload
+	$(BIN)/python -m api --reload
 
 lint: ## Run ruff
 	$(BIN)/ruff check src tests scripts api

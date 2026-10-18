@@ -90,35 +90,10 @@ class DataConfig(_Strict):
 
     season_start_month: int = Field(default=8, ge=1, le=12)
     label_tolerance_days: int = Field(default=365, gt=0)
-    default_horizon_days: int = Field(default=120, gt=0)
-    min_age: int = Field(default=15, ge=0)
-    max_age: int = Field(default=45, ge=0)
-    """The plausible age interval. Mirrored by
-    :data:`~src.feature_engineering.build.PLAUSIBLE_RANGES`, which is what the
-    prediction service actually enforces — the service is constructed without a
-    config in tests, in the CLI and in a notebook, and a guard that exists only
-    when a config was loaded is absent exactly when someone is experimenting.
-    `tests/unit/test_config.py` asserts the two do not drift apart."""
-
-    @field_validator("default_horizon_days")
-    @classmethod
-    def _horizon_within_tolerance(cls, value: int, info: Any) -> int:
-        """A default horizon outside the labelled range would ask the model a
-        question no training row answers."""
-        tolerance = info.data.get("label_tolerance_days")
-        if tolerance is not None and value > tolerance:
-            raise ValueError(
-                f"default_horizon_days ({value}) exceeds label_tolerance_days ({tolerance})"
-            )
-        return value
-
-    @field_validator("max_age")
-    @classmethod
-    def _max_exceeds_min(cls, value: int, info: Any) -> int:
-        minimum = info.data.get("min_age")
-        if minimum is not None and value <= minimum:
-            raise ValueError(f"max_age ({value}) must exceed min_age ({minimum})")
-        return value
+    """``default_horizon_days``, ``min_age`` and ``max_age`` were removed in
+    Phase 20 (audit F20): nothing read the first, and the age bounds only
+    mirrored :data:`~src.feature_engineering.build.PLAUSIBLE_RANGES`, which is
+    what is enforced — editing them changed nothing."""
 
 
 class SplitConfig(_Strict):
@@ -160,7 +135,7 @@ class HttpConfig(_Strict):
 
 
 class ApiConfig(_Strict):
-    """Bind address for the FastAPI service."""
+    """Bind address for the FastAPI service, read by ``python -m api``."""
 
     host: str = "0.0.0.0"
     port: int = Field(default=8000, gt=0, lt=65536)

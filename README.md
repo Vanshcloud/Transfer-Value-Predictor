@@ -305,7 +305,7 @@ for a log-target model and the one the API surfaces.
 ## API
 
 ```bash
-make serve        # uvicorn api.main:app --reload
+make serve        # python -m api --reload
 ```
 
 Interactive docs at `/docs`, the schema at `/api/v1/openapi.json`. The contract
