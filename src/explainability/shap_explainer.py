@@ -323,8 +323,11 @@ def explained_prediction_latency_ms(
     rows are timed on every run. The median, because one scheduler hiccup
     should not decide which model ships.
 
-    Returns None when the model cannot produce a per-prediction explanation
-    at all, which is not a latency but a disqualification.
+    Returns None when the model cannot produce a per-prediction explanation,
+    which is not a latency but a disqualification. That includes an
+    explanation that *raises*: Extra Trees with one-sample leaves fails SHAP's
+    additivity check on real validation rows, and in the API that is a 500
+    for that player rather than a slow answer.
     """
     if not supports_shap(artifact) or rows.empty:
         return None
@@ -333,6 +336,12 @@ def explained_prediction_latency_ms(
         row = rows.iloc[[position]]
         started = time.perf_counter()
         predict(artifact, row)
-        explain_prediction(artifact, row)
+        try:
+            explain_prediction(artifact, row)
+        except Exception as exc:  # noqa: BLE001 - shap raises a variety of types here
+            logger.warning(
+                "%s cannot explain validation row %d: %s", artifact.model_name, position, exc
+            )
+            return None
         timings.append((time.perf_counter() - started) * 1000.0)
     return float(np.median(timings))

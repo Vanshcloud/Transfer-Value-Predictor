@@ -106,6 +106,20 @@ class TestExplainedLatency:
     def test_no_rows_reports_none(self, artifact: ModelArtifact, frame: pd.DataFrame) -> None:
         assert explained_prediction_latency_ms(artifact, frame.iloc[0:0]) is None
 
+    def test_an_explanation_that_raises_disqualifies_rather_than_crashes(
+        self, artifact: ModelArtifact, frame: pd.DataFrame, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The measured case: Extra Trees fails SHAP's additivity check on a
+        real validation row. In the API that is a 500; in selection it must be
+        "cannot explain", not a crashed training run."""
+        import src.explainability.shap_explainer as module
+
+        def broken(*_: object) -> None:
+            raise RuntimeError("Additivity check failed in TreeExplainer!")
+
+        monkeypatch.setattr(module, "explain_prediction", broken)
+        assert explained_prediction_latency_ms(artifact, frame, samples=3) is None
+
 
 class TestGlobalExplanation:
     def test_it_ranks_the_feature_the_data_was_built_around(
