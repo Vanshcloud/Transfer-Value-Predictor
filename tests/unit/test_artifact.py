@@ -250,9 +250,7 @@ class TestIntegrity:
         self, tmp_path: Path, sha256: object
     ) -> None:
         entry: dict[str, object] = {"file": "performance_only__ridge.joblib", "sha256": sha256}
-        (tmp_path / MANIFEST_NAME).write_text(
-            json.dumps({"variants": {"performance_only": entry}})
-        )
+        (tmp_path / MANIFEST_NAME).write_text(json.dumps({"variants": {"performance_only": entry}}))
         with pytest.raises(ValueError, match="sha256"):
             load_manifest(tmp_path)
 
