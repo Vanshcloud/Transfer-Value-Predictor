@@ -1,6 +1,6 @@
 # Model card — with_prior_value
 
-Generated 2026-10-18T11:19:44.739410+00:00 from `with_prior_value__lightgbm`.
+Generated 2026-10-18T15:08:34.859418+00:00 from `with_prior_value__lightgbm`.
 This file is written from the artifact, so it cannot describe a model that
 is no longer the one on disk.
 
@@ -27,8 +27,11 @@ Forecast how a player's *already known* market value will move. This is the trac
 
 - Rows: 84,626
 - Split: temporal — train ≤2021, validation 2022, test ≥2023
-- Source: Kaggle `davidcariboo/player-scores` (CC0). Transfermarkt is
-  never scraped; its terms prohibit both the method and this purpose.
+- Source: Kaggle `davidcariboo/player-scores`, a mirror of Transfermarkt
+  data its publisher dedicates as CC0. Transfermarkt is never scraped, but
+  its terms also prohibit training machine learning on the content, which
+  this model is; the usage rights are uncertain and not cleared
+  ([Data rights](DATASET_CARD.md#data-rights)).
 
 ## Measured performance
 
@@ -36,39 +39,60 @@ Test seasons, in EUR. These are held-out seasons the model never saw.
 
 | Metric | Validation | Test |
 |---|---|---|
-| MAE | €900,492 | €912,394 |
-| RMSE | €2,361,204 | €2,422,902 |
+| MAE | €900,232 | €908,625 |
+| RMSE | €2,360,953 | €2,406,492 |
 | R² | 0.960 | 0.963 |
-| MAPE | 21.2% | 20.9% |
+| MAPE | 21.2% | 20.8% |
 | Rows | 6,493 | 13,315 |
 
 ## Prediction intervals
 
-| Nominal level | 80% |
+| Nominal level (what the interval targets) | 80% |
 |---|---|
-| Measured coverage | 80.3% |
-| Median width | €1,022,809 |
-| Measured on | 13,315 test rows |
+| Residual quantile level used | 80.0% |
+| Simulated coverage before widening (pre-test seasons) | 80.2% |
+| Simulated coverage after widening (pre-test seasons) | 80.2% |
+| Quantiles fitted on | season 2022, 6,493 rows |
+| **Observed coverage, test seasons** | **80.1%** of 13,315 rows |
+| Median width | €1,007,299 |
 
-Quantiles are taken from the validation season and the coverage above
-is measured on the test seasons, which neither the model nor the
-interval has seen. Measured coverage below the nominal level is the
-cost of predicting forward across seasons that are not exchangeable.
+| Test subgroup | Observed coverage | Rows |
+|---|---|---|
+| season 2023 | 80.2% | 5,666 |
+| season 2024 | 80.1% | 7,649 |
+| predicted 1M-5M | 81.3% | 4,379 |
+| predicted 20M-50M | 84.1% | 790 |
+| predicted 5M-20M | 82.0% | 2,267 |
+| predicted <1M | 78.2% | 5,677 |
+| predicted >50M | 72.3% | 202 |
+
+The quantiles come from the validation season's residuals. They are
+widened to the level the pre-test simulation needed to hold the nominal
+level one and two seasons ahead — a model fitted before each of five
+origin seasons, calibrated on it and scored on the next two, all before
+the test seasons. Coverage is then measured on the test seasons, which
+neither the model nor the interval saw.
+
+That test figure is **retrospective**, not independent: the widening was
+introduced after the unwidened interval's test coverage had been seen.
+Coverage is a frequency over a group of predictions. It is not the
+probability that any one player's value lies inside their interval, and
+small subgroups (the >50M band) are measured on few rows.
 
 ## What it relies on
 
 | Feature | Importance |
 |---|---|
-| `numeric__age` | 1,833 |
-| `numeric__prev_log_market_value_in_eur` | 1,760 |
-| `numeric__prev_value_age_days` | 1,178 |
-| `numeric__years_since_debut` | 924 |
-| `numeric__competition_value_level` | 833 |
-| `numeric__club_points_per_game` | 751 |
-| `numeric__club_goal_difference_per_game` | 685 |
-| `numeric__competition_tier_rank` | 639 |
-| `numeric__club_league_position` | 594 |
-| `numeric__minutes_played` | 563 |
+| `numeric__age` | 1,851 |
+| `numeric__prev_log_market_value_in_eur` | 1,733 |
+| `numeric__prev_value_age_days` | 1,180 |
+| `numeric__years_since_debut` | 874 |
+| `numeric__competition_value_level` | 849 |
+| `numeric__club_points_per_game` | 729 |
+| `numeric__competition_tier_rank` | 693 |
+| `numeric__club_goal_difference_per_game` | 682 |
+| `numeric__minutes_played` | 566 |
+| `numeric__squad_match_share` | 562 |
 
 ## Assumptions
 
@@ -103,12 +127,12 @@ Worst and best competitions by MAPE, over segments with enough rows to mean anyt
 
 | Competition | Rows | MAE | MAPE |
 |---|---|---|---|
-| `SFA` | 40 | EUR 84,320 | 39% |
-| `DKP` | 74 | EUR 151,160 | 32% |
-| `CL` | 109 | EUR 1,066,344 | 29% |
-| `GRP` | 46 | EUR 62,605 | 16% |
-| `GB1` | 905 | EUR 2,759,558 | 14% |
-| `GR1` | 583 | EUR 230,371 | 13% |
+| `SFA` | 40 | EUR 84,754 | 39% |
+| `DKP` | 74 | EUR 151,961 | 32% |
+| `CL` | 109 | EUR 1,050,828 | 29% |
+| `GRP` | 46 | EUR 59,997 | 15% |
+| `GB1` | 905 | EUR 2,742,432 | 14% |
+| `GR1` | 583 | EUR 233,772 | 13% |
 
 A wide spread here means the model serves some leagues better than others, which is a property of how much history the panel holds for each. Read it before quoting one number for every competition.
 

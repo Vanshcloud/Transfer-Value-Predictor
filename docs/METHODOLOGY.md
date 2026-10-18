@@ -6,7 +6,16 @@ with the measurements that produced each choice.
 
 Companion documents: [`DATASET_CARD.md`](DATASET_CARD.md) for what the data is,
 [`EXPERIMENT_TRACKING.md`](EXPERIMENT_TRACKING.md) for how runs are recorded,
-[`../plans/`](../plans/) for the phase-by-phase audit record.
+[`../plans/`](../plans/) for the phase-by-phase audit record, and
+[`EVALUATION.md`](EVALUATION.md) for what the metrics are evidence of.
+
+**How to read the p-values below.** Those from Phases 15–18 come from paired
+*t*-tests on absolute errors pooled across seasons, which treat every row as
+independent although players repeat across seasons; they overstate significance
+by the design effect measured in [`EVALUATION.md`](EVALUATION.md) §3. Large
+effects stand; p-values between about 0.05 and 0.001 are unconfirmed; and a
+non-significant result means no difference was detected, not that there is none.
+Test-season figures are retrospective throughout.
 
 ---
 
@@ -134,38 +143,37 @@ what creates the chance of a row or a player straddling the boundary.
 Eleven families (Linear, Ridge, Lasso, ElasticNet, RandomForest, ExtraTrees,
 HistGradientBoosting, XGBoost, LightGBM, CatBoost, and a ridge-blended stack of
 the three boosters), each searched on expanding-window folds inside the training
-seasons, then scored once on the test seasons. LightGBM ships for both variants. The first Phase 19 rebuild shipped Random Forest for the prior-value variant; the serving requirements added afterwards (a 100 ms explained-prediction budget and the artifact counted in the footprint) exclude it (plans/09).
+seasons, then scored on the test seasons after selection (retrospectively —
+see [`EVALUATION.md`](EVALUATION.md)). LightGBM ships for both variants.
 
-**"Wins" is doing less work than it looks.** The top four families on the
-performance-only variant are separated by EUR 44,000 of validation MAE, and the
-standard error of that MAE is EUR 60,000. They are the same model as far as this
-data can tell. On the prior-value variant the top three explainable families
-sit inside EUR 5,600 of one another — stacked 1,651,350, CatBoost 1,655,749,
-LightGBM 1,656,909 — against a standard error an order of magnitude larger, so
-the one-standard-error rule decides it on deployment footprint and LightGBM
-ships.
+**"Wins" is doing less work than it looks.** On the Phase 20 run the
+performance-only variant's top four families span €69,000 of validation MAE
+against a standard error of about €54,000, and the prior-value variant's top six
+sit within €18,500 against about €27,000. As far as one validation season can
+tell, they are close to the same model. These standard errors treat each
+validation row as independent; within one season each player appears once, so
+that holds for sampling noise, but a season-wide shift is a single draw and is
+not in them.
 
-So selection is not `min()`. Two rules decide what ships:
+So selection is not `min()`. The rule, as data in `SELECTION_RULE`
+(`src/pipelines/tune.py`) and recorded in every artifact:
 
-**It must be explainable.** Every prediction response documents an
-`explanation`, the dashboard draws a contribution chart from it, and both model
-cards are built from named importances. The stacked blend had the lowest
-validation MAE on both variants and exposes no importances at all — its members
-have them, the blend does not. HistGradientBoosting is subtler and shipped once
-before this rule existed: SHAP works on it, so every prediction looked
-explained, while `feature_importances_` has never existed on it and the model
-card came out blank. Both are excluded, both still run, and the leaderboard
-shows what excluding them costs — which, after the final audit's feature work,
-is €10,152 of validation MAE at p = 0.32. The constraint is now free.
+1. **Eligible** only if the family exposes feature importances, SHAP explains
+   every timed validation-season row, and predict plus explanation takes at most
+   **100 ms** at the median. The stacked blend and HistGradientBoosting expose no
+   importances; linear families and CatBoost cannot be explained by
+   TreeExplainer here; Random Forest (440 ms on the prior-value variant, 2.1 s on
+   performance-only) and Extra Trees (0.8 s and 5.8 s) exceed the budget.
+2. **One standard error** around the best *eligible* validation MAE (Breiman,
+   Friedman, Olshen & Stone, 1984).
+3. **Smallest deployed footprint** among those — extra packages in the serving
+   image plus the serialised artifact — then latency, then MAE.
 
-**Then the one-standard-error rule** (Breiman, Friedman, Olshen & Stone, 1984):
-among families within one standard error of the best, take the cheapest.
-XGBoost beat LightGBM by EUR 7,917 — a seventh of one standard error, paired
-t = 0.37 — and shipping it would have added 372 MB to the serving image, 291 MB
-of that being CUDA libraries a CPU inference path never opens. The tiebreak is
-deployment footprint rather than artifact size, because artifact size points the
-wrong way: CatBoost serialises to a fifth of LightGBM's file and costs 328 MB of
-package.
+On this run LightGBM is also the lowest validation MAE of *any* family on both
+variants, so the requirements cost nothing in accuracy. That is an observation
+about this run, not a property of the rule. Phase 19's first retrain had shipped
+a 182 MB Random Forest under an earlier footprint definition that counted
+packages only; the record is in `plans/09`.
 
 **The zoo still barely beats the baseline.** Eleven families and a
 hyperparameter search buy a few hundredths of R², which is worth stating
@@ -230,45 +238,54 @@ mid-table figure conceals much larger absolute misses at the top of the market.
 Read the per-band breakdown in `reports/error_analysis.html` before trusting a
 number for an expensive player.
 
-### The prediction intervals are wide, and cover slightly less than they say
+### The prediction intervals are wide, and their coverage is retrospective
 
-A gradient booster has no calibrated uncertainty; the interval is measured from
-the model's own residual quantiles. Those quantiles now come from the
-**validation** season and their coverage is measured on the **test** seasons —
-until the final audit both came from the test seasons, which makes a nominal
-80% interval cover exactly 80% by construction and is arithmetic rather than
-evidence. Measured honestly it reaches about **0.77** against a nominal 0.80
-for the performance-only model, and 0.80 for the prior-value one. Every
-response now carries `measured_coverage` beside `level`, and the dashboard
-shows both.
+A gradient booster has no calibrated uncertainty; the interval is the model's
+own residual quantiles, per value band. They come from the **validation** season
+and their coverage is measured on the **test** seasons. Until Phase 16 both came
+from the test seasons, which makes an 80% interval cover 80% by construction.
 
-The shortfall is not closed on purpose. Conformal prediction guarantees
-coverage under exchangeability and consecutive football seasons are not
-exchangeable; widening the bounds until the number read 0.80 would mean fitting
-them to the test set. Conformalised quantile regression, symmetric split
-conformal and raw LightGBM quantile regression were all measured and all lose
-on Winkler score to the method already here. Wide is still the finding.
+Calibrated on one season and served one and two seasons later, the quantiles
+undercover, because consecutive seasons are not exchangeable. Since Phase 20 the
+quantile level is chosen to offset that, by a rule fixed before the models were
+trained: replay the deployed situation on origin seasons 2016–2020, all before the
+test seasons, and take the smallest level in 0.80–0.95 whose mean coverage one and
+two seasons ahead reaches 0.80. Performance-only needed 0.825 (simulated coverage
+0.777 at 0.80, 0.803 at 0.825); prior-value needed none (0.802 at 0.80).
 
-### The best model does not ship, and that now costs almost nothing
+Measured on 2023–2024 the intervals then cover **79.1%** (81.2% in 2023, 77.5% in
+2024) and **80.1%**, against 75.1% and 80.3% before. Below €1M and above €50M they
+still cover less (76–77% for performance-only). Those test figures are
+**retrospective**: the widening was motivated by the earlier 75.1%, which had
+been seen. The price is width, a median of €2.23M against €1.99M for
+performance-only. Conformalised quantile regression, symmetric split conformal
+and raw LightGBM quantile regression were compared in Phase 16 — on the test
+seasons, which is one of the decisions [`EVALUATION.md`](EVALUATION.md) records as
+contaminating them.
+
+Coverage is a frequency over a group of predictions. It is not the probability
+that one player's value lies inside their interval; the API and dashboard quote
+the prediction's own value band's record and its row count, and say so.
+
+### The stacked ensemble does not ship, and on this run nothing is lost
 
 A stacked blend of the three boosters cannot produce a feature importance or a
 SHAP value, and every prediction response documents an explanation, so it is
-excluded by `EXPLAINABLE_REQUIRED` in
-[`../src/pipelines/tune.py`](../src/pipelines/tune.py). At v1.2.0 that cost
-1.92% and 0.33% of validation MAE. On the corrected feature set the blend beats
-LightGBM by €10,152 with **p = 0.32** — the two are indistinguishable, because
-the career-momentum block gave LightGBM most of what the ensemble was buying.
+ineligible. On the Phase 20 run it is not the most accurate family either:
+LightGBM's validation MAE is lower on both variants. At v1.2.0 the exclusion
+cost 1.92% and 0.33% of validation MAE; in Phase 16 it cost €10,152 at p = 0.32,
+a row-level test that detected nothing — which is not the same as showing the
+cost was zero.
 
-Knowledge distillation was tested rather than assumed. A LightGBM student
-taught on 75% true labels and 25% of the stacked teacher's beat the shipped
-model by €22,333 (t = 3.41, p = 0.0006) while staying fully explainable, which
-looked like a reason to add a teacher to every training run. It was not: a
-LightGBM teaching *itself* gains nothing (p = 0.81), and against a properly
-**regularised** LightGBM the student is worth €2,487 at p = 0.72. The ensemble
-was standing in for regularisation the search had never been allowed to try,
-because `min_child_samples` and `reg_lambda` were not in the grid. They are
-now, which is where that €22,333 actually went — four times the grid for one
-family, no teacher, and nothing added to the serving image.
+Knowledge distillation was tested in Phase 16 rather than assumed. A LightGBM
+student taught partly on the stacked teacher's predictions beat the then-shipped
+model by €22,333 (row-level t = 3.41, p = 0.0006); against a properly
+**regularised** LightGBM it was worth €2,487 (p = 0.72), and a LightGBM teaching
+itself gained nothing (p = 0.81). The ensemble was standing in for
+regularisation the grid had never been allowed to try. Those p-values come from
+pooled row-level tests that ignore players repeating across seasons
+([`EVALUATION.md`](EVALUATION.md) §5), so the 0.0006 is weaker evidence than it
+reads.
 
 ### Seasons are August to July, and no single boundary is right for every league
 

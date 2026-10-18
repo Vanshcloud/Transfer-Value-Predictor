@@ -211,7 +211,7 @@ def measured_coverage(
     # a response can quote its own group's record rather than the overall one.
     labels = np.array([_band_for(float(value)) for value in predicted])
     by_band = {
-        band: {"empirical": float(inside[chosen].mean()), "n": int(chosen.sum())}
+        str(band): {"empirical": float(inside[chosen].mean()), "n": int(chosen.sum())}
         for band in sorted(set(labels[usable]))
         for chosen in [usable & (labels == band)]
     }
