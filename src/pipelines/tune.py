@@ -265,22 +265,26 @@ def _select_winner(results: list[FamilyResult], variant: str) -> FamilyResult:
     over a 2.2 MB LightGBM, at 439 ms per explained prediction against 29 ms.
 
     Raises:
-        ValueError: if explainable families ran but none meets the
-            requirements. Shipping an over-budget model would make the budget
-            a comment.
+        ValueError: if no family that ran meets the requirements, including
+            when none of them is explainable. Shipping an ineligible model
+            would make the requirements a comment.
     """
-    explainable = [r for r in results if r.name in EXPLAINABLE_FAMILIES]
-    if not EXPLAINABLE_REQUIRED or not explainable:
+    if not results:
+        raise ValueError(f"{variant}: no model family was trained, so none can be selected")
+    if not EXPLAINABLE_REQUIRED:
         return min(results, key=lambda result: result.validation.mae)
 
-    eligible = [r for r in explainable if r.ineligible_because is None]
+    eligible = [r for r in results if r.ineligible_because is None]
     for result in results:
         if result.ineligible_because is not None:
             logger.info("%s: %s is ineligible: %s", variant, result.name, result.ineligible_because)
     if not eligible:
+        # Including when no explainable family ran at all: that used to fall
+        # back to the best ineligible one, shipping a model the API cannot
+        # explain because of which --models were passed.
         raise ValueError(
             f"{variant}: no family meets the selection requirements; "
-            + "; ".join(f"{r.name}: {r.ineligible_because}" for r in explainable)
+            + "; ".join(f"{r.name}: {r.ineligible_because}" for r in results)
         )
 
     best = min(eligible, key=lambda result: result.validation.mae)

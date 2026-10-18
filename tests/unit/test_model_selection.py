@@ -69,11 +69,21 @@ class TestSelectWinner:
         )
         assert winner.name == "lightgbm"
 
-    def test_it_falls_back_rather_than_shipping_nothing(self) -> None:
-        """If somehow no explainable family ran, a model is better than none —
-        and the caller finds out from the artifact, which records the family."""
-        winner = _select_winner([result("stacked", 1_000_000)], "performance_only")
-        assert winner.name == "stacked"
+    def test_only_unexplainable_families_is_an_error_not_a_fallback(self) -> None:
+        """Re-audit: this used to ship `stacked` when it was all that ran."""
+        with pytest.raises(ValueError, match="no family meets.*stacked: exposes no feature"):
+            _select_winner(
+                [result("stacked", 1_000_000), result("gradient_boosting", 1_100_000)],
+                "performance_only",
+            )
+
+    def test_no_results_is_an_explicit_error(self) -> None:
+        with pytest.raises(ValueError, match="no model family was trained"):
+            _select_winner([], "performance_only")
+
+    def test_an_unexplainable_family_with_no_latency_cannot_win(self) -> None:
+        with pytest.raises(ValueError, match="cannot explain a single prediction"):
+            _select_winner([result("lightgbm", 900_000, latency=None)], "performance_only")
 
     def test_selection_is_still_by_validation_mae(self) -> None:
         winner = _select_winner(
