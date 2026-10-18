@@ -22,6 +22,7 @@ from pathlib import Path
 from typing import Any
 
 import joblib
+import numpy as np
 import pandas as pd
 from sklearn.pipeline import Pipeline
 
@@ -29,7 +30,7 @@ from src.evaluation.metrics import Metrics, evaluate
 from src.explainability.shap_explainer import explained_prediction_latency_ms
 from src.feature_engineering.build import CATEGORICAL_FEATURES, TARGET_COLUMN, select_variant
 from src.models.artifact import ModelArtifact, extract_feature_importance, save
-from src.models.calibration import calibrate, measured_coverage
+from src.models.calibration import calibrate, measured_coverage, select_quantile_level
 from src.models.registry import (
     DEPLOYMENT_MEGABYTES,
     EXPLAINABLE_FAMILIES,
@@ -410,14 +411,31 @@ def _fit_winner(
     # construction. See src/models/calibration for the comparison against
     # conformal and quantile-regression alternatives.
     validation = frame.loc[split.validation]
+    # Chosen before any test row is read, from seasons up to the validation
+    # season only (audit F9): how much wider the quantiles must be to hold
+    # their level one and two seasons ahead.
+    widening = select_quantile_level(
+        _interval_simulations(frame, features, numeric, winner, config.validation_season)
+    )
     calibration = calibrate(
         validation[TARGET_COLUMN].to_numpy(dtype=float),
         pipeline.predict(validation[features]),
+        quantile_level=widening["level"],
     )
+    calibration["quantile_level_selection"] = widening
     calibration["fitted_on"] = {"season": config.validation_season, "rows": len(validation)}
-    calibration["coverage"] = measured_coverage(
-        calibration, test[TARGET_COLUMN].to_numpy(dtype=float), test_predictions
-    )
+    test_actual = test[TARGET_COLUMN].to_numpy(dtype=float)
+    calibration["coverage"] = measured_coverage(calibration, test_actual, test_predictions)
+    calibration["coverage"]["by_season"] = {
+        str(season): {
+            "empirical": measured_coverage(
+                calibration, test_actual[chosen], test_predictions[chosen]
+            )["empirical"],
+            "n": int(chosen.sum()),
+        }
+        for season in sorted(test["season"].unique())
+        for chosen in [(test["season"] == season).to_numpy()]
+    }
 
     return ModelArtifact(
         variant=variant,
@@ -461,6 +479,47 @@ def _fit_winner(
             for result in sorted(results, key=lambda r: r.validation.mae)
         ],
     )
+
+
+INTERVAL_ORIGINS = 5
+"""Origin seasons in the interval simulation: the five latest whose every
+horizon still falls on or before the validation season."""
+
+INTERVAL_HORIZONS = (1, 2)
+"""How far ahead of its calibration season the interval is served: the test
+seasons are one and two seasons after the validation season."""
+
+
+def _interval_simulations(
+    frame: pd.DataFrame,
+    features: list[str],
+    numeric: list[str],
+    winner: FamilyResult,
+    validation_season: int,
+) -> list[tuple[np.ndarray, np.ndarray, list[tuple[np.ndarray, np.ndarray]]]]:
+    """The deployed situation, replayed inside the pre-test seasons.
+
+    For each origin *s*: the winning family and parameters fitted on seasons
+    before *s*, calibrated on *s*, scored on *s* + each horizon. The latest
+    season read is the validation season.
+    """
+    last_origin = validation_season - max(INTERVAL_HORIZONS)
+    simulations = []
+    for origin in range(last_origin - INTERVAL_ORIGINS + 1, last_origin + 1):
+        train = frame[frame["season"] < origin]
+        if train.empty:
+            continue
+        pipeline = build_pipeline(MODEL_REGISTRY[winner.name], numeric, CATEGORICAL_FEATURES)
+        pipeline.set_params(**winner.tuning.best_params)
+        pipeline.fit(train[features], train[TARGET_COLUMN], **fit_params(train["season"]))
+
+        def scored(season: int, model: Pipeline = pipeline) -> tuple[np.ndarray, np.ndarray]:
+            rows = frame[frame["season"] == season]
+            return rows[TARGET_COLUMN].to_numpy(dtype=float), model.predict(rows[features])
+
+        later = [scored(origin + ahead) for ahead in INTERVAL_HORIZONS]
+        simulations.append((*scored(origin), later))
+    return simulations
 
 
 def run_zoo(

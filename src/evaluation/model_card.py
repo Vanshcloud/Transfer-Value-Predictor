@@ -281,21 +281,63 @@ def _interval_section(artifact: ModelArtifact) -> list[str]:
     market that moves. Printing only the nominal number is how an interval
     comes to be trusted more than it has earned.
     """
-    coverage = artifact.calibration.get("coverage") or {}
+    calibration = artifact.calibration
+    coverage = calibration.get("coverage") or {}
     if not coverage:
         return []
-    return [
+    selection = calibration.get("quantile_level_selection") or {}
+    fitted = calibration.get("fitted_on") or {}
+    lines = [
         "## Prediction intervals",
         "",
-        f"| Nominal level | {coverage['level']:.0%} |",
+        f"| Nominal level (what the interval targets) | {coverage['level']:.0%} |",
         "|---|---|",
-        f"| Measured coverage | {coverage['empirical']:.1%} |",
+        f"| Residual quantile level used | {calibration.get('quantile_level', coverage['level']):.1%} |",
+    ]
+    if selection:
+        lines += [
+            f"| Simulated coverage before widening (pre-test seasons) | "
+            f"{selection['simulated_coverage_at_nominal']:.1%} |",
+            f"| Simulated coverage after widening (pre-test seasons) | "
+            f"{selection['simulated_coverage_at_level']:.1%} |",
+        ]
+    lines += [
+        f"| Quantiles fitted on | season {fitted.get('season', '?')}, "
+        f"{fitted.get('rows', 0):,} rows |",
+        f"| **Observed coverage, test seasons** | **{coverage['empirical']:.1%}** "
+        f"of {coverage['n']:,} rows |",
         f"| Median width | €{coverage['median_width_eur']:,.0f} |",
-        f"| Measured on | {coverage['n']:,} test rows |",
-        "",
-        "Quantiles are taken from the validation season and the coverage above",
-        "is measured on the test seasons, which neither the model nor the",
-        "interval has seen. Measured coverage below the nominal level is the",
-        "cost of predicting forward across seasons that are not exchangeable.",
         "",
     ]
+    groups = [
+        *(
+            (f"season {season}", record)
+            for season, record in (coverage.get("by_season") or {}).items()
+        ),
+        *(
+            (f"predicted {band}", record)
+            for band, record in (coverage.get("by_band") or {}).items()
+        ),
+    ]
+    if groups:
+        lines += ["| Test subgroup | Observed coverage | Rows |", "|---|---|---|"]
+        lines += [
+            f"| {name} | {record['empirical']:.1%} | {record['n']:,} |" for name, record in groups
+        ]
+        lines.append("")
+    lines += [
+        "The quantiles come from the validation season's residuals. They are",
+        "widened to the level the pre-test simulation needed to hold the nominal",
+        "level one and two seasons ahead — a model fitted before each of five",
+        "origin seasons, calibrated on it and scored on the next two, all before",
+        "the test seasons. Coverage is then measured on the test seasons, which",
+        "neither the model nor the interval saw.",
+        "",
+        "That test figure is **retrospective**, not independent: the widening was",
+        "introduced after the unwidened interval's test coverage had been seen.",
+        "Coverage is a frequency over a group of predictions. It is not the",
+        "probability that any one player's value lies inside their interval, and",
+        "small subgroups (the >50M band) are measured on few rows.",
+        "",
+    ]
+    return lines

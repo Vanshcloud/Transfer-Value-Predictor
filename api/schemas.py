@@ -164,10 +164,25 @@ class ConfidenceSchema(BaseModel):
     measured_coverage: float | None = Field(
         default=None,
         description=(
-            "Fraction of test-season rows the interval actually contained, measured on "
-            "seasons after the one its quantiles came from. Below `level` because "
-            "consecutive seasons are not exchangeable. Null if never measured."
+            "Fraction of ALL test-season rows the interval method contained, measured "
+            "on seasons after the one its quantiles came from. A property of the "
+            "method across the panel, not a probability for this player. Null if "
+            "never measured."
         ),
+    )
+    band: str | None = Field(
+        default=None, description="The value band this prediction falls in, e.g. '1M-5M'."
+    )
+    band_measured_coverage: float | None = Field(
+        default=None,
+        description=(
+            "The same measurement restricted to test predictions in `band` — the "
+            "closest available record for a prediction like this one. Still a "
+            "long-run frequency over a group, not a probability for this player."
+        ),
+    )
+    band_coverage_rows: int | None = Field(
+        default=None, description="Test rows behind `band_measured_coverage`. Fewer, less trust."
     )
 
 

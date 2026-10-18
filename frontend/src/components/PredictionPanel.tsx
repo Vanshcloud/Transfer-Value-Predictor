@@ -1,6 +1,6 @@
 "use client";
 
-import type { PredictResponse } from "@/lib/api";
+import type { Confidence, PredictResponse } from "@/lib/api";
 import { eur, eurExact, percent } from "@/lib/format";
 import { Card, Stat } from "./ui";
 
@@ -82,7 +82,7 @@ export default function PredictionPanel({
         <div className="mt-6 rounded-lg border border-slate-200 p-4 dark:border-slate-800">
           <div className="flex flex-wrap items-baseline justify-between gap-3">
             <span className="text-xs tracking-wide text-slate-500 uppercase dark:text-slate-400">
-              {percent(confidence.level, 0)} prediction interval
+              {percent(confidence.level, 0)} nominal interval
             </span>
             <span className="font-mono text-sm tabular-nums text-slate-900 dark:text-slate-100">
               {eur(confidence.lower_eur)} — {eur(confidence.upper_eur)}
@@ -94,22 +94,48 @@ export default function PredictionPanel({
             {confidence.basis}. It is wide because predicting market value a
             season ahead is genuinely hard, not because something is broken.
           </p>
-          {typeof confidence.measured_coverage === "number" && (
-            /* The nominal level is what the interval asks for; this is what it
-               got on later seasons it had never seen. Showing only the first
-               would quote an intention as a result. */
-            <p className="mt-2 text-xs leading-relaxed text-slate-500 dark:text-slate-400">
-              On the test seasons it actually contained{" "}
-              <span className="font-medium text-slate-700 dark:text-slate-200">
-                {percent(confidence.measured_coverage, 0)}
-              </span>{" "}
-              of true values, against the {percent(confidence.level, 0)} it
-              targets. Seasons are not interchangeable, so an interval
-              calibrated on one covers a little less on the next.
-            </p>
-          )}
+          <IntervalRecord confidence={confidence} />
         </div>
       )}
     </Card>
+  );
+}
+
+/**
+ * What the interval achieved on test seasons it had never seen — for
+ * predictions in this one's value band when that was measured, overall
+ * otherwise — with the rows behind the figure.
+ *
+ * Worded as a frequency over a group, never as a chance for this player: an
+ * 80% interval that covered 74% of a band's test rows says nothing about
+ * whether this player's value lies inside it.
+ */
+export function IntervalRecord({ confidence }: { confidence: Confidence }) {
+  const band =
+    typeof confidence.band_measured_coverage === "number" && confidence.band
+      ? {
+          coverage: confidence.band_measured_coverage,
+          rows: confidence.band_coverage_rows ?? null,
+          group: `predictions in the ${confidence.band} band`,
+        }
+      : null;
+  const overall =
+    typeof confidence.measured_coverage === "number"
+      ? { coverage: confidence.measured_coverage, rows: null, group: "all predictions" }
+      : null;
+  const record = band ?? overall;
+  if (record == null) return null;
+
+  return (
+    <p className="mt-2 text-xs leading-relaxed text-slate-500 dark:text-slate-400">
+      On the test seasons, intervals for {record.group}
+      {record.rows != null && ` (${record.rows.toLocaleString()} rows)`} contained{" "}
+      <span className="font-medium text-slate-700 dark:text-slate-200">
+        {percent(record.coverage, 0)}
+      </span>{" "}
+      of true values, against the {percent(confidence.level, 0)} targeted
+      {band && overall && ` (${percent(overall.coverage, 0)} across all predictions)`}. That
+      is a record for the group, not a probability for this player.
+    </p>
   );
 }

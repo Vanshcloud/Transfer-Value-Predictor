@@ -286,6 +286,9 @@ class TestConfidence:
             "basis",
             "reference_rows",
             "measured_coverage",
+            "band",
+            "band_measured_coverage",
+            "band_coverage_rows",
         }
         assert "confidence_score" not in confidence
 

@@ -33,12 +33,21 @@ export interface Confidence {
   basis: string;
   reference_rows: number;
   /**
-   * Coverage the interval actually achieved on seasons after the one its
-   * quantiles came from. Lower than `level`, and the number to show a user.
-   * Null when the model's calibration was never checked against a later
-   * season — null means unmeasured, not zero.
+   * Coverage the interval method achieved across ALL test-season rows. A
+   * property of the method, not of this player. Null when never measured —
+   * null means unmeasured, not zero.
    */
   measured_coverage?: number | null;
+  /** The value band this prediction falls in, e.g. "1M-5M". */
+  band?: string | null;
+  /**
+   * Coverage on test predictions in `band`: the closest record for a
+   * prediction like this one, and still a frequency over a group rather than
+   * a probability for this player.
+   */
+  band_measured_coverage?: number | null;
+  /** Test rows behind `band_measured_coverage`. */
+  band_coverage_rows?: number | null;
 }
 
 export interface PredictResponse {

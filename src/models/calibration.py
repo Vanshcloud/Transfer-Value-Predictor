@@ -68,6 +68,9 @@ instead. The response says which was used."""
 
 OVERALL_BAND = "overall"
 
+QUANTILE_LEVELS = tuple(round(0.80 + 0.005 * step, 3) for step in range(31))
+"""Candidate quantile levels for :func:`select_quantile_level`: 0.80 to 0.95."""
+
 
 def _band_for(value: float) -> str:
     for name, low, high in VALUE_BANDS:
@@ -77,25 +80,34 @@ def _band_for(value: float) -> str:
 
 
 def calibrate(
-    actual: np.ndarray, predicted: np.ndarray, *, level: float = DEFAULT_LEVEL
+    actual: np.ndarray,
+    predicted: np.ndarray,
+    *,
+    level: float = DEFAULT_LEVEL,
+    quantile_level: float | None = None,
 ) -> dict[str, Any]:
     """Measure residual quantiles per value band on held-out predictions.
 
     Args:
         actual: True values in EUR.
         predicted: Model predictions in EUR, from rows the model never trained on.
-        level: Target coverage, e.g. 0.8 for an 80% interval.
+        level: Target coverage, e.g. 0.8 for an 80% interval. What the API
+            reports as the interval's nominal level.
+        quantile_level: The residual quantiles actually taken, when wider than
+            ``level`` to offset the drift between seasons
+            (:func:`select_quantile_level`). Defaults to ``level``.
 
     Returns:
         A JSON-able mapping the artifact carries and the API serves.
     """
     actual = np.asarray(actual, dtype=float)
     predicted = np.asarray(predicted, dtype=float)
+    quantile_level = level if quantile_level is None else quantile_level
 
     # log1p, matching the space the model fits in, so the interval scales with
     # the prediction instead of being a fixed number of euros everywhere.
     residual = np.log1p(actual) - np.log1p(predicted)
-    tail = (1.0 - level) / 2.0
+    tail = (1.0 - quantile_level) / 2.0
 
     bands: dict[str, Any] = {}
     labels = np.array([_band_for(value) for value in predicted])
@@ -111,7 +123,59 @@ def calibrate(
             "n": int(len(selected)),
         }
 
-    return {"level": level, "bands": bands}
+    return {"level": level, "quantile_level": quantile_level, "bands": bands}
+
+
+def select_quantile_level(
+    simulations: list[tuple[np.ndarray, np.ndarray, list[tuple[np.ndarray, np.ndarray]]]],
+    *,
+    target: float = DEFAULT_LEVEL,
+) -> dict[str, Any]:
+    """The smallest quantile level whose mean coverage on later seasons meets ``target``.
+
+    Each simulation is one origin season *s* inside the training range: a model
+    fitted on seasons before *s*, its predictions on *s* (``actual``,
+    ``predicted``) to calibrate on, and its predictions on the seasons after
+    *s* to measure coverage on. That reproduces the deployed situation — fit,
+    calibrate on the next season, serve on the ones after — using no row from
+    the test seasons.
+
+    Added in Phase 20 (audit F9), with the rule fixed before the models were
+    retrained under it. The motivation was the performance-only model's 75.1%
+    test coverage, which had already been seen, so the test coverage measured
+    afterwards is retrospective evidence and not an independent check.
+
+    Returns:
+        ``level`` (the chosen quantile level) and the mean simulated coverage
+        at the nominal and at the chosen level, with the number of
+        measurements behind each.
+    """
+
+    def mean_coverage(level: float) -> float:
+        measured = []
+        for cal_actual, cal_predicted, later in simulations:
+            calibration = calibrate(cal_actual, cal_predicted, level=level)
+            for actual, predicted in later:
+                coverage = measured_coverage(calibration, actual, predicted)
+                if coverage:
+                    measured.append(coverage["empirical"])
+        return float(np.mean(measured)) if measured else float("nan")
+
+    at_nominal = mean_coverage(target)
+    chosen = next(
+        (level for level in QUANTILE_LEVELS if mean_coverage(level) >= target),
+        QUANTILE_LEVELS[-1],
+    )
+    return {
+        "level": chosen,
+        "simulated_coverage_at_nominal": at_nominal,
+        "simulated_coverage_at_level": mean_coverage(chosen),
+        "measurements": sum(len(later) for _, _, later in simulations),
+        "rule": (
+            "smallest quantile level in 0.80-0.95 whose mean coverage, over origin "
+            "seasons inside the training range, reaches the nominal level"
+        ),
+    }
 
 
 def measured_coverage(
@@ -143,10 +207,20 @@ def measured_coverage(
     upper = np.array([bound.get("upper_eur", np.nan) for bound in bounds])
     inside = (actual >= lower) & (actual <= upper) & usable
 
+    # Per band of the *prediction*, the group a served interval belongs to, so
+    # a response can quote its own group's record rather than the overall one.
+    labels = np.array([_band_for(float(value)) for value in predicted])
+    by_band = {
+        band: {"empirical": float(inside[chosen].mean()), "n": int(chosen.sum())}
+        for band in sorted(set(labels[usable]))
+        for chosen in [usable & (labels == band)]
+    }
+
     return {
         "level": float(calibration.get("level", DEFAULT_LEVEL)),
         "empirical": float(inside.sum() / usable.sum()),
         "n": int(usable.sum()),
+        "by_band": by_band,
         "median_width_eur": float(np.median((upper - lower)[usable])),
         "basis": (
             "measured on the test seasons, against quantiles taken from the "
@@ -183,6 +257,7 @@ def interval_for(calibration: dict[str, Any], prediction_eur: float) -> dict[str
     )
 
     coverage = calibration.get("coverage") or {}
+    group = (coverage.get("by_band") or {}).get(band) or {}
     return {
         "level": float(calibration.get("level", DEFAULT_LEVEL)),
         "lower_eur": float(np.expm1(logged + entry["lower_log"])),
@@ -194,4 +269,10 @@ def interval_for(calibration: dict[str, Any], prediction_eur: float) -> dict[str
         # nominal level rather than instead of it: a caller who sees only 0.8
         # will believe 0.8, and the honest figure is lower.
         "measured_coverage": (float(coverage["empirical"]) if "empirical" in coverage else None),
+        # The same, for test predictions in this prediction's value band: the
+        # group's long-run record, which is still not a probability for this
+        # player.
+        "band": band,
+        "band_measured_coverage": group.get("empirical"),
+        "band_coverage_rows": group.get("n"),
     }
