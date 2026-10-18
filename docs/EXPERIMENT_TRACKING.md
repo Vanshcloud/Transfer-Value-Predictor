@@ -19,18 +19,32 @@ outlive a single machine or several people launch them concurrently.
 
 ## 1. Dataset version
 
-The upstream Kaggle dataset `davidcariboo/player-scores` refreshes weekly, so
-"the data" is not a fixed thing and a metric without a dataset stamp is not
-reproducible.
+The upstream Kaggle dataset `davidcariboo/player-scores` refreshes weekly and is
+served as a rolling "latest" version, so "the data" is not a fixed thing and a
+metric without a dataset stamp is not reproducible. Since artifact version 3
+(Phase 20, audit F10) every artifact carries a `provenance` block, written by
+`src/models/provenance.py`:
 
 | Field | Meaning |
 |---|---|
-| `dataset` | Kaggle slug, from `configs/config.yaml` |
-| `source_rows` | Row count of each ingested raw table |
-| `built_at` | UTC timestamp of the feature build |
+| `raw_data.dataset` | Kaggle slug, from `configs/config.yaml` |
+| `raw_data.files` | SHA-256 and size of every raw CSV the build reads |
+| `training_table` | SHA-256, size and name of the Parquet table the model was fitted on |
+| `configuration` | SHA-256 of `configs/config.yaml`, and the data, split and target settings actually in force |
+| `source_revision` | The git commit, and whether the tree had uncommitted changes; `null` with the reason when git was unavailable |
+| `environment` | Python version, the versions of every package that can change a fitted model, and the SHA-256 of each lockfile |
+| `selection_rule` | The model-selection policy the artifact was chosen by |
+| `feature_schema` | Every input column and its dtype |
 
-A metric compared against another metric built from a different `source_rows`
-is a comparison across two datasets, and must be labelled as one.
+`raw_data.reproducible_by_download` is `false`, deliberately. The hashes identify
+the snapshot; they do not make it downloadable again, because Kaggle does not
+keep the weekly versions this project read. Reproducing a table means restoring
+those exact files. A fresh download has **not** been shown to rebuild an
+identical table, and nothing here claims it would.
+
+A metric compared against another metric built from a different
+`training_table.sha256` is a comparison across two datasets, and must be
+labelled as one.
 
 ## 2. Feature set version
 
@@ -162,17 +176,28 @@ One artifact per variant, written to `models/`, containing:
 | `feature_importance` | Named, post-preprocessing, so it is readable |
 | `feature_columns` | Input contract for the API in Phase 9 |
 | `dataset` / `split` / `seed` | Everything in §1–§5 |
-| `leaderboard` | Every family's validation score, so a later "which was best?" is answerable |
-| `artifact_version` | Schema version of this file |
+| `leaderboard` | Every family's validation score, standard error, fit and predict time, size, explained-prediction latency, deployed footprint and ineligibility reason, so the choice can be recomputed |
+| `calibration` | Interval quantiles, the season they were fitted on (`fitted_on`), and coverage measured on the test seasons |
+| `provenance` | §1 |
+| `artifact_version` | Schema version of this file (3) |
 
 The artifact is self-describing: loading it requires no reference to the config
-that produced it. `tests/integration/test_model_artifacts.py` asserts a
-reloaded artifact reproduces its recorded metrics exactly, which is the only
-thing that makes any of the above trustworthy.
+that produced it. `tests/unit/test_artifact.py` and
+`tests/integration/test_model_zoo.py` assert a reloaded artifact reproduces its
+recorded metrics exactly, which is the only thing that makes any of the above
+trustworthy.
+
+**Which artifact serves.** `models/manifest.json` names one file per variant,
+with its SHA-256, and is rewritten by every save. The API and the report builder
+load only what it names, verify the checksum *before* unpickling, and refuse a
+file that does not match, an entry holding a different variant, or a model whose
+feature columns the served player tables lack. A directory with artifacts and no
+manifest loads nothing. Until Phase 20 the service took the lexicographically
+last `*.joblib` per variant and the report builder the first, so a stray file
+decided what was served and what was reported (audit F19).
 
 ## 8. What is deliberately not tracked
 
-- **Per-fit wall-clock time.** Interesting, not decision-changing here.
 - **Full CV fold predictions.** Regenerable from the seed.
 - **Intermediate search results.** The leaderboard keeps the per-family score;
   every configuration tried is noise once the winner is known.

@@ -19,6 +19,7 @@ import io
 import time
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 import joblib
 import pandas as pd
@@ -219,6 +220,20 @@ same path the API takes.
 """
 
 
+SELECTION_RULE = {
+    "data": "training and validation seasons only; the test seasons are scored after selection",
+    "eligible": [
+        "family exposes feature importances (EXPLAINABLE_FAMILIES)",
+        "SHAP explains every timed validation-season row",
+        f"median predict+explain latency <= {SERVING_LATENCY_BUDGET_MS:g} ms",
+    ],
+    "band": "within one standard error of the best eligible validation MAE",
+    "tie_break": ["deployed_megabytes", "explained_latency_ms", "validation_mae"],
+}
+""":func:`_select_winner`, as data, so every artifact records the rule it was
+chosen by (``provenance.selection_rule``)."""
+
+
 def _select_winner(results: list[FamilyResult], variant: str) -> FamilyResult:
     """The selection policy, applied identically to every variant.
 
@@ -399,6 +414,7 @@ def _fit_winner(
         validation[TARGET_COLUMN].to_numpy(dtype=float),
         pipeline.predict(validation[features]),
     )
+    calibration["fitted_on"] = {"season": config.validation_season, "rows": len(validation)}
     calibration["coverage"] = measured_coverage(
         calibration, test[TARGET_COLUMN].to_numpy(dtype=float), test_predictions
     )
@@ -453,13 +469,26 @@ def run_zoo(
     model_directory: Path,
     *,
     model_names: tuple[str, ...] | None = None,
+    provenance: dict[str, Any] | None = None,
 ) -> list[ModelArtifact]:
-    """Train both variants and save one artifact each."""
+    """Train both variants and save one artifact each.
+
+    ``provenance`` (:func:`src.models.provenance.collect`) is recorded on
+    every artifact, beside the selection rule and the feature schema.
+    """
     table = store.read_table(TRAINING_TABLE)
 
     artifacts = []
     for variant, include_prior in VARIANTS.items():
         artifact = train_variant(table, variant, include_prior, config, model_names=model_names)
+        frame, _ = select_variant(table, include_prior_value=include_prior)
+        artifact.provenance = {
+            **(provenance or {}),
+            "selection_rule": SELECTION_RULE,
+            "feature_schema": {
+                column: str(frame[column].dtype) for column in artifact.feature_columns
+            },
+        }
         save(artifact, model_directory)
         artifacts.append(artifact)
     return artifacts

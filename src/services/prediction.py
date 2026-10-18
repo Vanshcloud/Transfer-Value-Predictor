@@ -39,7 +39,7 @@ from src.feature_engineering.build import (
     TARGET_COLUMN,
     WHOLE_NUMBER_FEATURES,
 )
-from src.models.artifact import ModelArtifact, load, predict
+from src.models.artifact import MANIFEST_NAME, ModelArtifact, load, load_manifest, predict
 from src.models.calibration import interval_for
 from src.utils.logging import get_logger
 
@@ -202,6 +202,22 @@ class PredictionService:
         elif not labelled.empty:
             labelled = labelled.assign(**{LABELLED_COLUMN: True})
 
+        # A model and a player panel built by different feature definitions
+        # cannot be served together: every stored-row prediction would fail
+        # or, worse, the display gate would quietly empty. Refused here,
+        # loudly, rather than discovered one 422 at a time.
+        if not labelled.empty:
+            for variant, artifact in list(self._artifacts.items()):
+                absent = [c for c in artifact.feature_columns if c not in labelled.columns]
+                if absent:
+                    logger.error(
+                        "refusing %s: the player tables lack %d of its features (%s)",
+                        variant,
+                        len(absent),
+                        ", ".join(absent[:5]),
+                    )
+                    del self._artifacts[variant]
+
         self._players = labelled
         self._names = dict(names or {})
         self._clubs = dict(clubs or {})
@@ -233,18 +249,53 @@ class PredictionService:
         current_season: pd.DataFrame | None = None,
         clubs: Mapping[int, Club] | None = None,
     ) -> PredictionService:
-        """Load every artifact in a directory, newest per variant."""
+        """Load the artifact the directory's manifest names for each variant.
+
+        Only the manifest decides. This used to load every ``*.joblib`` in
+        file-name order and keep the last one per variant, so a stale or
+        misleadingly named file — ``with_prior_value__zz.joblib`` — served
+        instead of the one training selected. A file the manifest does not
+        list is ignored with a warning; one whose checksum does not match is
+        refused before it is unpickled; a directory with artifacts but no
+        manifest loads nothing, because which file is current is then a
+        guess.
+        """
         artifacts: dict[str, ModelArtifact] = {}
-        for path in sorted(model_directory.glob("*.joblib")):
+        try:
+            manifest = load_manifest(model_directory)
+        except ValueError as exc:
+            logger.error("refusing every artifact: %s", exc)
+            manifest = {}
+        on_disk = {path.name for path in model_directory.glob("*.joblib")}
+        if manifest is None:
+            if on_disk:
+                logger.error(
+                    "%s has %d artifact(s) and no %s; refusing to choose by file name",
+                    model_directory,
+                    len(on_disk),
+                    MANIFEST_NAME,
+                )
+            manifest = {}
+
+        for variant, entry in sorted(manifest.items()):
+            path = model_directory / entry["file"]
             try:
-                artifact = load(path)
-            except ValueError as exc:
-                # A schema mismatch is a real problem, but one stale file must
-                # not stop the service loading the artifacts that are fine.
-                logger.warning("skipping %s: %s", path.name, exc)
+                artifact = load(path, sha256=entry["sha256"])
+            except (OSError, ValueError) as exc:
+                # One bad file must not stop the variants that are fine.
+                logger.warning("skipping %s: %s", variant, exc)
                 continue
-            artifacts[artifact.variant] = artifact
-            logger.info("loaded %s (%s)", artifact.variant, artifact.model_name)
+            if artifact.variant != variant:
+                logger.warning(
+                    "skipping %s: %s holds a %s model", variant, path.name, artifact.variant
+                )
+                continue
+            artifacts[variant] = artifact
+            logger.info("loaded %s (%s) from %s", variant, artifact.model_name, path.name)
+
+        unlisted = sorted(on_disk - {entry["file"] for entry in manifest.values()})
+        if unlisted:
+            logger.warning("ignoring artifacts the manifest does not list: %s", unlisted)
 
         if not artifacts:
             logger.warning("no usable model artifacts in %s", model_directory)

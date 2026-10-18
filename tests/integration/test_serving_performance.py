@@ -11,14 +11,12 @@ Marked ``integration``: needs the trained models and the training table.
 
 from __future__ import annotations
 
-from pathlib import Path
-
 import pytest
 
 from src.evaluation.metrics import Metrics
 from src.explainability.shap_explainer import explained_prediction_latency_ms, supports_shap
 from src.feature_engineering.build import select_variant
-from src.models.artifact import ModelArtifact, load
+from src.models.artifact import ModelArtifact, load_manifest, load_variant
 from src.models.tuning import TuningResult
 from src.pipelines.features import TRAINING_TABLE
 from src.pipelines.tune import SERVING_LATENCY_BUDGET_MS, FamilyResult, _select_winner
@@ -30,22 +28,23 @@ pytestmark = pytest.mark.integration
 MODEL_DIR = PROJECT_ROOT / "models"
 
 
-def shipped() -> list[Path]:
-    return sorted(MODEL_DIR.glob("*.joblib"))
+def shipped() -> list[str]:
+    """The variants the manifest serves — which file is current is its call."""
+    return sorted(load_manifest(MODEL_DIR) or {})
 
 
-@pytest.fixture(scope="module", params=[path.name for path in shipped()] or ["none"])
+@pytest.fixture(scope="module", params=shipped() or ["none"])
 def artifact(request: pytest.FixtureRequest) -> ModelArtifact:
     if request.param == "none":
         pytest.skip("no trained models; run scripts/train_models.py")
-    return load(MODEL_DIR / request.param)
+    return load_variant(MODEL_DIR, request.param)
 
 
-def test_one_artifact_per_variant() -> None:
-    """A stale second artifact for a variant is loaded or not depending on
-    file-name order, which is how a superseded model ends up serving."""
-    variants = [path.name.split("__")[0] for path in shipped()]
-    assert len(variants) == len(set(variants)), variants
+def test_every_artifact_on_disk_is_the_one_its_manifest_serves() -> None:
+    """A stray second artifact is ignored by the service, but it is still a
+    file someone will open believing it is the model."""
+    listed = {entry["file"] for entry in (load_manifest(MODEL_DIR) or {}).values()}
+    assert {path.name for path in MODEL_DIR.glob("*.joblib")} == listed
 
 
 def test_the_shipped_model_explains_a_prediction(artifact: ModelArtifact) -> None:

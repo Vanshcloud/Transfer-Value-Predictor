@@ -32,7 +32,7 @@ from src.explainability.shap_explainer import (
     supports_shap,
 )
 from src.feature_engineering.build import TARGET_COLUMN, select_variant
-from src.models.artifact import ModelArtifact, load, predict
+from src.models.artifact import ModelArtifact, load_variant, predict
 from src.models.splits import temporal_split
 from src.pipelines.features import TRAINING_TABLE
 from src.pipelines.train import VARIANTS
@@ -98,14 +98,10 @@ def build_reports(
     artifacts: list[ModelArtifact] = []
 
     for variant, include_prior in VARIANTS.items():
-        matches = sorted(model_directory.glob(f"{variant}__*.joblib"))
-        if not matches:
-            raise FileNotFoundError(
-                f"no artifact for {variant} in {model_directory} — "
-                "run scripts/train_models.py first"
-            )
-
-        artifact = load(matches[0])
+        # The manifest's artifact, not the first file name that sorts: with
+        # two artifacts for a variant this used to report on whichever name
+        # came first, which need not be the one the API serves.
+        artifact = load_variant(model_directory, variant)
         artifacts.append(artifact)
         bundles.append(
             _build_for_artifact(

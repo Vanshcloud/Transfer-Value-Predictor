@@ -69,9 +69,9 @@ def test_the_prior_value_variant_predicts_too(client: TestClient) -> None:
 
 def test_metrics_match_the_artifact_on_disk(client: TestClient) -> None:
     """The API must report the model's real numbers, not recomputed ones."""
-    from src.models.artifact import load
+    from src.models.artifact import load_variant
 
-    artifact = load(next((PROJECT_ROOT / "models").glob("performance_only__*.joblib")))
+    artifact = load_variant(PROJECT_ROOT / "models", "performance_only")
     served = client.get("/api/v1/models/performance_only/metrics").json()
 
     assert served["test"]["mae_eur"] == pytest.approx(artifact.test.mae)

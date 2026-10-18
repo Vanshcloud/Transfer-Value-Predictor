@@ -16,11 +16,14 @@ import pytest
 
 from src.evaluation.metrics import evaluate
 from src.feature_engineering.build import TARGET_COLUMN
+from src.models import provenance
 from src.models.artifact import (
     ARTIFACT_VERSION,
+    MANIFEST_NAME,
     ModelArtifact,
     extract_feature_importance,
     load,
+    load_manifest,
     predict,
     save,
 )
@@ -163,6 +166,106 @@ class TestVersioning:
 
         with pytest.raises(ValueError, match="artifact_version"):
             load(path)
+
+
+class TestManifest:
+    """F19: which file serves a variant is recorded, never inferred from names."""
+
+    def test_saving_records_the_file_and_its_checksum(
+        self, frame: pd.DataFrame, tmp_path: Path
+    ) -> None:
+        path = save(make_artifact(frame), tmp_path)
+        entry = load_manifest(tmp_path)["performance_only"]  # type: ignore[index]
+        assert entry["file"] == path.name
+        assert entry["sha256"] == provenance.sha256_file(path)
+        sidecar = json.loads(path.with_suffix(".json").read_text())
+        assert sidecar["sha256"] == entry["sha256"]
+
+    def test_the_latest_save_of_a_variant_is_the_one_recorded(
+        self, frame: pd.DataFrame, tmp_path: Path
+    ) -> None:
+        save(make_artifact(frame, "lightgbm"), tmp_path)
+        save(make_artifact(frame, "ridge"), tmp_path)
+        assert load_manifest(tmp_path)["performance_only"]["file"] == "performance_only__ridge.joblib"  # type: ignore[index]
+
+    def test_a_tampered_file_is_refused_before_it_is_unpickled(
+        self, frame: pd.DataFrame, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        path = save(make_artifact(frame), tmp_path)
+        expected = load_manifest(tmp_path)["performance_only"]["sha256"]  # type: ignore[index]
+        path.write_bytes(path.read_bytes() + b"\0")
+
+        import src.models.artifact as module
+
+        def must_not_run(*_: object) -> None:
+            raise AssertionError("unpickled a file whose checksum did not match")
+
+        monkeypatch.setattr(module.joblib, "load", must_not_run)
+        with pytest.raises(ValueError, match="checksum"):
+            load(path, sha256=expected)
+
+    @pytest.mark.parametrize(
+        "content",
+        [
+            "not json",
+            '{"variants": {"performance_only": {"file": "x.joblib"}}}',
+            '{"variants": {"performance_only": {"file": "../elsewhere.joblib", "sha256": "0"}}}',
+        ],
+    )
+    def test_a_malformed_manifest_is_an_error_not_an_empty_one(
+        self, tmp_path: Path, content: str
+    ) -> None:
+        (tmp_path / MANIFEST_NAME).write_text(content)
+        with pytest.raises(ValueError):
+            load_manifest(tmp_path)
+
+    def test_no_manifest_is_none(self, tmp_path: Path) -> None:
+        assert load_manifest(tmp_path) is None
+
+
+class TestProvenance:
+    """F10: an artifact says what it was made from."""
+
+    def test_it_survives_the_round_trip(self, frame: pd.DataFrame, tmp_path: Path) -> None:
+        artifact = make_artifact(frame)
+        artifact.provenance = {"source_revision": {"commit": "abc", "dirty": False}}
+        assert load(save(artifact, tmp_path)).provenance == artifact.provenance
+        sidecar = json.loads((tmp_path / "performance_only__ridge.json").read_text())
+        assert sidecar["provenance"]["source_revision"]["commit"] == "abc"
+
+    def test_collect_hashes_each_input(self, tmp_path: Path) -> None:
+        raw = tmp_path / "players.csv"
+        raw.write_text("player_id\n1\n")
+        table = tmp_path / "training_table.parquet"
+        table.write_bytes(b"PAR1")
+        config = tmp_path / "config.yaml"
+        config.write_text("a: 1\n")
+
+        record = provenance.collect(
+            training_table=table,
+            raw_files=[raw, tmp_path / "absent.csv"],
+            dataset="owner/dataset",
+            configuration={"data": {"label_tolerance_days": 365}},
+            config_file=config,
+        )
+        assert record["raw_data"]["files"] == {
+            "players.csv": {"sha256": provenance.sha256_file(raw), "bytes": raw.stat().st_size}
+        }
+        assert record["raw_data"]["reproducible_by_download"] is False
+        assert record["training_table"]["sha256"] == provenance.sha256_file(table)
+        assert record["configuration"]["sha256"] == provenance.sha256_file(config)
+        assert record["environment"]["packages"]["scikit-learn"]
+
+    def test_an_unavailable_git_is_recorded_rather_than_guessed(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        def no_git(*_: object, **__: object) -> None:
+            raise OSError("git: not found")
+
+        monkeypatch.setattr(provenance.subprocess, "run", no_git)
+        revision = provenance.source_revision()
+        assert revision["commit"] is None
+        assert "not found" in revision["unavailable_because"]
 
 
 class TestFeatureImportance:

@@ -26,18 +26,30 @@ import pandas as pd
 from sklearn.pipeline import Pipeline
 
 from src.evaluation.metrics import Metrics
+from src.models.provenance import sha256_file
 from src.utils.logging import get_logger
 
 logger = get_logger(__name__)
 
-ARTIFACT_VERSION = 2
+ARTIFACT_VERSION = 3
 """Schema version. Bump when a field changes meaning, so an old artifact
 loaded by new code fails loudly instead of being silently misread.
 
 v2 adds `calibration`: measured residual quantiles the API serves as a
 prediction interval. A v1 artifact has no interval to serve, so refusing it is
 correct — the alternative is an endpoint that silently omits a documented
-field."""
+field.
+
+v3 adds `provenance` (source revision, environment, data and configuration
+hashes — :mod:`src.models.provenance`), and artifacts are loaded through the
+directory's manifest, never by file name."""
+
+MANIFEST_NAME = "manifest.json"
+"""Which file serves each variant, and its SHA-256.
+
+Written by :func:`save`, read by :func:`load_manifest`. It replaces "the
+lexicographically last ``*.joblib`` per variant", under which a stale or
+misleadingly named file decided what the API served."""
 
 
 @dataclass
@@ -60,6 +72,8 @@ class ModelArtifact:
     """Measured residual quantiles per value band. Empty means the API reports
     no interval rather than a made-up one."""
     leaderboard: list[dict[str, Any]] = field(default_factory=list)
+    provenance: dict[str, Any] = field(default_factory=dict)
+    """What the model was made from. See :mod:`src.models.provenance`."""
     artifact_version: int = ARTIFACT_VERSION
     created_at: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
 
@@ -83,6 +97,7 @@ class ModelArtifact:
             "calibration": self.calibration,
             "seed": self.seed,
             "leaderboard": self.leaderboard,
+            "provenance": self.provenance,
         }
 
     def render(self) -> str:
@@ -140,22 +155,84 @@ def extract_feature_importance(pipeline: Pipeline) -> dict[str, float]:
 
 
 def save(artifact: ModelArtifact, directory: Path) -> Path:
-    """Write the artifact and its readable sidecar. Returns the joblib path."""
+    """Write the artifact and its readable sidecar, and make it the one the
+    manifest serves for its variant. Returns the joblib path."""
     directory.mkdir(parents=True, exist_ok=True)
     stem = f"{artifact.variant}__{artifact.model_name}"
 
     model_path = directory / f"{stem}.joblib"
     joblib.dump(artifact, model_path)
+    checksum = sha256_file(model_path)
 
     sidecar = directory / f"{stem}.json"
-    sidecar.write_text(json.dumps(artifact.metadata(), indent=2), encoding="utf-8")
+    sidecar.write_text(
+        json.dumps({**artifact.metadata(), "sha256": checksum}, indent=2), encoding="utf-8"
+    )
+
+    manifest = load_manifest(directory) or {}
+    manifest[artifact.variant] = {
+        "file": model_path.name,
+        "sha256": checksum,
+        "model_name": artifact.model_name,
+        "artifact_version": artifact.artifact_version,
+        "created_at": artifact.created_at,
+    }
+    partial = directory / f"{MANIFEST_NAME}.part"
+    partial.write_text(
+        json.dumps({"manifest_version": 1, "variants": manifest}, indent=2), encoding="utf-8"
+    )
+    partial.replace(directory / MANIFEST_NAME)
 
     logger.info("saved %s (%.1f KB)", model_path.name, model_path.stat().st_size / 1024)
     return model_path
 
 
-def load(path: Path) -> ModelArtifact:
+def load_manifest(directory: Path) -> dict[str, dict[str, Any]] | None:
+    """Variant -> manifest entry, or None when the directory has no manifest.
+
+    Raises:
+        ValueError: if the manifest exists but is malformed, or names a file
+            outside the directory.
+    """
+    path = directory / MANIFEST_NAME
+    if not path.exists():
+        return None
+    try:
+        variants = json.loads(path.read_text(encoding="utf-8"))["variants"]
+    except (json.JSONDecodeError, KeyError, TypeError) as exc:
+        raise ValueError(f"{path} is not a valid manifest: {exc}") from exc
+    for variant, entry in variants.items():
+        if not isinstance(entry, dict) or {"file", "sha256"} - set(entry):
+            raise ValueError(f"{path}: entry for {variant!r} lacks file or sha256")
+        if Path(entry["file"]).name != entry["file"]:
+            raise ValueError(f"{path}: {entry['file']!r} is not a file in this directory")
+    result: dict[str, dict[str, Any]] = variants
+    return result
+
+
+def load_variant(directory: Path, variant: str) -> ModelArtifact:
+    """The artifact the manifest serves for ``variant``, checksum verified.
+
+    Raises:
+        FileNotFoundError: if the directory has no manifest entry for it.
+        ValueError: on a checksum or schema mismatch, or the wrong variant.
+    """
+    entry = (load_manifest(directory) or {}).get(variant)
+    if entry is None:
+        raise FileNotFoundError(
+            f"no {variant} artifact in {directory}/{MANIFEST_NAME} — run scripts/train_models.py"
+        )
+    artifact = load(directory / entry["file"], sha256=entry["sha256"])
+    if artifact.variant != variant:
+        raise ValueError(f"{entry['file']} holds a {artifact.variant} model, not {variant}")
+    return artifact
+
+
+def load(path: Path, *, sha256: str | None = None) -> ModelArtifact:
     """Load an artifact, refusing one written by an incompatible schema.
+
+    With ``sha256``, the file is hashed and refused on a mismatch *before* it
+    is unpickled, so a file swapped in after training is never executed.
 
     **This unpickles.** ``joblib.load`` executes whatever the file tells it to,
     and the ``artifact_version`` check below runs *after* that has already
@@ -171,8 +248,11 @@ def load(path: Path) -> ModelArtifact:
     is a trade to make deliberately and not a bug to patch.
 
     Raises:
-        ValueError: if the artifact's schema version is not the current one.
+        ValueError: if the checksum does not match, or the artifact's schema
+            version is not the current one.
     """
+    if sha256 is not None and sha256_file(path) != sha256:
+        raise ValueError(f"{path.name} does not match the checksum its manifest records")
     artifact: ModelArtifact = joblib.load(path)
     if artifact.artifact_version != ARTIFACT_VERSION:
         raise ValueError(

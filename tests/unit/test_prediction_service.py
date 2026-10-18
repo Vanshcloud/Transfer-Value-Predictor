@@ -7,6 +7,8 @@ without anything HTTP-shaped in sight.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -393,6 +395,71 @@ class TestLoading:
 
         service = PredictionService.from_directory(directory)
         assert service.variants == ["performance_only"]
+
+    # F19: lexicographic file order used to decide which artifact served.
+
+    def test_a_misleadingly_named_file_does_not_take_over(
+        self, artifact: ModelArtifact, tmp_path: Path
+    ) -> None:
+        import dataclasses
+        import shutil
+
+        save(artifact, tmp_path)
+        impostor = dataclasses.replace(artifact, model_name="impostor")
+        save(impostor, tmp_path / "elsewhere")
+        # Sorts after the real file, so name order would have served it.
+        shutil.copy(
+            tmp_path / "elsewhere" / "performance_only__impostor.joblib",
+            tmp_path / "performance_only__zzz.joblib",
+        )
+        service = PredictionService.from_directory(tmp_path)
+        assert service.artifact().model_name == artifact.model_name
+
+    def test_of_two_valid_artifacts_the_manifest_decides(
+        self, artifact: ModelArtifact, tmp_path: Path
+    ) -> None:
+        import dataclasses
+
+        save(dataclasses.replace(artifact, model_name="zzz_older"), tmp_path)
+        save(dataclasses.replace(artifact, model_name="aaa_newer"), tmp_path)
+        assert PredictionService.from_directory(tmp_path).artifact().model_name == "aaa_newer"
+
+    def test_artifacts_without_a_manifest_are_not_guessed_between(
+        self, artifact: ModelArtifact, tmp_path: Path
+    ) -> None:
+        from src.models.artifact import MANIFEST_NAME
+
+        save(artifact, tmp_path)
+        (tmp_path / MANIFEST_NAME).unlink()
+        assert not PredictionService.from_directory(tmp_path).ready
+
+    def test_a_file_that_no_longer_matches_its_checksum_is_skipped(
+        self, artifact: ModelArtifact, tmp_path: Path
+    ) -> None:
+        path = save(artifact, tmp_path)
+        path.write_bytes(path.read_bytes() + b"\0")
+        assert not PredictionService.from_directory(tmp_path).ready
+
+    def test_a_manifest_entry_holding_another_variant_is_skipped(
+        self, artifact: ModelArtifact, tmp_path: Path
+    ) -> None:
+        import json
+
+        from src.models.artifact import MANIFEST_NAME
+
+        save(artifact, tmp_path)
+        manifest = json.loads((tmp_path / MANIFEST_NAME).read_text())
+        manifest["variants"]["with_prior_value"] = manifest["variants"].pop("performance_only")
+        (tmp_path / MANIFEST_NAME).write_text(json.dumps(manifest))
+        assert not PredictionService.from_directory(tmp_path).ready
+
+    def test_a_model_the_player_tables_cannot_feed_is_refused(
+        self, artifact: ModelArtifact, players: pd.DataFrame
+    ) -> None:
+        """F10: an incompatible model/data pair is refused at start-up, not
+        discovered one failed lookup at a time."""
+        service = PredictionService({"performance_only": artifact}, players.drop(columns="goals"))
+        assert not service.ready
 
 
 def test_every_service_error_carries_a_stable_code() -> None:
