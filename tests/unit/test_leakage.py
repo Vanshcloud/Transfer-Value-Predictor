@@ -569,6 +569,7 @@ class TestTheShippedContract:
             ("competition_level_source_date", 0),  # F2: a label published on it
             ("prev_value_date", 0),  # F4: a "prior" published on it
             ("club_record_date", 1),
+            ("prev_as_of_date", 0),  # momentum lagged from a row not strictly earlier
         ],
     )
     def test_each_provenance_breach_is_caught(

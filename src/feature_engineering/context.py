@@ -244,6 +244,7 @@ def competition_strength(
     target_column: str,
     cutoffs: pd.Series,
     label_time_column: str = "label_date",
+    active: pd.DataFrame | None = None,
 ) -> pd.DataFrame:
     """Value level per competition-season, from labels **published before the season closed**.
 
@@ -273,6 +274,14 @@ def competition_strength(
     :data:`MIN_ROWS_FOR_STRENGTH` published labels contribute nothing, and the
     level is the mean of those season means. A competition with no qualifying
     history is absent from the result and joins as null.
+
+    ``active`` (``competition_id``, ``season``) lists the competitions with an
+    appearance in each season dated before its cutoff. When given, the tier
+    rank is taken among those only. Without it, a competition that had left
+    the data still sat in every later season's ranking population with its
+    old level, so the rank was "relative to every competition ever covered"
+    rather than to the panel that season: 0-2 such competitions a season,
+    moving ranks by a median 0.019 and at most 0.143 (Phase 20).
     """
     columns = ["primary_competition_id", "season", target_column, label_time_column]
     frame = labelled.loc[:, columns].dropna()
@@ -309,8 +318,13 @@ def competition_strength(
 
     # Rank within season, so the feature is "how strong relative to the rest of
     # the panel this year" rather than an absolute figure that drifts with
-    # football's general inflation. Ranked among every competition with a
-    # level at that cutoff, which is itself knowable at the cutoff.
+    # football's general inflation. Ranked among the competitions with a level
+    # at that cutoff and, given `active`, played in that season before it —
+    # both knowable at the cutoff.
+    if active is not None:
+        playing = active.rename(columns={"competition_id": "primary_competition_id"})
+        playing = playing.loc[:, ["primary_competition_id", "season"]].drop_duplicates()
+        out = out.merge(playing, on=["primary_competition_id", "season"], how="inner")
     out["competition_tier_rank"] = out.groupby("season")["competition_value_level"].rank(
         pct=True, ascending=True
     )

@@ -83,6 +83,36 @@ class TestCompetitionStrength:
         )
         return competition_strength(panel, target_column="market_value_in_eur", cutoffs=cutoffs)
 
+    def test_a_competition_that_left_the_data_leaves_the_ranking(self) -> None:
+        """Without `active`, a competition last played in 2018 kept its old
+        level in every later season's ranking population."""
+        panel = self._panel(hot_from=2020, hot_value=90_000_000.0)
+        gone = panel[panel["primary_competition_id"] == "CALM"].assign(
+            primary_competition_id="GONE",
+            market_value_in_eur=lambda f: f["market_value_in_eur"] * 3,
+        )
+        panel = pd.concat([panel, gone[gone["season"] <= 2018]], ignore_index=True)
+        seasons = range(2015, 2023)
+        cutoffs = pd.Series(
+            [pd.Timestamp(f"{season + 1}-07-01") for season in seasons], index=list(seasons)
+        )
+        active = pd.DataFrame(
+            [
+                (comp, season)
+                for season in seasons
+                for comp in ("CALM", "HOT", "GONE")
+                if comp != "GONE" or season <= 2018
+            ],
+            columns=["competition_id", "season"],
+        )
+        ranked = competition_strength(
+            panel, target_column="market_value_in_eur", cutoffs=cutoffs, active=active
+        ).set_index(["primary_competition_id", "season"])
+        assert ("GONE", 2021) not in ranked.index
+        assert len(ranked.xs(2018, level="season")) == 3  # still played in 2018
+        # Two competitions in 2021, so the ranks are exactly 0.5 and 1.0.
+        assert sorted(ranked.xs(2021, level="season")["competition_tier_rank"]) == [0.5, 1.0]
+
     def test_a_seasons_own_label_is_not_in_its_own_feature(self) -> None:
         """The whole point. HOT's values explode in 2020; its 2020 *feature*
         must still show the pre-explosion level."""

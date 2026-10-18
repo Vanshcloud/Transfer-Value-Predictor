@@ -96,6 +96,14 @@ PLAYER_ATTRIBUTES = (
     "country_of_citizenship",
 )
 
+MOMENTUM_DATE_COLUMN = "prev_as_of_date"
+"""The ``as_of_date`` of the row the momentum features were lagged from.
+
+Strictly earlier than this row's, because a player's as-of dates are
+monotone. That used to be an argument in a docstring and one test on the
+built table; carried on every row, the leakage stage checks it per row like
+every other windowed feature (Phase 20)."""
+
 CAREER_MOMENTUM_NUMERIC = (
     "prev_minutes_played",
     "prev_appearances",
@@ -426,6 +434,7 @@ FEATURE_PROVENANCE = (
         ("prev_market_value_in_eur", *PRIOR_VALUE_FEATURES),
         strict=True,
     ),
+    Provenance(MOMENTUM_DATE_COLUMN, CAREER_MOMENTUM_NUMERIC, strict=True),
 )
 """When each windowed feature's information became available.
 
@@ -729,6 +738,7 @@ def add_career_momentum(
     if not present:
         for column in CAREER_MOMENTUM_NUMERIC:
             frame[column] = np.nan
+        frame[MOMENTUM_DATE_COLUMN] = pd.NaT
         return frame
 
     frame = frame.copy()
@@ -736,7 +746,7 @@ def add_career_momentum(
     if history is None:
         stacked = frame
     else:
-        columns = ["player_id", "season", *present]
+        columns = ["player_id", "season", AS_OF_COLUMN, *present]
         earlier = history.loc[:, [c for c in columns if c in history.columns]].copy()
         earlier["_momentum_row"] = -1
         stacked = pd.concat([earlier, frame], ignore_index=True)
@@ -747,6 +757,8 @@ def add_career_momentum(
     for column in present:
         ordered["prev_" + column] = by_player[column].shift(1)
     ordered["prev_season_gap"] = ordered["season"] - by_player["season"].shift(1)
+    if AS_OF_COLUMN in ordered.columns:
+        ordered[MOMENTUM_DATE_COLUMN] = by_player[AS_OF_COLUMN].shift(1)
     for column in ("minutes_played", "goal_contributions", "competition_value_level"):
         if column in present:
             ordered["delta_" + column] = ordered[column] - ordered["prev_" + column]
@@ -765,7 +777,26 @@ def add_career_momentum(
         frame[column] = (
             mine[column].to_numpy() if column in produced else np.full(len(frame), np.nan)
         )
+    frame[MOMENTUM_DATE_COLUMN] = (
+        mine[MOMENTUM_DATE_COLUMN].to_numpy() if MOMENTUM_DATE_COLUMN in mine else pd.NaT
+    )
     return frame.drop(columns=["_momentum_row"])
+
+
+def _played_before(
+    appearances: pd.DataFrame, cutoffs: pd.Series, season_start_month: int
+) -> pd.DataFrame:
+    """Competitions with an appearance in each season dated before its cutoff:
+    the population a season's tier rank is taken over."""
+    dated = appearances.loc[:, ["competition_id", "date"]].assign(
+        date=lambda frame: pd.to_datetime(frame["date"], errors="coerce")
+    )
+    dated["season"] = assign_season(dated["date"], season_start_month)
+    dated = dated.dropna(subset=["season", "date"]).astype({"season": "int64"})
+    dated = dated.merge(cutoffs.rename("_cutoff"), left_on="season", right_index=True)
+    return dated.loc[
+        dated["date"] < dated["_cutoff"], ["competition_id", "season"]
+    ].drop_duplicates()
 
 
 def _mix_for_levels(
@@ -883,6 +914,7 @@ def _enrich(
             target_column=TARGET_COLUMN,
             cutoffs=cutoffs,
             label_time_column=LABEL_TIME_COLUMN,
+            active=_played_before(appearances, cutoffs, season_start_month),
         ),
     )
     return attach_performance(
@@ -1108,6 +1140,7 @@ __all__ = [
     "TARGET_COLUMN",
     "FEATURE_PROVENANCE",
     "PRIOR_VALUE_DATE_COLUMN",
+    "MOMENTUM_DATE_COLUMN",
     "add_career_history",
     "add_career_momentum",
     "add_derived_features",

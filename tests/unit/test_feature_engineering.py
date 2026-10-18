@@ -837,6 +837,15 @@ class TestCareerMomentum:
             .all()
         )
 
+    def test_the_lagged_row_is_dated_so_the_validator_can_check_it(self) -> None:
+        frame = self.frame([2019, 2020, 2022], [900, 1800, 2700]).assign(
+            as_of_date=pd.to_datetime(["2020-07-01", "2021-07-01", "2023-07-01"])
+        )
+        out = add_career_momentum(frame)
+        assert out["prev_as_of_date"].isna().iloc[0]
+        assert list(out["prev_as_of_date"].iloc[1:]) == list(frame["as_of_date"].iloc[:2])
+        assert (out["prev_as_of_date"].dropna() < out["as_of_date"][1:]).all()
+
     def test_the_previous_season_is_the_previous_row(self) -> None:
         out = add_career_momentum(self.frame([2019, 2020, 2021], [900, 1800, 2700]))
         assert out["prev_minutes_played"].tolist()[1:] == [900.0, 1800.0]

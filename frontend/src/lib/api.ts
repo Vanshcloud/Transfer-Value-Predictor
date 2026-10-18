@@ -62,11 +62,11 @@ export interface SeasonRow {
   goals: number;
   assists: number;
   minutes_played: number;
-  /** Null for the season in progress: not yet published, never zero. */
+  /** Null until a valuation is published for this season; never zero. */
   market_value_in_eur: number | null;
   /**
-   * False for the season being played. Its statistics are complete enough to
-   * predict from; no valuation exists yet to compare against.
+   * False when no valuation has been published yet: the season being played,
+   * or an earlier one whose 365-day label window is still open.
    */
   has_label: boolean;
 }

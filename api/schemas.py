@@ -223,16 +223,18 @@ class SeasonRow(BaseModel):
     market_value_in_eur: float | None = Field(
         default=None,
         description=(
-            "Recorded market value, or null for a season still being played. "
+            "Recorded market value, or null when none has been published yet. "
             "Null means 'not yet published', never zero."
         ),
     )
     has_label: bool = Field(
         default=True,
         description=(
-            "False for the season in progress: its statistics are complete "
-            "enough to predict from, but no valuation has been published to "
-            "compare against."
+            "False when no valuation has been published for this season yet: "
+            "the season being played, or an earlier one whose 365-day label "
+            "window is still open. Some of the latter belong to players who have "
+            "left Transfermarkt's coverage and will never be labelled; a rebuild "
+            "after the window closes drops them."
         ),
     )
 
