@@ -348,6 +348,16 @@ class TestAttachPlayerAttributes:
         # it is legitimately here as the *label*. Everything else must be gone.
         assert set(result.columns) & CURRENT_STATE_COLUMNS == {TARGET_COLUMN}
 
+    @pytest.mark.parametrize(("height", "kept"), [(17.0, False), (140.0, True), (220.0, True)])
+    def test_an_implausible_height_is_unknown_not_short(
+        self, labelled_row: pd.DataFrame, height: float, kept: bool
+    ) -> None:
+        """Raw heights of 17-19 cm reached the training table while the raw
+        validator's comment said preprocessing nulled them."""
+        result = attach_player_attributes(labelled_row, players_frame(height_in_cm=height))
+        assert len(result) == 1
+        assert pd.notna(result["height_in_cm"].iloc[0]) is kept
+
     def test_a_player_without_a_birth_date_is_dropped(self, labelled_row: pd.DataFrame) -> None:
         result = attach_player_attributes(labelled_row, players_frame(date_of_birth=None))
         assert result.empty

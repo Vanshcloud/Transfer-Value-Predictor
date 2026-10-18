@@ -432,6 +432,9 @@ class TestMalformedFeatureValues:
             ({"goals": -5}, "cannot be negative"),
             ({"minutes_played": -1}, "cannot be negative"),
             ({"position": "A" * 500}, "category longer than"),
+            ({"goals": 2.5}, "whole number"),
+            ({"minutes_played": 10**9}, "expected 0-"),
+            ({"position": 5}, "expected text"),
         ],
     )
     def test_a_bad_value_is_a_422_naming_the_feature(
@@ -459,6 +462,30 @@ class TestMalformedFeatureValues:
         )
         assert response.status_code == 422
         assert "finite" in response.json()["error"]["message"]
+
+    @pytest.mark.parametrize("feature", ["goals", "position"])
+    def test_an_integer_past_float_range_is_a_422_not_a_500(
+        self, deployed_client: TestClient, feature: str
+    ) -> None:
+        """F8. JSON puts no limit on digits and Python's parser keeps them all,
+        so `float()` raised OverflowError and the caller got a 500."""
+        response = deployed_client.post(
+            "/api/v1/predict",
+            content=f'{{"features":{{"{feature}":1{"0" * 400}}}}}'.encode(),
+            headers={"Content-Type": "application/json"},
+        )
+        assert response.status_code == 422
+        assert response.json()["error"]["code"] == "validation_error"
+        assert feature in response.json()["error"]["message"]
+
+    @pytest.mark.parametrize(
+        "path", ["/api/v1/players/1{zeros}", "/api/v1/players/1{zeros}/history"]
+    )
+    def test_an_id_past_int64_is_a_404_not_a_500(
+        self, deployed_client: TestClient, path: str
+    ) -> None:
+        response = deployed_client.get(path.format(zeros="0" * 30))
+        assert response.status_code == 404
 
     def test_every_bad_value_is_reported_not_just_the_first(
         self, deployed_client: TestClient

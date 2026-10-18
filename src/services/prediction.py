@@ -37,6 +37,7 @@ from src.feature_engineering.build import (
     PLAUSIBLE_RANGES,
     PRIOR_VALUE_FEATURES,
     TARGET_COLUMN,
+    WHOLE_NUMBER_FEATURES,
 )
 from src.models.artifact import ModelArtifact, load, predict
 from src.models.calibration import interval_for
@@ -824,11 +825,16 @@ class PredictionService:
                     continue
                 try:
                     number = float(value)
+                except OverflowError:
+                    # An integer beyond float range: JSON has no limit on
+                    # digits and Python's parser keeps them all. It was a 500.
+                    problems.append(f"{name}: expected a finite number, got one too large")
+                    continue
                 except (TypeError, ValueError):
-                    problems.append(f"{name}: expected a number, got {value!r}")
+                    problems.append(f"{name}: expected a number, got {_shown(value)}")
                     continue
                 if not math.isfinite(number):
-                    problems.append(f"{name}: expected a finite number, got {value!r}")
+                    problems.append(f"{name}: expected a finite number, got {_shown(value)}")
                 elif name in NON_NEGATIVE_FEATURES and number < 0:
                     problems.append(f"{name}: cannot be negative, got {number:g}")
                 elif name in PLAUSIBLE_RANGES and not (
@@ -836,7 +842,13 @@ class PredictionService:
                 ):
                     low, high = PLAUSIBLE_RANGES[name]
                     problems.append(f"{name}: expected {low:g}-{high:g}, got {number:g}")
-            elif isinstance(value, str) and len(value) > MAX_CATEGORY_LENGTH:
+                elif name in WHOLE_NUMBER_FEATURES and not number.is_integer():
+                    problems.append(f"{name}: expected a whole number, got {number:g}")
+            elif not isinstance(value, str):
+                # A number for `position` was one-hot encoded as an unseen
+                # category and answered with a 200 — or, past float range, a 500.
+                problems.append(f"{name}: expected text, got {type(value).__name__}")
+            elif len(value) > MAX_CATEGORY_LENGTH:
                 problems.append(f"{name}: category longer than {MAX_CATEGORY_LENGTH} characters")
 
         if problems:
@@ -911,6 +923,12 @@ def _metrics(metrics: object) -> dict[str, Any]:
         "mape": getattr(metrics, "mape", None),
         "n": getattr(metrics, "n", None),
     }
+
+
+def _shown(value: object) -> str:
+    """A bad value, quoted back without echoing an unbounded payload."""
+    text = repr(value)
+    return text if len(text) <= 40 else f"{text[:37]}..."
 
 
 def _plain(value: object) -> object:

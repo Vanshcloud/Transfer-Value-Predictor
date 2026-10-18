@@ -26,6 +26,8 @@ project ships two variants from this one code path — see :func:`select_variant
 
 from __future__ import annotations
 
+import math
+
 import numpy as np
 import pandas as pd
 
@@ -212,6 +214,19 @@ NON_NEGATIVE_FEATURES = frozenset(
         "height_in_cm",
         "years_since_debut",
         "seasons_observed",
+        "prev_value_age_days",
+        "goal_contributions",
+        "contributions_per_90",
+        "minutes_variability",
+        "career_minutes_mean",
+        "starts",
+        "substitute_appearances",
+        "positions_played",
+        "competitions_played",
+        "prev_minutes_played",
+        "prev_appearances",
+        "prev_goal_contributions",
+        "prev_season_gap",
     }
 )
 """Features that cannot be negative by definition — counts, durations, rates
@@ -223,14 +238,107 @@ never touches HTTP. A negative goal count is not an unusual player; it is a
 caller bug, and answering it with a confident number is the failure mode this
 project spends most of its effort avoiding.
 
-``prev_log_market_value_in_eur`` and ``prev_value_age_days`` are deliberately
-absent: the first is a log of a value that can legitimately sit below 1, and
-the second is a signed staleness in days.
+``prev_value_age_days`` is here since the prior value was redefined (Phase 19,
+F4): it is the age of a valuation published strictly *before* the as-of date,
+so it cannot be negative. It used to be described as signed.
 """
+
+WHOLE_NUMBER_FEATURES = frozenset(
+    {
+        "appearances",
+        "goals",
+        "assists",
+        "minutes_played",
+        "yellow_cards",
+        "red_cards",
+        "seasons_observed",
+        "goal_contributions",
+        "starts",
+        "substitute_appearances",
+        "months_active",
+        "positions_played",
+        "competitions_played",
+        "prev_minutes_played",
+        "prev_appearances",
+        "prev_goal_contributions",
+        "prev_season_gap",
+        "prev_value_age_days",
+    }
+)
+"""Counts. ``2.5`` goals is a caller bug, not a player; ``3.0`` is three.
+
+Every one of these is integral on every stored row, training and current
+season alike. Rates, shares and means derived from them are not listed.
+"""
+
+SEASON_DAYS = 366
+"""A season spans at most a year, and nobody plays twice in a day."""
+
+MATCH_MINUTES = 150
+"""The longest a match can last: 90 minutes, 30 of extra time, and stoppage
+time on both. The source records at most 120 per appearance; 150 is the
+physical ceiling rather than the observed maximum, so a real outlier is never
+refused."""
+
+LOG_VALUE_CEILING = 23.03
+"""``log1p(EUR 10bn)``. No footballer has been valued at a twentieth of that
+(the panel's highest is about EUR 200m, 19.1), so a larger log value is a unit
+error — a raw euro amount typed where a log one was expected."""
+
+SHARE_FEATURES = (
+    "start_share",
+    "captain_share",
+    "squad_match_share",
+    "full_match_share",
+    "scoring_match_share",
+    "second_half_goal_share",
+    "continental_minutes_share",
+    "competition_tier_rank",
+    "prev_start_share",
+    "prev_squad_match_share",
+)
+"""Fractions of a whole, so closed on [0, 1]."""
+
+_MATCHES = (0.0, float(SEASON_DAYS))
+_MINUTES = (0.0, float(SEASON_DAYS * MATCH_MINUTES))
+_CAREER = (0.0, 45.0 - 15.0)
+_LOG_VALUE = (0.0, LOG_VALUE_CEILING)
 
 PLAUSIBLE_RANGES: dict[str, tuple[float, float]] = {
     "age": (15.0, 45.0),
+    "age_squared": (15.0**2, 45.0**2),
     "height_in_cm": (140.0, 220.0),
+    **dict.fromkeys(SHARE_FEATURES, (0.0, 1.0)),
+    "months_active": (0.0, 12.0),
+    "club_points_per_game": (0.0, 3.0),
+    "club_league_position": (1.0, math.inf),
+    "minutes_per_appearance": (0.0, float(MATCH_MINUTES)),
+    **dict.fromkeys(
+        ("appearances", "starts", "substitute_appearances", "prev_appearances"), _MATCHES
+    ),
+    **dict.fromkeys(("competitions_played", "positions_played"), _MATCHES),
+    **dict.fromkeys(("minutes_played", "prev_minutes_played", "career_minutes_mean"), _MINUTES),
+    # At most one goal or assist per minute played; two yellows and one red
+    # per match; a career no longer than the span of plausible ages.
+    **dict.fromkeys(
+        ("goals", "assists", "goal_contributions", "prev_goal_contributions"), _MINUTES
+    ),
+    "yellow_cards": (0.0, 2.0 * SEASON_DAYS),
+    "red_cards": _MATCHES,
+    **dict.fromkeys(("years_since_debut", "seasons_observed", "prev_season_gap"), _CAREER),
+    **dict.fromkeys(
+        (
+            "prev_log_market_value_in_eur",
+            "competition_value_level",
+            "prev_competition_value_level",
+            "career_best_competition_level",
+        ),
+        _LOG_VALUE,
+    ),
+    # A change between two seasons is bounded by the range of what changed.
+    "delta_minutes_played": (-_MINUTES[1], _MINUTES[1]),
+    "delta_goal_contributions": (-_MINUTES[1], _MINUTES[1]),
+    "delta_competition_value_level": (-LOG_VALUE_CEILING, LOG_VALUE_CEILING),
 }
 """Closed intervals outside which a value is a caller bug rather than a player.
 
@@ -249,9 +357,12 @@ because the service is constructed without one in tests, in the CLI and in a
 notebook, and a guard that only exists when a config was loaded is a guard that
 is absent exactly when someone is experimenting.
 
-Verified against the built table before being enforced: 0 of 85,966 training
-rows and 0 of 8,709 current-season rows fall outside either interval, so this
-rejects malformed input and nothing else.
+The rest were added in Phase 20 (audit F8), when shares of 7, 10^9 minutes and
+a log prior value of 10^308 were all answered with a 200. Each bound is a
+definition — a share is a fraction, a season has 366 days, a match lasts at
+most 150 minutes — never the observed maximum, so a legitimate extreme is
+accepted and nothing is clamped. `tests/integration/test_training_table.py`
+checks every stored row against them.
 """
 
 PRIOR_VALUE_FEATURES = ("prev_log_market_value_in_eur", "prev_value_age_days")
@@ -475,6 +586,16 @@ def attach_player_attributes(frame: pd.DataFrame, players: pd.DataFrame) -> pd.D
 
     joined = frame.merge(attributes, on="player_id", how="left", validate="many_to_one")
     joined["age"] = (joined[AS_OF_COLUMN] - joined["date_of_birth"]).dt.days / 365.25
+
+    # A handful of raw heights are 17-19 cm: a digit dropped from 170-190.
+    # Unknown, not short — nulled so the imputer treats them as missing, by
+    # the same bounds the API applies to a typed height. Before Phase 20 the
+    # raw validator said this happened and nothing did it.
+    low, high = PLAUSIBLE_RANGES["height_in_cm"]
+    implausible = joined["height_in_cm"].notna() & ~joined["height_in_cm"].between(low, high)
+    if implausible.any():
+        logger.warning("nulling %d implausible height(s)", int(implausible.sum()))
+        joined.loc[implausible, "height_in_cm"] = np.nan
 
     # Age is a core feature and cannot be imputed from anything else in the
     # table, so a row without a birth date is not modellable.
@@ -982,6 +1103,7 @@ __all__ = [
     "LABEL_TIME_COLUMN",
     "NUMERIC_FEATURES",
     "PLAUSIBLE_RANGES",
+    "WHOLE_NUMBER_FEATURES",
     "PRIOR_VALUE_FEATURES",
     "TARGET_COLUMN",
     "FEATURE_PROVENANCE",

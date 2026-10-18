@@ -273,10 +273,23 @@ feature named in the message, when it is:
 - not a number where the model expects one — including `true`/`false`, since
   `float(True)` is `1.0` and would otherwise be answered confidently,
 - not finite (`NaN`, `Infinity`, `1e999` — reachable in a raw body even though
-  most JSON encoders refuse to write them),
+  most JSON encoders refuse to write them), or an integer too large to be a
+  float at all (`1` followed by 400 zeros),
 - negative for a feature that cannot be (`src.feature_engineering.build.NON_NEGATIVE_FEATURES`:
-  counts, durations, rates and physical measurements), or
+  counts, durations, rates and physical measurements),
+- outside the closed interval the feature's definition allows
+  (`PLAUSIBLE_RANGES`): shares on [0, 1], age 15-45, height 140-220 cm, at
+  most 366 matches and 366 × 150 minutes in a season, at most one goal or
+  assist per minute played, a log valuation no higher than `log1p(EUR 10bn)`
+  ≈ 23.03, and so on. The bounds are definitions, never observed maxima, and
+  are inclusive — every stored player-season satisfies them,
+- fractional where the feature is a count (`WHOLE_NUMBER_FEATURES`; `3.0` is
+  accepted as three, `2.5` goals is not),
+- not text where the model expects a category (`"position": 5`), or
 - a category longer than 200 characters.
+
+Nothing is clamped: an out-of-range value is refused, never moved to the
+nearest bound and answered.
 
 Every offending value is reported in one response rather than one per round
 trip. An explicit `null` is **not** an error: it means "absent", and the fitted

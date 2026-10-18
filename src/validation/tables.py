@@ -33,7 +33,8 @@ KNOWN_FEET = frozenset({"left", "right", "both"})
 
 # Plausible senior-professional heights. Measured: 13 players carry 17, 18 or
 # 19 cm — digits dropped from 170/180/190 — against a p0.1 of 160 and a max of
-# 210. A warning, not an error: 0.026% of rows, and preprocessing nulls them.
+# 210. A warning, not an error: 0.026% of rows, and the feature build nulls them
+# (`attach_player_attributes`, by the same bounds as `PLAUSIBLE_RANGES`).
 MIN_HEIGHT_CM, MAX_HEIGHT_CM = 140, 220
 
 

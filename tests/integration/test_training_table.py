@@ -20,7 +20,10 @@ from src.feature_engineering.build import (
     FEATURE_COLUMNS,
     FEATURE_TIME_COLUMN,
     LABEL_TIME_COLUMN,
+    NON_NEGATIVE_FEATURES,
+    PLAUSIBLE_RANGES,
     TARGET_COLUMN,
+    WHOLE_NUMBER_FEATURES,
     build_training_table,
     null_rates,
     select_variant,
@@ -172,3 +175,17 @@ def test_career_features_do_not_extrapolate_past_the_training_range(
 
     beyond = (test["seasons_observed"] > train["seasons_observed"].max()).mean()
     assert beyond < 0.005, f"{beyond:.2%} of test rows exceed the training range"
+
+
+def test_every_row_is_a_value_the_api_would_accept(full_table: pd.DataFrame) -> None:
+    """F8's bounds are definitions, not observed maxima — so no real row may
+    break one. A row that did would be a what-if seed the API refuses, which
+    is how 17 cm heights showed up: the bound was right and the data was not."""
+    for column, (low, high) in PLAUSIBLE_RANGES.items():
+        if column in full_table:
+            values = full_table[column].dropna()
+            assert values.between(low, high).all(), (column, values[~values.between(low, high)])
+    for column in NON_NEGATIVE_FEATURES & set(full_table.columns):
+        assert (full_table[column].dropna() >= 0).all(), column
+    for column in WHOLE_NUMBER_FEATURES & set(full_table.columns):
+        assert (full_table[column].dropna() % 1 == 0).all(), column

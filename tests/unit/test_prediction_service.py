@@ -191,6 +191,13 @@ class TestFeatureValueValidation:
             ({"goals": -1}, "cannot be negative"),
             ({"minutes_played": -0.5}, "cannot be negative"),
             ({"position": "x" * 201}, "category longer than"),
+            # F8: each of these was a 500 or a confident 200.
+            ({"goals": 10**400}, "too large"),
+            ({"goals": 2.5}, "whole number"),
+            ({"goals": 1e308}, "expected 0-"),
+            ({"minutes_played": 10**9}, "expected 0-"),
+            ({"position": 5}, "expected text"),
+            ({"position": 10**400}, "expected text"),
         ],
     )
     def test_a_bad_value_raises_rather_than_reaching_the_model(
@@ -211,6 +218,17 @@ class TestFeatureValueValidation:
     def test_zero_is_valid_for_a_non_negative_feature(self, service: PredictionService) -> None:
         """The bound is `< 0`. A player with no goals is ordinary, not invalid."""
         assert service.predict_from_features({"goals": 0}).prediction_eur > 0
+
+    def test_a_whole_number_written_as_a_float_is_a_count(self, service: PredictionService) -> None:
+        """JSON clients send 3.0 for three; that is not a fractional goal."""
+        assert service.predict_from_features({"goals": 3.0}).prediction_eur > 0
+
+    def test_a_bad_value_is_quoted_back_without_the_whole_payload(
+        self, service: PredictionService
+    ) -> None:
+        with pytest.raises(InvalidFeaturesError) as caught:
+            service.predict_from_features({"age": "x" * 10_000})
+        assert len(caught.value.message) < 200
 
     def test_an_explicit_none_still_means_absent(self, service: PredictionService) -> None:
         assert service.predict_from_features({"age": None}).prediction_eur > 0
@@ -800,6 +818,34 @@ def two_variants(
 
 
 class TestPriorValueInputs:
+    @pytest.mark.parametrize(
+        ("features", "fragment"),
+        [
+            ({"prev_value_age_days": -5}, "cannot be negative"),
+            ({"prev_value_age_days": 10**400}, "too large"),
+            ({"prev_value_age_days": 30.5}, "whole number"),
+            # A raw euro amount where a log one belongs: 1e308 and 500 were 200s.
+            ({"prev_log_market_value_in_eur": 500.0}, "expected 0-23.03"),
+            ({"prev_log_market_value_in_eur": 1e308}, "expected 0-23.03"),
+        ],
+    )
+    def test_an_impossible_prior_is_a_bad_request(
+        self, two_variants: PredictionService, features: dict[str, object], fragment: str
+    ) -> None:
+        seed = {"prev_log_market_value_in_eur": 14.0, "prev_value_age_days": 30}
+        with pytest.raises(InvalidFeaturesError) as caught:
+            two_variants.predict_from_features({**seed, **features}, variant="with_prior_value")
+        assert fragment in caught.value.message
+        assert next(iter(features)) in caught.value.message
+
+    def test_the_bounds_of_a_prior_are_accepted(self, two_variants: PredictionService) -> None:
+        for log_value in (0.0, 23.03):
+            result = two_variants.predict_from_features(
+                {"prev_log_market_value_in_eur": log_value, "prev_value_age_days": 0},
+                variant="with_prior_value",
+            )
+            assert result.prediction_eur > 0
+
     """F7. A what-if request seeded from the default (performance-only) feature
     set and sent to the prior-value model carried no prior valuation; the
     pipeline imputed the training median and answered with a 200."""
