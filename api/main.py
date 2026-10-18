@@ -19,7 +19,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from api.dependencies import ServiceDep, build_service
 from api.errors import register_error_handlers
-from api.routes import router
+from api.routes import errors, router
 from api.schemas import HealthResponse
 from src import __version__
 from src.utils.config import load_settings
@@ -124,6 +124,7 @@ def create_app() -> FastAPI:
         response_model=HealthResponse,
         summary="Liveness and readiness",
         tags=["health"],
+        responses=errors({}, validated=False),
     )
     def health(service: ServiceDep) -> HealthResponse:
         """Deliberately unversioned.

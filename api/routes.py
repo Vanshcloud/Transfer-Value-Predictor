@@ -8,13 +8,14 @@ therefore be reused by a batch job or a CLI.
 
 from __future__ import annotations
 
-from typing import Annotated
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Path, Query
 
 from api.dependencies import ServiceDep
 from api.schemas import (
     ConfidenceSchema,
+    ErrorResponse,
     ExplanationSchema,
     FeatureDistributionResponse,
     FeatureImportanceResponse,
@@ -35,15 +36,39 @@ router = APIRouter(prefix="/api/v1")
 VariantPath = Annotated[str, Path(description="performance_only or with_prior_value")]
 
 
+def errors(declared: dict[int, str], *, validated: bool = True) -> dict[int | str, Any]:
+    """The error responses a route can send, every one in the `ErrorResponse` envelope.
+
+    Without a model, FastAPI documents a 422 as its own `HTTPValidationError`
+    (`{"detail": [...]}`) and the rest with no body at all, while every one
+    of them is actually sent as `{"error": {...}}` by `api.errors`. A client
+    generated from the old document parsed a shape it never received.
+    `validated` adds the 422 for a route with parameters — FastAPI documents
+    one on every such route whether or not a parameter can fail, so it is
+    declared here in the shape actually sent. 500 is always possible. `tests/unit/test_api.py::TestErrorResponsesAreDocumented` provokes each one.
+    """
+    statuses = {
+        **declared,
+        **({422: "A parameter or the body failed validation"} if validated else {}),
+        500: "Unhandled server error; the message is fixed and the detail is null",
+    }
+    return {
+        status: {"model": ErrorResponse, "description": description}
+        for status, description in statuses.items()
+    }
+
+
 @router.post(
     "/predict",
     response_model=PredictResponse,
     summary="Predict a market value, with an explanation",
-    responses={
-        404: {"description": "Player, season or model not found"},
-        422: {"description": "Malformed body, or an unknown feature name"},
-        503: {"description": "No model artifact is loaded"},
-    },
+    responses=errors(
+        {
+            404: "Player, season or model not found",
+            422: "Malformed body, an unknown feature name or an invalid feature value",
+            503: "No model artifact is loaded",
+        }
+    ),
 )
 def predict(request: PredictRequest, service: ServiceDep) -> PredictResponse:
     """Predict from a stored player-season, or from explicit features.
@@ -83,7 +108,7 @@ def predict(request: PredictRequest, service: ServiceDep) -> PredictResponse:
     "/players",
     response_model=PlayerSearchResponse,
     summary="Find players by name",
-    responses={404: {"description": "No player names are loaded"}},
+    responses=errors({404: "No player names are loaded"}),
 )
 def search_players(
     service: ServiceDep,
@@ -98,7 +123,7 @@ def search_players(
     "/players/{player_id}/similar",
     response_model=SimilarPlayersResponse,
     summary="Comparable seasons, in the model's own feature space",
-    responses={404: {"description": "No such player"}},
+    responses=errors({404: "No such player or variant", 503: "No model loaded"}),
 )
 def similar_players(
     service: ServiceDep,
@@ -121,7 +146,7 @@ def similar_players(
     "/players/{player_id}/history",
     response_model=PredictionHistoryResponse,
     summary="Predicted against actual, season by season",
-    responses={404: {"description": "No such player"}},
+    responses=errors({404: "No such player or variant", 503: "No model loaded"}),
 )
 def prediction_history(
     service: ServiceDep,
@@ -143,7 +168,7 @@ def prediction_history(
     "/features/distribution",
     response_model=FeatureDistributionResponse,
     summary="Population quantiles per feature",
-    responses={503: {"description": "No model loaded"}},
+    responses=errors({404: "No such variant", 503: "No model loaded"}),
 )
 def feature_distribution(
     service: ServiceDep, variant: Annotated[str | None, Query()] = None
@@ -162,7 +187,7 @@ def feature_distribution(
     "/players/{player_id}",
     response_model=PlayerResponse,
     summary="A player's record and every season on file",
-    responses={404: {"description": "No such player or variant"}},
+    responses=errors({404: "No such player or variant", 503: "No model loaded"}),
 )
 def get_player(
     service: ServiceDep,
@@ -177,7 +202,12 @@ def get_player(
     return PlayerResponse(**service.player(player_id, variant=variant))
 
 
-@router.get("/models", response_model=ModelListResponse, summary="Loaded model variants")
+@router.get(
+    "/models",
+    response_model=ModelListResponse,
+    summary="Loaded model variants",
+    responses=errors({}, validated=False),
+)
 def list_models(service: ServiceDep) -> ModelListResponse:
     variants = service.variants
     return ModelListResponse(variants=variants, default=variants[0] if variants else None)
@@ -187,7 +217,7 @@ def list_models(service: ServiceDep) -> ModelListResponse:
     "/models/{variant}",
     response_model=ModelInfoResponse,
     summary="One model's provenance",
-    responses={404: {"description": "No such variant"}, 503: {"description": "No model loaded"}},
+    responses=errors({404: "No such variant", 503: "No model loaded"}),
 )
 def get_model(service: ServiceDep, variant: VariantPath) -> ModelInfoResponse:
     return ModelInfoResponse(**service.model_info(variant))
@@ -197,7 +227,7 @@ def get_model(service: ServiceDep, variant: VariantPath) -> ModelInfoResponse:
     "/models/{variant}/metrics",
     response_model=ModelMetricsResponse,
     summary="Held-out metrics, in EUR",
-    responses={404: {"description": "No such variant"}, 503: {"description": "No model loaded"}},
+    responses=errors({404: "No such variant", 503: "No model loaded"}),
 )
 def get_metrics(service: ServiceDep, variant: VariantPath) -> ModelMetricsResponse:
     """Test metrics come from seasons the model never saw. That is the headline."""
@@ -208,7 +238,7 @@ def get_metrics(service: ServiceDep, variant: VariantPath) -> ModelMetricsRespon
     "/models/{variant}/feature-importance",
     response_model=FeatureImportanceResponse,
     summary="Ranked importances, and global SHAP where available",
-    responses={404: {"description": "No such variant"}, 503: {"description": "No model loaded"}},
+    responses=errors({404: "No such variant", 503: "No model loaded"}),
 )
 def get_feature_importance(
     service: ServiceDep,

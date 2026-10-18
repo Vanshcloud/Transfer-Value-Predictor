@@ -18,6 +18,7 @@ from fastapi.testclient import TestClient
 
 from api.dependencies import club_index, get_service
 from api.main import create_app
+from api.schemas import ErrorResponse
 from src.evaluation.metrics import evaluate
 from src.feature_engineering.build import TARGET_COLUMN
 from src.models.artifact import ModelArtifact, extract_feature_importance
@@ -412,6 +413,207 @@ class TestContract:
             "internal_error",
         ):
             assert code in contract, f"{code} is returned but not documented"
+
+
+class _Broken:
+    """A service every attribute of which raises, to reach the 500 handler."""
+
+    def __getattr__(self, name: str) -> object:
+        raise RuntimeError(f"forced failure reading {name}")
+
+
+# Every (method, route, status) the OpenAPI document declares, and how to
+# provoke it. `models` = the full service, `none` = no model and no players,
+# `playerless` = players but no model, `broken` = every call raises.
+PROVOKE: list[tuple[str, str, int, str, str, dict[str, object] | None]] = [
+    ("post", "/api/v1/predict", 404, "models", "/api/v1/predict", {"player_id": 999999}),
+    ("post", "/api/v1/predict", 422, "models", "/api/v1/predict", {}),
+    ("post", "/api/v1/predict", 503, "none", "/api/v1/predict", {"features": {}}),
+    ("get", "/api/v1/players", 404, "none", "/api/v1/players?q=x", None),
+    ("get", "/api/v1/players", 422, "models", "/api/v1/players", None),
+    ("get", "/api/v1/players/{player_id}", 404, "models", "/api/v1/players/999999", None),
+    ("get", "/api/v1/players/{player_id}", 422, "models", "/api/v1/players/abc", None),
+    ("get", "/api/v1/players/{player_id}", 503, "playerless", "/api/v1/players/101", None),
+    (
+        "get",
+        "/api/v1/players/{player_id}/similar",
+        404,
+        "models",
+        "/api/v1/players/999999/similar",
+        None,
+    ),
+    (
+        "get",
+        "/api/v1/players/{player_id}/similar",
+        422,
+        "models",
+        "/api/v1/players/1/similar?k=0",
+        None,
+    ),
+    (
+        "get",
+        "/api/v1/players/{player_id}/similar",
+        503,
+        "none",
+        "/api/v1/players/101/similar",
+        None,
+    ),
+    (
+        "get",
+        "/api/v1/players/{player_id}/history",
+        404,
+        "models",
+        "/api/v1/players/999999/history",
+        None,
+    ),
+    (
+        "get",
+        "/api/v1/players/{player_id}/history",
+        422,
+        "models",
+        "/api/v1/players/abc/history",
+        None,
+    ),
+    (
+        "get",
+        "/api/v1/players/{player_id}/history",
+        503,
+        "none",
+        "/api/v1/players/101/history",
+        None,
+    ),
+    (
+        "get",
+        "/api/v1/features/distribution",
+        404,
+        "models",
+        "/api/v1/features/distribution?variant=nope",
+        None,
+    ),
+    ("get", "/api/v1/features/distribution", 503, "none", "/api/v1/features/distribution", None),
+    ("get", "/api/v1/models/{variant}", 404, "models", "/api/v1/models/nope", None),
+    ("get", "/api/v1/models/{variant}", 503, "none", "/api/v1/models/performance_only", None),
+    ("get", "/api/v1/models/{variant}/metrics", 404, "models", "/api/v1/models/nope/metrics", None),
+    (
+        "get",
+        "/api/v1/models/{variant}/metrics",
+        503,
+        "none",
+        "/api/v1/models/performance_only/metrics",
+        None,
+    ),
+    (
+        "get",
+        "/api/v1/models/{variant}/feature-importance",
+        404,
+        "models",
+        "/api/v1/models/nope/feature-importance",
+        None,
+    ),
+    (
+        "get",
+        "/api/v1/models/{variant}/feature-importance",
+        422,
+        "models",
+        "/api/v1/models/performance_only/feature-importance?top_n=0",
+        None,
+    ),
+    (
+        "get",
+        "/api/v1/models/{variant}/feature-importance",
+        503,
+        "none",
+        "/api/v1/models/performance_only/feature-importance",
+        None,
+    ),
+]
+
+UNREACHABLE = {
+    # FastAPI documents a 422 on every route with a parameter; a lone string
+    # parameter cannot fail validation, so these are declared and never sent.
+    ("get", "/api/v1/features/distribution", 422),
+    ("get", "/api/v1/models/{variant}", 422),
+    ("get", "/api/v1/models/{variant}/metrics", 422),
+}
+
+
+class TestErrorResponsesAreDocumented:
+    """F17: the OpenAPI document described a 422 as `{"detail": [...]}` and
+    every other error with no body, while every one is sent as `{"error":
+    {...}}`. A client generated from it parsed a shape it never received."""
+
+    @pytest.fixture
+    def clients(
+        self, service: PredictionService, players: pd.DataFrame
+    ) -> Iterator[dict[str, TestClient]]:
+        made = {}
+        for name, substitute in {
+            "models": service,
+            "none": PredictionService({}),
+            "playerless": PredictionService({}, players, {101: "Player 101"}),
+            "broken": _Broken(),
+        }.items():
+            app = create_app()
+            app.dependency_overrides[get_service] = lambda substitute=substitute: substitute
+            made[name] = TestClient(app, raise_server_exceptions=False)
+        yield made
+
+    @staticmethod
+    def declared() -> dict[tuple[str, str, int], dict[str, object]]:
+        spec = create_app().openapi()
+        return {
+            (method, path, int(status)): response
+            for path, operations in spec["paths"].items()
+            for method, operation in operations.items()
+            for status, response in operation["responses"].items()
+            if int(status) >= 400
+        }
+
+    def test_every_error_status_names_the_envelope(self) -> None:
+        for key, response in self.declared().items():
+            schema = response["content"]["application/json"]["schema"]  # type: ignore[index]
+            assert schema == {"$ref": "#/components/schemas/ErrorResponse"}, key
+        assert "HTTPValidationError" not in create_app().openapi()["components"]["schemas"]
+
+    def test_every_declared_status_is_provoked_here(self) -> None:
+        provoked = {(m, route, status) for m, route, status, *_ in PROVOKE}
+        five_hundreds = {key for key in self.declared() if key[2] == 500}
+        assert set(self.declared()) - provoked - five_hundreds == UNREACHABLE
+
+    @pytest.mark.parametrize(
+        ("method", "route", "status", "which", "url", "body"),
+        PROVOKE,
+        ids=[f"{m} {u} {s}" for m, _, s, _, u, _ in PROVOKE],
+    )
+    def test_the_declared_status_is_what_comes_back(
+        self,
+        clients: dict[str, TestClient],
+        method: str,
+        route: str,
+        status: int,
+        which: str,
+        url: str,
+        body: dict[str, object] | None,
+    ) -> None:
+        client = clients[which]
+        response = client.post(url, json=body) if method == "post" else client.get(url)
+        assert response.status_code == status, response.text
+        ErrorResponse.model_validate(response.json())
+        assert (method, route, status) in self.declared()
+
+    def test_every_route_documents_and_sends_its_500(self, clients: dict[str, TestClient]) -> None:
+        for method, route, status in self.declared():
+            if status != 500:
+                continue
+            url = route.replace("{player_id}", "101").replace("{variant}", "performance_only")
+            client = clients["broken"]
+            response = (
+                client.post(url, json={"player_id": 101})
+                if method == "post"
+                else client.get(url + ("?q=x" if route == "/api/v1/players" else ""))
+            )
+            assert response.status_code == 500, (route, response.text)
+            assert ErrorResponse.model_validate(response.json()).error.code == "internal_error"
 
 
 class TestMalformedFeatureValues:

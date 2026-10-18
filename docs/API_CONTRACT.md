@@ -301,6 +301,14 @@ Served at `/api/v1/openapi.json`, with Swagger UI at `/docs` and ReDoc at
 `/redoc`. Every schema carries field descriptions and a worked example, because
 an OpenAPI document with bare types is a type checker, not documentation.
 
+Every error status a route can send is declared with the `ErrorResponse`
+schema of section 4 — the 422 included, which FastAPI would otherwise document
+as its own `{"detail": [...]}` shape that this API never sends. 500 is declared
+on every route. `tests/unit/test_api.py::TestErrorResponsesAreDocumented`
+provokes each declared status and validates the body against the schema; the
+only declared-but-unreachable statuses are the 422s FastAPI adds to routes whose
+sole parameter is a string, and the test lists them.
+
 ## 6. Layering
 
 FastAPI is the transport, and nothing else:
