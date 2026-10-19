@@ -91,8 +91,9 @@ export default function PredictionPanel({
           <p className="mt-2 text-xs leading-relaxed text-slate-500 dark:text-slate-400">
             Not a probability. This is measured from the model&apos;s own errors
             on {confidence.reference_rows.toLocaleString()} held-out rows —{" "}
-            {confidence.basis}. It is wide because predicting market value a
-            season ahead is genuinely hard, not because something is broken.
+            {confidence.basis}. It is wide because the target is hard to pin
+            down: the first valuation published on or after the season&apos;s
+            cut-off, which can come the same day or up to a year later.
           </p>
           <IntervalRecord confidence={confidence} />
         </div>
@@ -102,7 +103,8 @@ export default function PredictionPanel({
 }
 
 /**
- * What the interval achieved on test seasons it had never seen — for
+ * What the interval achieved on the test seasons — not fitted on, but
+ * inspected during development, so the record is retrospective — for
  * predictions in this one's value band when that was measured, overall
  * otherwise — with the rows behind the figure.
  *
@@ -135,7 +137,7 @@ export function IntervalRecord({ confidence }: { confidence: Confidence }) {
       </span>{" "}
       of true values, against the {percent(confidence.level, 0)} targeted
       {band && overall && ` (${percent(overall.coverage, 0)} across all predictions)`}. That
-      is a record for the group, not a probability for this player.
+      is a retrospective record for the group, not a probability for this player.
     </p>
   );
 }

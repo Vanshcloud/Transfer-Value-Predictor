@@ -19,8 +19,10 @@ this model interpolate among seasons it has already seen", which is not a
 question anyone deploying it will ever ask.
 
 Splitting three ways rather than two is what keeps that honest: the validation
-season tunes, and the test seasons are touched once, at the end. A test set
-consulted repeatedly is a validation set wearing a disguise.
+season tunes, and only the selected model is scored on the test seasons. A test
+set consulted repeatedly is a validation set wearing a disguise — and these test
+seasons were consulted during development, which is why their scores are
+reported as retrospective (docs/EVALUATION.md).
 """
 
 from __future__ import annotations

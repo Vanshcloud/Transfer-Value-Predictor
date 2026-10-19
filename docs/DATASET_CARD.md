@@ -34,7 +34,10 @@ dedication waives whatever rights *the publisher* holds.
 
 **2. What is verified about ownership and redistribution rights.** Nothing
 beyond the above. The repository says the data is "built from Transfermarkt
-data" and does not state that Transfermarkt granted permission. A dedication
+data" and does not state that Transfermarkt granted permission; its README
+shows the status of an `acquire-transfermarkt-scraper` workflow, so the mirror
+is itself produced by automated collection from Transfermarkt (re-checked
+2026-10-19). A dedication
 cannot waive rights the publisher never had, so CC0 here is the publisher's
 statement about their own contribution, not evidence that Transfermarkt's
 content is free to reuse.

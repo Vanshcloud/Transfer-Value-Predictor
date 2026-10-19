@@ -220,8 +220,8 @@ stated as such, and that the figure is retrospective: the test seasons were not
 trained on but were inspected during development. What the project defends is
 that the number comes from later seasons under a checked point-in-time rule,
 that a random split would read ~30% better and answer a question nobody
-deploying it would ask, and that an independent check is set up rather than
-claimed.
+deploying it would ask, and that a prospective check is set up rather than
+claimed; no one outside the project has replicated it.
 
 **If asked "can I use this commercially?"** — no. The data's rights are
 uncertain (`docs/DATASET_CARD.md`, "Data rights").

@@ -2,8 +2,9 @@
 
 Written in Phase 20 in response to audit findings F5 (evaluation contamination)
 and F12 (statistical correctness). It states what each reported number does and
-does not demonstrate, and records the protocol under which a genuinely
-independent number can still be obtained.
+does not demonstrate, and records the protocol under which an out-of-time number — one
+whose labels did not exist when the predictions were made — can still be
+obtained. No external replication has been attempted.
 
 ## 1. Status of every metric reported so far
 
@@ -155,7 +156,7 @@ under the old definition), not because anything about the estimator improved;
 study output but confounded — rarely revalued players are cheap ones, so older
 priors show *smaller* euro errors — and is not evidence either way.
 
-## 4. A genuinely independent assessment
+## 4. A prospective out-of-time holdout, not yet scored
 
 **An out-of-time holdout exists and has not been looked at.** "Independent" here
 means independent in time: the labels did not exist in the data when the

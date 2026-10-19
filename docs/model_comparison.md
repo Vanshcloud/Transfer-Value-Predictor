@@ -6,9 +6,12 @@ Every figure is measured, not quoted — rerun the command to refresh it.
 All families are trained on the same rows, the same split and the same
 seed, and ranked by **validation MAE in EUR**, which is the selection
 metric (see [EXPERIMENT_TRACKING.md](EXPERIMENT_TRACKING.md) §4). Test
-metrics are not shown per family on purpose: the test seasons are
-touched once, by the winner only. Ranking every family on test would
-make the test set a second validation set.
+metrics are not shown per family on purpose: only the winner is scored
+on the test seasons. Ranking every family on test would make the test
+set a second validation set. Those seasons were nonetheless inspected
+repeatedly during development, so the winner's test figures are
+retrospective development evidence, not an untouched holdout
+(see [EVALUATION.md](EVALUATION.md)).
 
 Timings are wall-clock on one machine for one fit of the tuned
 configuration, so they are comparable to each other and not to any

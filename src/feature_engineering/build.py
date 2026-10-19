@@ -1108,8 +1108,9 @@ def select_variant(
 
     ``include_prior_value=False`` is the *performance-only* model: every row,
     and scouting or undervaluation are questions it can actually answer.
-    ``True`` is the *accurate* model: it keeps only rows with a real prior
-    season (roughly half) and predicts how a known value will move.
+    ``True`` is the *accurate* model: it keeps only rows with a valuation
+    published strictly before the as-of date (98.4% of rows) and predicts how
+    a known value will move.
 
     Publishing only the second would be technically true and practically
     useless, which is why both come out of here.

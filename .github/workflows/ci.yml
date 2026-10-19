@@ -215,8 +215,11 @@ jobs:
       - name: Transfermarkt is never fetched
         # The one invariant with a legal edge rather than a technical one.
         # Transfermarkt's ToU 11.1 bans automated access AND bans training a
-        # model on the content; labels come from the CC0 Kaggle mirror. A
-        # reviewer cannot see this rule being broken, so a grep enforces it.
+        # model on the content. Labels come from a Kaggle mirror its publisher
+        # dedicates as CC0, which keeps this repo off Transfermarkt's servers
+        # but does not settle the training ban (docs/DATASET_CARD.md, "Data
+        # rights"). A reviewer cannot see the no-fetch rule being broken, so a
+        # grep enforces it.
         run: |
           if grep -rniE "https?://[^\"']*transfermarkt" src api tests scripts frontend/src 2>/dev/null; then
             echo "a transfermarkt.com URL appears in code"; exit 1

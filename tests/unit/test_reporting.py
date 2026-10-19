@@ -137,9 +137,13 @@ class TestComparison:
         self, artifact: ModelArtifact
     ) -> None:
         # Ranking nine families on test would make the test set a second
-        # validation set. The document has to say so.
+        # validation set. The document has to say so — and must not claim the
+        # test seasons were looked at once, since they were inspected during
+        # development.
         document = build_comparison_document([artifact])
-        assert "touched once" in document
+        assert "only the winner is scored" in document
+        assert "retrospective" in document
+        assert "touched once" not in document
         assert "validation MAE" in document
 
     def test_the_document_is_valid_markdown_table(self, artifact: ModelArtifact) -> None:

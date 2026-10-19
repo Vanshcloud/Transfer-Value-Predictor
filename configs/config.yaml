@@ -62,7 +62,9 @@ data:
   label_tolerance_days: 365
 
 split:
-  # Three-way temporal split. Validation tunes; test is touched once.
+  # Three-way temporal split. Validation tunes; only the selected model is
+  # scored on test. Test seasons were inspected during development, so their
+  # scores are retrospective (docs/EVALUATION.md).
   # Measured: temporal evaluation is ~60% worse on EUR MAE than a group split,
   # and it is the number that reflects deployment.
   train_end_season: 2021

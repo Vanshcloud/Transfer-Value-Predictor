@@ -37,6 +37,7 @@ describe("IntervalRecord", () => {
   it("says it is not a probability for this player", () => {
     render(<IntervalRecord confidence={confidence()} />);
     expect(screen.getByText(/not a probability for this player/)).toBeInTheDocument();
+    expect(screen.getByText(/retrospective record/)).toBeInTheDocument();
   });
 
   it("falls back to the overall figure when the band was not measured", () => {

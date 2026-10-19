@@ -143,10 +143,11 @@ export function Badge({
 /**
  * An initials disc standing in for a player portrait.
  *
- * The CC0 dataset carries an `image_url`, but it points at Transfermarkt's own
- * CDN — the licence covers the table, not the photographs behind it, and this
- * project does not call Transfermarkt. Initials cost one request fewer than a
- * portrait and make no claim about a licence nobody granted.
+ * The Kaggle mirror carries an `image_url`, but it points at Transfermarkt's own
+ * CDN — whatever the mirror's CC0 dedication covers, it cannot cover the
+ * photographs behind it, and this project does not call Transfermarkt.
+ * Initials cost one request fewer than a portrait and make no claim about a
+ * licence nobody granted.
  */
 export function Avatar({
   name,
