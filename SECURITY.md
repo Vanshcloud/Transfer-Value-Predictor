@@ -101,6 +101,8 @@ enforced correctly.
 | Per-prediction SHAP | Selection policy | A model ships only if predict plus explanation is ≤ 100 ms p50 on validation rows (`SERVING_LATENCY_BUDGET_MS`). |
 | Open connections | API entry point, `api/__main__.py` | uvicorn `limit_concurrency=64` (503 beyond), `timeout_keep_alive=5`. |
 | Memory and CPU | Container, `docker-compose.yml` | API 2 GB / 2 CPUs (≈710 MB resident at start), dashboard 512 MB / 1 CPU. |
+| Privilege | Both images and `docker-compose.yml` | Non-root user, `no-new-privileges`, all capabilities dropped, data and models mounted read-only. |
+| Exposure | `docker-compose.yml` | Ports published on `127.0.0.1` only, so the unproxied containers are not reachable from the network by default. |
 | Liveness | API, `GET /health` | 200 whenever the process is up, so a missing model never restart-loops it. |
 | Readiness | API, `GET /ready` | 503 until a model is loaded, for a load balancer to route on. |
 | Error reporting | API, `api/errors.py` | Every unhandled exception is logged with its traceback to stdout and returned as a fixed-message `500`. No error-tracking service is integrated; ship the logs to one. |
@@ -109,7 +111,9 @@ enforced correctly.
 | **TLS** | **Reverse proxy** | The containers speak plain HTTP. |
 
 A minimal nginx front for the API, as a starting point rather than a tuned
-configuration:
+configuration. It has not been run against this service; nothing in this
+repository tests a proxy, so rate limiting, timeouts and TLS are a deployment
+requirement, not a verified property:
 
 ```nginx
 limit_req_zone $binary_remote_addr zone=api:10m rate=10r/s;

@@ -12,7 +12,14 @@ services:
       context: .
       dockerfile: Dockerfile
     ports:
-      - "8000:8000"
+      # Loopback only. SECURITY.md: without a reverse proxy for rate limits,
+      # timeouts and TLS this service must not face a network directly. A
+      # proxy on this host reaches it here; elsewhere, publish it deliberately.
+      - "127.0.0.1:8000:8000"
+    # Both images already run as a non-root user; this stops them regaining
+    # privilege and drops capabilities neither server needs on a high port.
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
     environment:
       # The dashboard's browser origin. Listed rather than wildcarded: this API
       # is read-only and unauthenticated today, and "*" would be a habit that
@@ -51,7 +58,9 @@ services:
         # resolves inside the network.
         NEXT_PUBLIC_API_BASE: http://localhost:8000
     ports:
-      - "3000:3000"
+      - "127.0.0.1:3000:3000"
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
     depends_on:
       api:
         condition: service_healthy
