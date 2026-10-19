@@ -94,8 +94,9 @@ Phase 19 artifacts are kept locally with checksums.
 
 ### Security
 
-- **Dependencies** patched within their ranges: `next` 16.3.3 → 16.3.8 (RCE
-  in `next/og`, image-optimisation SSRF, SSG/ISR cache poisoning), `sharp`
+- **Dependencies** patched within their majors: `next` 16.3.3 → 16.4.2 (RCE
+  in `use cache` functions, GHSA-673q-mjm6-r5xr, which no 16.3 release fixes;
+  RCE in `next/og`, image-optimisation SSRF, SSG/ISR cache poisoning), `sharp`
   0.35.5, `plotly.js` 4.1.2 (MapLibre 6.11.2), `source-map-js` 1.2.2,
   `undici` 8.12.2, `brace-expansion`, and `urllib3` 2.8.0 in the full Python
   lock. `npm audit --omit=dev` and `pip-audit` report nothing; one lint-only
