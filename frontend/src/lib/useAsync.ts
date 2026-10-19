@@ -12,6 +12,14 @@
  * One state object rather than three booleans, so "loading and also holding a
  * stale error" cannot be represented at all.
  *
+ * **State belongs to the fetcher that produced it.** When the fetcher changes
+ * — the player page switching variant — the previous result is not the
+ * answer to the current question, so the hook reports `loading` until the new
+ * fetcher settles. It used to keep returning the old `ready` data, and the
+ * page seeded its what-if panel from the old variant's features while sending
+ * them to the new variant's model. Deriving this from the fetcher's identity
+ * needs no effect-time state write.
+ *
  * **The fetcher must be stable.** It is the effect's only dependency, which is
  * what makes "the player changed, go and get the new one" work. Pass an inline
  * arrow and every render creates a new identity, the effect re-runs, and the
@@ -37,7 +45,14 @@ export type AsyncState<T> =
   | { status: "error"; error: unknown };
 
 export function useAsync<T>(fetcher: () => Promise<T>) {
-  const [state, setState] = useState<AsyncState<T>>({ status: "loading" });
+  const [held, setHeld] = useState<{ source: () => Promise<T>; state: AsyncState<T> }>({
+    source: fetcher,
+    state: { status: "loading" },
+  });
+  const setState = useCallback(
+    (state: AsyncState<T>) => setHeld({ source: fetcher, state }),
+    [fetcher],
+  );
   const runaway = useRef(0);
   // One ticket for every fetch, the effect's and reload's alike. reload()
   // used to discard the cancel function its fetch returned, so a reload
@@ -61,7 +76,7 @@ export function useAsync<T>(fetcher: () => Promise<T>) {
     return () => {
       begin();
     };
-  }, [begin, fetcher]);
+  }, [begin, fetcher, setState]);
 
   useEffect(() => {
     if (process.env.NODE_ENV !== "production") {
@@ -83,7 +98,8 @@ export function useAsync<T>(fetcher: () => Promise<T>) {
   const reload = useCallback(() => {
     setState({ status: "loading" });
     run();
-  }, [run]);
+  }, [run, setState]);
 
+  const state: AsyncState<T> = held.source === fetcher ? held.state : { status: "loading" };
   return { state, reload };
 }

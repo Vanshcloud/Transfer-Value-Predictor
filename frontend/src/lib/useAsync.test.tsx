@@ -59,6 +59,23 @@ describe("useAsync", () => {
     expect(result.current.state).toEqual({ status: "ready", data: "current player" });
   });
 
+  it("is loading, not still showing the previous fetcher's data, while the new one is pending", async () => {
+    // A page switching variant used to keep rendering the old variant's data
+    // as "ready" until the new response arrived, so anything seeded from that
+    // data was paired with the new variant.
+    const fresh = deferred<string>();
+    const { result, rerender } = renderHook(({ fetcher }) => useAsync(fetcher), {
+      initialProps: { fetcher: () => Promise.resolve("performance-only data") },
+    });
+    await waitFor(() => expect(result.current.state.status).toBe("ready"));
+
+    rerender({ fetcher: () => fresh.promise });
+    expect(result.current.state).toEqual({ status: "loading" });
+
+    await act(async () => fresh.resolve("prior-value data"));
+    expect(result.current.state).toEqual({ status: "ready", data: "prior-value data" });
+  });
+
   it("does not report an error from a cancelled request", async () => {
     const stale = deferred<string>();
     const fresh = deferred<string>();

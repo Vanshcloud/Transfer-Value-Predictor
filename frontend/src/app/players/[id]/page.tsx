@@ -45,6 +45,8 @@ const VARIANTS: { key: Variant; label: string; blurb: string }[] = [
 ];
 
 interface PageData {
+  /** The variant this data was fetched for, which the what-if panel uses. */
+  variant: Variant;
   player: Player;
   prediction: PredictResponse;
   similar: SimilarPlayer[];
@@ -79,6 +81,7 @@ export default function PlayerPage({
     ]);
 
     return {
+      variant,
       player,
       prediction,
       similar: neighbours.results,
@@ -223,15 +226,17 @@ export default function PlayerPage({
             </div>
           </div>
 
-          {player && Object.keys(player.features).length > 0 && (
-            // Keyed so switching player or variant remounts with fresh
-            // sliders. Resetting via an effect would be a state write during
-            // render for something a key expresses directly.
+          {state.status === "ready" && player && Object.keys(player.features).length > 0 && (
+            // Seed, baseline and variant all come from one response, so the
+            // panel can never send one variant's features to another's model;
+            // while a switch is pending, useAsync reports loading and the
+            // panel is not rendered at all. Keyed so a new player or variant
+            // remounts with fresh sliders rather than resetting in an effect.
             <WhatIf
-              key={`${player.player_id}-${variant}`}
+              key={`${player.player_id}-${state.data.variant}`}
               baseline={prediction.prediction_eur}
               features={player.features}
-              variant={variant}
+              variant={state.data.variant}
             />
           )}
         </>
