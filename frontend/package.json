@@ -14,8 +14,8 @@
   "dependencies": {
     "next": "16.4.2",
     "plotly.js-cartesian-dist-min": "^4.0.0",
-    "react": "19.2.8",
-    "react-dom": "19.2.8",
+    "react": "19.3.1",
+    "react-dom": "19.3.1",
     "react-plotly.js": "^4.1.0"
   },
   "devDependencies": {
