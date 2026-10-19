@@ -24,7 +24,7 @@
 # default string dtype and makes Copy-on-Write permanent, which is a silent
 # behaviour change in a categorical-heavy pipeline.
 pandas>=2.2,<3
-numpy>=2.0
+numpy>=2.5.3
 pyarrow>=17.0
 duckdb>=1.1
 
@@ -41,7 +41,7 @@ duckdb>=1.1
 #
 # catboost is out for the same reason and a larger number: 328 MB, including
 # the plotly it requires, for a model 0.2% behind.
-scikit-learn>=1.9
+scikit-learn>=1.9.1
 lightgbm>=4.5
 
 # ---- Explainability ----
