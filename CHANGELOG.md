@@ -37,6 +37,13 @@ Phase 19 artifacts are kept locally with checksums.
   ran; it now raises. `scripts/` is type-checked. Documentation corrected on
   the prior's definition and counts, the variable label horizon, the committed
   data sample, and the freeze being a local, self-reported record.
+- **Wording.** The dashboard said a prediction was "a season ahead"; the
+  target is the first valuation on or after the cutoff, up to 365 days later.
+  `model_comparison.md`, the split config and docstrings said the test seasons
+  were "touched once"; they were inspected repeatedly and are labelled
+  retrospective. "Independent check" is now "prospective holdout", kept
+  separate from external replication, which has not happened. The README
+  screenshots, taken before the retrain, are retaken from the current models.
 - **OpenAPI error schemas** (F17) match the envelope actually sent.
 - **Frontend races** (F13) in search, compare, what-if and `useAsync`.
 - **Compare across seasons** (F14) labels each side's season and warns.
@@ -65,6 +72,18 @@ Phase 19 artifacts are kept locally with checksums.
   making twelve endpoints. `/health` keeps answering 200 while degraded.
 - `docs/EVALUATION.md`, `scripts/prospective.py`,
   `scripts/evaluate_retrospective.py`.
+
+### Security
+
+- **Dependencies** patched within their ranges: `next` 16.3.3 → 16.3.8 (RCE
+  in `next/og`, image-optimisation SSRF, SSG/ISR cache poisoning), `sharp`
+  0.35.5, `plotly.js` 4.1.2 (MapLibre 6.11.2), `source-map-js` 1.2.2,
+  `undici` 8.12.2, `brace-expansion`, and `urllib3` 2.8.0 in the full Python
+  lock. `npm audit --omit=dev` and `pip-audit` report nothing; one lint-only
+  `braces` chain with no patched release stays open. Each advisory's
+  reachability is in `SECURITY.md`.
+- **Compose** publishes both ports on `127.0.0.1` only, and runs both
+  containers with `no-new-privileges` and every capability dropped.
 
 ### Removed
 
