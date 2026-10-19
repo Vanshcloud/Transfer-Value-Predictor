@@ -4,7 +4,14 @@ Notable changes to this project. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.4.0] — 2026-10-19
+
+ML correctness, reliability and audit remediation. Point-in-time features and
+one prior-value definition for training and serving, manifest-verified
+artifacts, bounded API inputs, race-free dashboard requests, a synthetic test
+fixture, and documentation that labels every metric retrospective. Both models
+retrained once; test MAE €2,057,285 (performance only) and €908,625 (with
+prior value), retrospective. The prospective freeze is prepared, not scored.
 
 Phases 19 and 20: remediation of an independent Codex audit (F1–F20). Full
 workings in
@@ -466,6 +473,8 @@ explains every prediction.
 - CI had no `permissions` block and no guard on the Transfermarkt rule.
 - `/compare`'s two search inputs had no accessible label.
 
+[1.4.0]: https://github.com/Vanshcloud/Transfer-Value-Predictor/releases/tag/v1.4.0
+[1.3.0]: https://github.com/Vanshcloud/Transfer-Value-Predictor/releases/tag/v1.3.0
 [1.2.0]: https://github.com/Vanshcloud/Transfer-Value-Predictor/releases/tag/v1.2.0
 [1.1.0]: https://github.com/Vanshcloud/Transfer-Value-Predictor/releases/tag/v1.1.0
 [1.0.0]: https://github.com/Vanshcloud/Transfer-Value-Predictor/releases/tag/v1.0.0
