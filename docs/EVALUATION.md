@@ -159,16 +159,20 @@ priors show *smaller* euro errors — and is not evidence either way.
 ### 3.5 Publication-time availability
 
 A strictly prospective evaluation trains, tunes and calibrates only on what had
-been published when each prediction is made. The retrospective figures meet
-that at the split boundaries and not beyond them.
+been published when each prediction is made. The retrospective figures come
+close to that at the split boundaries, not exactly, and not beyond them.
 
 **At the boundaries, measured.** Against the earliest as-of date of each later
 season (every row in it is predicted at or after that date), the earlier side's
-labels published on or after it are: training (≤ 2021) against validation
-2022, 1 of 65,907; training against test 2023, 0; validation 2022 against
-test 2023 or 2024, 0 of 6,573; the four expanding-window tuning folds
-(validating 2018–2021), 0–3 rows each. Feature inputs are checked row by row
-against each row's own as-of date (§2; `LeakageValidator`), and competition
+labels published on or after it are, performance-only / with prior value:
+training (≤ 2021) against validation 2022, 1 of 65,907 / 1 of 64,818;
+training against test 2023, 0 / 0; validation 2022 against test 2023 or 2024,
+0 of 6,573 / 0 of 6,493. Tuning uses eight expanding-window folds per variant
+(`season_folds`: each season 2014–2021 validated on the seasons before it),
+with 0–30 such labels per fold, the most in the earliest (2014: 30 of 13,299
+training rows, 0.23%, and 27 of 13,058), falling to 0–6 from 2015 on.
+Feature inputs are checked row by row against each row's own as-of date (§2;
+`LeakageValidator`), and competition
 strength uses only labels published before the season's cutoff. Interval
 quantiles come from validation residuals, none published after a test cutoff.
 
