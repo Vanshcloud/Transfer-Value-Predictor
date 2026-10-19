@@ -161,14 +161,28 @@ PUBLIC_PROSE = (
 )
 
 
-def test_the_committed_sample_is_not_denied() -> None:
+def test_the_committed_sample_is_described_as_what_it_is() -> None:
     """Re-audit: the dataset card said "it redistributes no raw data" while
-    data/sample/ committed rows copied from the mirror."""
-    if not sorted((ROOT / "data" / "sample").glob("*.csv")):  # pragma: no cover
-        pytest.skip("no committed sample")
+    data/sample/ committed rows copied from the mirror. The sample is now
+    synthetic, and the card must still say the copied rows remain in history."""
     card = (ROOT / "docs" / "DATASET_CARD.md").read_text()
     assert "redistributes no raw data" not in card
     assert "`data/sample/`" in card and "`data/sample/`" in README
+    assert "synthetic" in card and "v1.3.0" in card
+
+
+def test_the_committed_sample_is_exactly_the_generator_output() -> None:
+    """data/sample/ held rows copied from the Kaggle mirror, whose rights are
+    uncertain. It is now written by scripts/make_sample_data.py from a seed;
+    holding the committed files to that output byte for byte is what keeps a
+    copied row from slipping back in."""
+    result = subprocess.run(
+        [sys.executable, str(ROOT / "scripts" / "make_sample_data.py"), "--check"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
 
 
 def test_the_local_freeze_is_not_called_public_or_registered() -> None:

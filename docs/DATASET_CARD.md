@@ -57,15 +57,23 @@ not had answered.
 no scraper, no API client, no image or page request — that prohibition is
 respected and will stay. It downloads the Kaggle mirror and **trains machine
 learning models on Transfermarkt-derived market valuations**, which is the use
-§11.1 names. **It does redistribute a small raw extract:** `data/sample/`
-commits seven CSVs copied from the mirror (200 players, 4,424 valuations and
-the appearances, games, lineups, club games and competitions that go with
-them — about 43,000 rows, including Transfermarkt profile and image URLs) so
-the unit suite runs without a download. Everything else under `data/` is
-gitignored, and the other published outputs are fitted models, aggregate
-metrics and per-player predictions served by the API. The extract carries
-exactly the uncertainty described here; replacing it with synthetic fixtures
-is what would remove it.
+§11.1 names. **The test fixture is synthetic.** `data/sample/` holds seven
+CSVs in the mirror's schema written by `scripts/make_sample_data.py` from a
+seed: three fictional leagues, about 400 invented players, their matches,
+lineups and valuations. No name, identifier, URL or value comes from the
+mirror, the identifiers sit above the mirror's largest so no row can join to a
+real one, and a unit test fails if the committed files differ from the
+generator's output. Everything else under `data/` is gitignored, and fitted
+models are not committed.
+
+**What earlier commits still contain.** Until this change the fixture was an
+extract copied from the mirror: 200 players, 4,424 valuations and the
+appearances, games, lineups, club games and competitions that went with them
+— about 43,000 rows, including Transfermarkt profile and image URLs. Three of
+its files are in tags v1.0.0 and v1.1.0 and all seven in v1.2.0, v1.3.0 and
+the `main` branch before this change, and so in those releases' source
+archives. Replacing the files does not remove them from history; only
+rewriting the public history would, which has not been done.
 
 **Status: uncertain.** The earlier wording — that the CC0 mirror is what makes
 the project legally possible — claimed more than is established. What would
@@ -73,7 +81,7 @@ resolve it, in order of strength: written permission from Transfermarkt GmbH &
 Co. KG for training and for serving derived predictions; or advice from a
 lawyer qualified in German and EU database and copyright law. Until then,
 treat the data and anything trained on it as unsuitable for commercial use,
-and do not redistribute the raw tables — the committed sample included.
+and do not redistribute the raw tables.
 
 ## Shape
 

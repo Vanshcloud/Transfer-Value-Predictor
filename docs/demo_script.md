@@ -14,7 +14,7 @@ Everything requiring data is marked **[needs data]** and has a fallback.
 
 ```bash
 make setup                  # venv + dev deps + git hooks
-make test                   # 862 pass, 70 deselected, no credentials
+make test                   # 863 pass, 70 deselected, no credentials
 docker compose up --build   # optional; takes minutes on a cold cache
 ```
 
@@ -46,7 +46,7 @@ legal footnote.
 make test
 ```
 
-Expected: `862 passed, 70 deselected`, about fifteen seconds.
+Expected: `863 passed, 70 deselected`, about fifteen seconds.
 
 > "The 70 skips are integration tests that need a trained model. They skip
 > rather than fail, because a suite that is only green on my laptop is not a
@@ -208,7 +208,7 @@ reproduce their recorded test MAE to the cent.
 | Fails | Do this |
 |---|---|
 | No internet | Nothing in the demo needs it. `make test` and every source walkthrough are local. |
-| No Kaggle credentials / no data | Skip §3 and §4-live. `make test` runs on committed sample data; show the leakage module and the model cards instead. |
+| No Kaggle credentials / no data | Skip §3 and §4-live. `make test` runs on the committed synthetic sample; show the leakage module and the model cards instead. |
 | No trained model | `docs/MODEL_CARD_*.md` and `docs/model_comparison.md` are committed and carry the real numbers. |
 | Docker won't start | Run the API directly: `make serve`, then `npm run dev` in `frontend/`. |
 | Dashboard broken | The API is the substance; `curl` + `jq` shows the same payloads and reads well on a projector. |

@@ -82,6 +82,14 @@ Phase 19 artifacts are kept locally with checksums.
   lock. `npm audit --omit=dev` and `pip-audit` report nothing; one lint-only
   `braces` chain with no patched release stays open. Each advisory's
   reachability is in `SECURITY.md`.
+- **`data/sample/` is synthetic.** The unit-test fixture was ~43,000 rows
+  copied from the Kaggle mirror, redistributed under uncertain rights. It is
+  now written by `scripts/make_sample_data.py` from a seed — fictional
+  leagues, players and valuations in the mirror's schema, identifiers above
+  the mirror's range — and a test holds the committed files to that output.
+  Every feature is still populated on the credential-free path. The copied
+  rows remain in the history of v1.0.0–v1.3.0 and earlier `main`; history was
+  not rewritten.
 - **Compose** publishes both ports on `127.0.0.1` only, and runs both
   containers with `no-new-privileges` and every capability dropped.
 

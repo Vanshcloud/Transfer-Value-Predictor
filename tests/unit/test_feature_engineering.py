@@ -592,7 +592,7 @@ class TestSelectVariant:
 
 
 # --------------------------------------------------------------------------
-# The whole table, on real (sampled) data
+# The whole table, on the committed synthetic sample
 # --------------------------------------------------------------------------
 
 
@@ -606,7 +606,7 @@ def sample_table(
 
 
 class TestBuildTrainingTable:
-    def test_it_produces_rows_from_real_data(self, sample_table: pd.DataFrame) -> None:
+    def test_it_produces_rows_from_the_sample(self, sample_table: pd.DataFrame) -> None:
         assert not sample_table.empty
         assert set(FEATURE_COLUMNS) <= set(sample_table.columns)
         assert TARGET_COLUMN in sample_table.columns

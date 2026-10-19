@@ -18,8 +18,8 @@ env/
 # ---- Data ----
 # Raw and processed data are downloaded, not committed: the Kaggle source is
 # ~759 MB and refreshes weekly, so committing it would be both large and stale.
-# data/sample/ IS committed — the test suite runs against it so CI needs no
-# network and no credentials.
+# data/sample/ IS committed — synthetic, from scripts/make_sample_data.py — and
+# the test suite runs against it so CI needs no network and no credentials.
 data/raw/*
 data/processed/*
 !data/raw/.gitkeep

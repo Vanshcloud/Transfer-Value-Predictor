@@ -46,7 +46,9 @@ than trusting it.
 
 **`scripts/` are thin.** Each is an entry point over a `src/pipelines/` stage —
 argument parsing and logging, no logic. If a script grows a decision, the
-decision belongs in the pipeline where a test can reach it.
+decision belongs in the pipeline where a test can reach it. The one exception
+is `make_sample_data.py`, which is test-fixture tooling rather than a pipeline
+stage; a unit test holds `data/sample/` to its output.
 
 **`src/storage/` is a `Protocol`.** DuckDB is the current implementation and
 the only file that names it is `duckdb_store.py`. CI greps for imports that
@@ -69,7 +71,7 @@ proposing a feature.
 
 | Path | Committed? | Regenerate with |
 |---|---|---|
-| `data/sample/` | **yes** — the unit suite runs on it | never; it is a fixture |
+| `data/sample/` | **yes** — synthetic; the unit suite runs on it | `scripts/make_sample_data.py` (a test fails if it would change) |
 | `data/raw/`, `data/processed/` | no | `scripts/fetch_data.py`, `scripts/build_features.py` |
 | `models/` (artifacts and `manifest.json`) | no | `scripts/train_models.py` |
 | `reports/prospective/`, `reports/evaluation/` | no | `scripts/prospective.py freeze`, `scripts/evaluate_retrospective.py` |

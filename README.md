@@ -48,16 +48,18 @@ the scouting model between €1.39M and €2.16M depending on the season.
 
 ## Quick start
 
-No account and no download needed to run the test suite against the committed
-sample — a few thousand rows copied from the Kaggle mirror, under the same
-uncertain rights as the rest of the data ([Data rights](docs/DATASET_CARD.md#data-rights)):
+No account and no download needed to run the test suite: it runs against
+`data/sample/`, a synthetic world in the Kaggle mirror's schema — invented
+leagues, players and valuations from
+[`scripts/make_sample_data.py`](scripts/make_sample_data.py), with no real
+records:
 
 ```bash
 make setup          # Python 3.13; on macOS first: brew install libomp
-make test           # 862 pass, 70 skip — no data, no credentials
+make test           # 863 pass, 70 skip — no data, no credentials
 ```
 
-That is 862 passing tests and 70 skips. The full pipeline needs a free Kaggle
+That is 863 passing tests and 70 skips. The full pipeline needs a free Kaggle
 token in `.env` (see [`.env.example`](.env.example)):
 
 ```bash
@@ -168,19 +170,19 @@ columns, axis titles as headers, histogram bins as rows. Details in
 ## Testing
 
 ```bash
-make test        # 862 pass, 70 skip — no data, no credentials
+make test        # 863 pass, 70 skip — no data, no credentials
 make test-cov    # the same, with coverage; fails under 88%
 pytest           # everything; integration tests run when data and models exist
 ```
 
-On a clean clone with no data, `pytest` reports zero failures — verified on a fresh clone: 862
+On a clean clone with no data, `pytest` reports zero failures — verified on a fresh clone: 863
 pass and the 70 integration tests skip. With the Kaggle download and trained
-models, all 932 pass.
+models, all 933 pass.
 
 | | Coverage | Tests |
 |---|---|---|
-| `make test-cov` — no credentials, no data | **90%** | 862 pass, 70 deselected |
-| `make test-cov-all` — needs the download and trained models | **97%** | 932 collected |
+| `make test-cov` — no credentials, no data | **90%** | 863 pass, 70 deselected |
+| `make test-cov-all` — needs the download and trained models | **97%** | 933 collected |
 
 Tests that construct the leak they guard against, tests that recompute this
 README's numbers, a contract test that provokes every documented error status,
@@ -247,8 +249,8 @@ the mirror as CC0, Transfermarkt's own Terms of Use §11.1 prohibit automated
 access (so nothing here contacts Transfermarkt) and also prohibit ML training on
 the content, which this project does through the mirror. Whether the mirror's
 dedication covers that is not established and the project has no legal clearance
-— see [Data rights](docs/DATASET_CARD.md#data-rights). `data/sample/` commits a
-small extract of the mirror as a test fixture, so the repository does
-redistribute some raw rows under that same uncertainty. Labels are the work of
+— see [Data rights](docs/DATASET_CARD.md#data-rights). `data/sample/` is
+synthetic; releases up to v1.3.0 committed rows copied from the mirror instead,
+and those stay in the repository's history. Labels are the work of
 Transfermarkt's contributor community, and the mirror is maintained by David
 Cariboo.

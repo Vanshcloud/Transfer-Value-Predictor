@@ -549,7 +549,7 @@ def built(sample_players, sample_valuations, sample_appearances, sample_context)
 
 
 class TestTheShippedContract:
-    """The pipeline's validator, run on a real built table and then on one
+    """The pipeline's validator, run on a table built from the sample and then on one
     deliberately broken in each of the ways F1, F2 and F4 broke it."""
 
     @staticmethod

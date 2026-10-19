@@ -111,11 +111,13 @@ def test_zero_byte_file_is_never_considered_fresh(
     assert not src.is_fresh(path)
 
 
-def test_load_returns_a_frame(source: tuple[KaggleSource, FakeHttpClient]) -> None:
+def test_load_returns_a_frame(
+    source: tuple[KaggleSource, FakeHttpClient], sample_players: pd.DataFrame
+) -> None:
     frame = source[0].load("players")
     assert isinstance(frame, pd.DataFrame)
     assert "player_id" in frame.columns
-    assert len(frame) == 200
+    assert len(frame) == len(sample_players)
 
 
 def test_path_for_unknown_table_raises(source: tuple[KaggleSource, FakeHttpClient]) -> None:
@@ -155,13 +157,13 @@ def test_statsbomb_raises_with_an_explanation(call: object) -> None:
 
 
 def test_ingest_writes_every_table_to_the_store(
-    source: tuple[KaggleSource, FakeHttpClient], tmp_path: Path
+    source: tuple[KaggleSource, FakeHttpClient], tmp_path: Path, sample_players: pd.DataFrame
 ) -> None:
     store = DuckDBParquetStore(tmp_path / "processed")
     report = ingest(source[0], store)
 
     assert store.list_tables() == ("appearances", "player_valuations", "players")
-    assert report.tables["players"] == 200
+    assert report.tables["players"] == len(sample_players)
     assert report.total_rows == sum(report.tables.values())
 
 
