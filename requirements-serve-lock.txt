@@ -107,7 +107,7 @@ typing-inspection==0.4.4
     #   pydantic
 tzdata==2026.3
     # via pandas
-uvicorn==0.52.4
+uvicorn==0.54.0
     # via -r requirements-serve.txt
 uvloop==0.22.1
     # via uvicorn
