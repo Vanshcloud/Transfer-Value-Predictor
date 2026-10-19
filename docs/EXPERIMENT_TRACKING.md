@@ -19,8 +19,9 @@ outlive a single machine or several people launch them concurrently.
 
 ## 1. Dataset version
 
-The upstream Kaggle dataset `davidcariboo/player-scores` refreshes weekly and is
-served as a rolling "latest" version, so "the data" is not a fixed thing and a
+The upstream Kaggle dataset `davidcariboo/player-scores` is served as a rolling
+"latest" version, replaced whenever its publisher's pipeline runs (about weekly
+until mid-2026, last on 2026-09-05; see the dataset card), so "the data" is not a fixed thing and a
 metric without a dataset stamp is not reproducible. Since artifact version 3
 (Phase 20, audit F10) every artifact carries a `provenance` block, written by
 `src/models/provenance.py`:
@@ -38,7 +39,7 @@ metric without a dataset stamp is not reproducible. Since artifact version 3
 
 `raw_data.reproducible_by_download` is `false`, deliberately. The hashes identify
 the snapshot; they do not make it downloadable again, because Kaggle does not
-keep the weekly versions this project read. Reproducing a table means restoring
+keep the versions this project read. Reproducing a table means restoring
 those exact files. A fresh download has **not** been shown to rebuild an
 identical table, and nothing here claims it would.
 

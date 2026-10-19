@@ -5,7 +5,7 @@ Marked ``integration`` because it needs ``data/processed/`` populated by
 so CI on a clean checkout stays green.
 
 The figures are the feasibility spike's, reproduced here as a regression fence.
-The upstream Kaggle dataset refreshes weekly, so they are asserted with a
+The upstream Kaggle dataset is republished as it changes, so they are asserted with a
 tolerance wide enough for drift and narrow enough that a broken join — a
 backward merge, a lost season boundary, a duplicated key — moves the count far
 past it.
@@ -34,7 +34,7 @@ from src.validation.leakage import detect_leakage
 
 pytestmark = pytest.mark.integration
 
-# Phase 15 figures, +/-5% for weekly refresh drift.
+# Phase 15 figures, +/-5% for drift between upstream versions.
 #
 # The spike numbers these replace (37,025 rows / 16,995 players / 20,030 with a
 # prior) were a property of the 120-day label window, not of the data: that

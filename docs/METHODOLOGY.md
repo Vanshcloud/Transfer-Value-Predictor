@@ -15,7 +15,9 @@ independent although players repeat across seasons; they overstate significance
 by the design effect measured in [`EVALUATION.md`](EVALUATION.md) §3. Large
 effects stand; p-values between about 0.05 and 0.001 are unconfirmed; and a
 non-significant result means no difference was detected, not that there is none.
-Test-season figures are retrospective throughout.
+Test-season figures are retrospective throughout, and point-in-time on the dates a
+2026 snapshot records rather than publication-time-purged
+([`EVALUATION.md`](EVALUATION.md) §3.5).
 
 ---
 

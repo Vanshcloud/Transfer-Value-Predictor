@@ -37,6 +37,18 @@ Phase 19 artifacts are kept locally with checksums.
   ran; it now raises. `scripts/` is type-checked. Documentation corrected on
   the prior's definition and counts, the variable label horizon, the committed
   data sample, and the freeze being a local, self-reported record.
+- **Variant switch on the player page.** Switching to the prior-value model
+  kept the performance-only data on screen as current until the new request
+  returned, and the what-if panel sent the old features to the new model,
+  which the API refused with a 422 for the missing prior. `useAsync` now
+  reports loading for any state its current fetcher did not produce, and the
+  panel takes its variant from the response.
+- **"Refreshed weekly."** The publisher's pipeline is scheduled about weekly,
+  but its Transfermarkt acquisition last succeeded on 2026-07-10 and the
+  Kaggle dataset was last updated on 2026-09-05 (checked 2026-10-19). The
+  dataset card now records that and this project's snapshot dates;
+  `EVALUATION.md` §3.5 measures publication-time availability at each split
+  boundary and states what a 2026 snapshot without earlier versions cannot show.
 - **Wording.** The dashboard said a prediction was "a season ahead"; the
   target is the first valuation on or after the cutoff, up to 365 days later.
   `model_comparison.md`, the split config and docstrings said the test seasons

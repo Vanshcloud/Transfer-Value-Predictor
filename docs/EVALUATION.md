@@ -156,6 +156,36 @@ under the old definition), not because anything about the estimator improved;
 study output but confounded — rarely revalued players are cheap ones, so older
 priors show *smaller* euro errors — and is not evidence either way.
 
+### 3.5 Publication-time availability
+
+A strictly prospective evaluation trains, tunes and calibrates only on what had
+been published when each prediction is made. The retrospective figures meet
+that at the split boundaries and not beyond them.
+
+**At the boundaries, measured.** Against the earliest as-of date of each later
+season (every row in it is predicted at or after that date), the earlier side's
+labels published on or after it are: training (≤ 2021) against validation
+2022, 1 of 65,907; training against test 2023, 0; validation 2022 against
+test 2023 or 2024, 0 of 6,573; the four expanding-window tuning folds
+(validating 2018–2021), 0–3 rows each. Feature inputs are checked row by row
+against each row's own as-of date (§2; `LeakageValidator`), and competition
+strength uses only labels published before the season's cutoff. Interval
+quantiles come from validation residuals, none published after a test cutoff.
+
+**What the data cannot show.** `label_date` and every other date is the date
+the 2026 snapshot records for an event, not a verified first-publication
+timestamp, and the mirror keeps no earlier versions of itself. A valuation
+entered or corrected after the fact appears under its recorded date, and
+player attributes (`players.csv`: height, position, foot, citizenship)
+describe the player as of the snapshot, not as of each season. So the
+retrospective results are point-in-time on recorded dates in a later copy of
+history, not a publication-time-purged evaluation; how much a vintage-faithful
+replay would differ has not been measured and cannot be from this data.
+
+The frozen predictions in §4 are the only evaluation clean by construction:
+their inputs were fixed before their outcomes existed. They are not yet
+scored, and no new evaluation of any kind was run in writing this section.
+
 ## 4. A prospective out-of-time holdout, not yet scored
 
 **An out-of-time holdout exists and has not been looked at.** "Independent" here
@@ -187,8 +217,13 @@ window is still open and unlabelled are reported as **pending**: until the last
 window closes (2027-07-01), the scored rows are early revaluations, which are not a
 random subset, and the output says so.
 
-**Practical:** the newer valuations come from the same weekly Kaggle refresh,
-downloaded into a separate directory so the training snapshot is untouched.
+**Practical:** the newer valuations come from a later version of the same Kaggle
+dataset, downloaded into a separate directory so the training snapshot is
+untouched. That depends on the publisher: checked on 2026-10-19, its
+Transfermarkt acquisition last succeeded on 2026-07-10 and the Kaggle dataset
+was last updated on 2026-09-05, so outcomes for the frozen rows (as-of
+2026-07-01) may not exist in any available version yet. Scoring waits for them;
+nothing is substituted.
 **Legal:** the same uncertainty as the training data (`docs/DATASET_CARD.md`,
 "Data rights") applies; obtaining the outcomes does not resolve it.
 

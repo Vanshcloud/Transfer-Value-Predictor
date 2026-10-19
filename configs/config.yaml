@@ -38,7 +38,9 @@ kaggle:
     - transfers.csv
     - game_lineups.csv
   # Re-download when the local copy is older than this. The upstream dataset
-  # refreshes weekly, so a shorter window only costs bandwidth.
+  # is scheduled to republish about weekly when its pipeline runs (it has not
+  # since 2026-09-05; docs/DATASET_CARD.md), so a shorter window only costs
+  # bandwidth.
   max_age_days: 7
 
 data:

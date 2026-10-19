@@ -48,7 +48,7 @@ def test_the_temporal_baseline_is_where_phase_15_left_it(
     The spike's 0.412 was measured on 19 features and a 120-day label window.
     Widening the window to a year and adding the context and role features from
     the six Kaggle files the project was not downloading moved both. Wide
-    tolerances because this is an untuned baseline on a weekly-refreshed
+    tolerances because this is an untuned baseline on a periodically republished
     dataset, not a headline metric — the point is to catch a collapse, not to
     pin a decimal.
     """

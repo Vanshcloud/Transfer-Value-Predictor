@@ -12,7 +12,7 @@ htmlcov
 .coverage
 
 # Data and models are mounted at runtime, never copied in: the parquet files
-# are hundreds of megabytes and change weekly, and an image that embeds them
+# are hundreds of megabytes and change with every rebuild, and an image that embeds them
 # is stale the day it is built.
 data/raw
 data/processed

@@ -158,7 +158,7 @@ is why the 123 tests for prediction logic need no running server.
 ![Two players compared: predictions, side-by-side contributions, and a percentile radar](docs/img/compare.png)
 
 ```bash
-cd frontend && npm test        # 124 tests
+cd frontend && npm test        # 129 tests
 ```
 
 Only the newest request for a search box, a comparison side or a what-if slider

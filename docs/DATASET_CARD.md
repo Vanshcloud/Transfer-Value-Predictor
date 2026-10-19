@@ -15,8 +15,9 @@ generate its own explanation. Every count is reproducible with
 |---|---|
 | Source | Kaggle `davidcariboo/player-scores` |
 | Licence declared by the publisher | CC0 1.0 (public domain dedication) — see "Data rights" below for what that does and does not settle |
-| Upstream | Built by the publisher from Transfermarkt, refreshed weekly |
-| Retrieved by | `scripts/fetch_data.py`, re-downloading when older than 7 days |
+| Upstream | Built by the publisher from Transfermarkt and served as a rolling "latest" version. Its pipeline is scheduled about weekly, but checked on 2026-10-19 its Transfermarkt acquisition last succeeded on 2026-07-10, failed on every run from 2026-08-07 to 2026-09-04, and the Kaggle dataset was last updated 2026-09-05 (version 679), with no pipeline run since |
+| This project's snapshot | Downloaded 2026-08-28 (`players`, `player_valuations`, `appearances`) and 2026-08-31 (the other files). Both fall between the publisher's Kaggle syncs of 2026-08-05 and 2026-09-05, so by its run history they are the same version. Newest valuation 2026-06-12, newest appearance 2026-06-28, newest game 2026-07-06; SHA-256 of every file in each artifact's provenance |
+| Retrieved by | `scripts/fetch_data.py`, re-downloading when the local copy is older than 7 days |
 | Files downloaded | 8 of the 10 (`configs/config.yaml`); 7 feed the model, and `transfers.csv` only the experimental fee helper |
 
 ## Data rights

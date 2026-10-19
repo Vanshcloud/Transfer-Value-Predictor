@@ -4,8 +4,8 @@ Everything here identifies an input exactly — a file by its SHA-256, the code
 by its commit, the environment by its lockfiles and installed versions — and
 nothing claims more than that. In particular, these hashes identify *this*
 snapshot of the Kaggle dataset; they do not make it re-downloadable. The
-dataset is published as a rolling "latest" version and refreshes weekly, so a
-fresh download will normally not match, and the record says which files would
+dataset is published as a rolling "latest" version, replaced whenever the
+publisher's pipeline runs, so a fresh download will normally not match, and the record says which files would
 have to be restored for a rebuild to reproduce the table.
 """
 
