@@ -12,7 +12,7 @@
     "test:watch": "vitest"
   },
   "dependencies": {
-    "next": "16.3.3",
+    "next": "16.3.8",
     "plotly.js-cartesian-dist-min": "^4.0.0",
     "react": "19.2.8",
     "react-dom": "19.2.8",
@@ -27,7 +27,7 @@
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "eslint": "^9.39.5",
-    "eslint-config-next": "16.3.3",
+    "eslint-config-next": "16.3.8",
     "jsdom": "^30.0.1",
     "tailwindcss": "^4",
     "typescript": "^6.0.3",
