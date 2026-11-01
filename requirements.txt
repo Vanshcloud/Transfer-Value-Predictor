@@ -9,7 +9,7 @@
 # silent behaviour change, not an error — the worst kind. Revisit as a
 # deliberate migration, not as a side effect of an install.
 pandas>=2.2,<3
-numpy>=2.0
+numpy>=2.5.4
 # Never imported by name. It is pandas' Parquet engine, and every table in this
 # project round-trips through Parquet, so `pd.read_parquet` fails without it.
 # Listed explicitly because an implicit dependency is one nobody pins.
@@ -25,13 +25,13 @@ duckdb>=1.1
 requests>=2.32
 
 # ---- Machine learning ----
-scikit-learn>=1.9
+scikit-learn>=1.9.1
 xgboost>=3.0
 lightgbm>=4.5
 catboost>=1.2.7
 
 # ---- Explainability ----
-shap>=0.48
+shap>=0.54.1
 
 # ---- Visualisation ----
 # matplotlib only. The interactive charts are Plotly, but they render in the
